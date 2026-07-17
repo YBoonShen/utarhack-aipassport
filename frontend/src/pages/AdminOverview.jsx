@@ -19,25 +19,10 @@ const chip = {
   MASKED: 'bg-emerald-100 text-emerald-800', ALERT: 'bg-red-100 text-red-800',
   REDIRECTED: 'bg-amber-100 text-amber-800', CLEAN: 'bg-indigo-100 text-indigo-800',
 }
-const nav = ['Overview', 'Departments', 'Risk Alerts', 'Audit Log', 'Tool Approvals', 'Employees', 'Settings']
 
 export default function AdminOverview() {
   return (
-    <div className="flex min-h-[calc(100vh-80px)]">
-      {/* Sidebar */}
-      <aside className="w-60 bg-navy p-4 shrink-0">
-        <p className="text-gold text-[10px] font-bold tracking-[0.15em] px-3 mb-3">ADMIN CONSOLE</p>
-        {nav.map((n, i) => (
-          <div key={n} className={`px-4 py-2.5 rounded-lg text-sm mb-1 flex justify-between items-center ${i === 0 ? 'bg-gold text-navy font-bold' : 'text-slate-300'}`}>
-            {n}
-            {n === 'Risk Alerts' && <span className="bg-red-600 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">3</span>}
-            {n === 'Tool Approvals' && <span className="bg-gold text-navy text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">2</span>}
-          </div>
-        ))}
-      </aside>
-
-      {/* Main */}
-      <main className="flex-1 p-8">
+    <>
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-2xl font-bold text-navy">Overview</h1>
@@ -125,8 +110,7 @@ export default function AdminOverview() {
             </tbody>
           </table>
         </div>
-      </main>
-    </div>
+    </>
   )
 }
 
