@@ -9,6 +9,7 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import { maskPrompt } from './detector.js'
+import { logDetection } from './firebase.js'
 
 const app = express()
 app.use(cors())
@@ -18,14 +19,14 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'aipassport-backend', time: new Date().toISOString() })
 })
 
-app.post('/api/detect', (req, res) => {
+app.post('/api/detect', async (req, res) => {
   const { prompt } = req.body || {}
   if (typeof prompt !== 'string' || prompt.length === 0) {
     return res.status(400).json({ error: 'Body must be { "prompt": "..." }' })
   }
   const result = maskPrompt(prompt)
-  // TODO: write detection event to Firestore audit log + update license points
-  res.json(result)
+  const audit = await logDetection({ detections: result.detections, masked: result.masked })
+  res.json({ ...result, audit })
 })
 
 const PORT = process.env.PORT || 5001
