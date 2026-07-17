@@ -65,6 +65,8 @@ export default function Gateway() {
 
   const itemCount = result ? result.detections.reduce((n, d) => n + (d.count || 1), 0) : 0
   const detectedSummary = result ? result.detections.map(d => d.type).join(' + ') : ''
+  const mode = result?.mode || 'Mask and continue' // admin's protection mode really applies here
+  const blocked = mode === 'Block'
 
   return (
     <div className="bg-[#eef2f7] min-h-[calc(100vh-80px)] flex">
@@ -132,7 +134,9 @@ export default function Gateway() {
               <div>
                 <p className="text-white font-bold text-[22px]">Checkpoint — Smart Gateway</p>
                 <p className="text-[#fde68a] text-[13px] mt-0.5">
-                  {itemCount} sensitive item{itemCount === 1 ? '' : 's'} found. Review the protected version before sending.
+                  {blocked
+                    ? `${itemCount} sensitive item${itemCount === 1 ? '' : 's'} found. Company policy blocks this prompt — edit it and try again.`
+                    : `${itemCount} sensitive item${itemCount === 1 ? '' : 's'} found. Review the protected version before sending.`}
                 </p>
               </div>
             </div>
@@ -165,9 +169,16 @@ export default function Gateway() {
               )}
 
               <div className="flex items-center gap-3 mt-6">
-                <button onClick={() => deliver(result.masked)} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[316px] h-12 rounded-full cursor-pointer">
-                  Send protected version&nbsp;&nbsp;→
-                </button>
+                {!blocked && (
+                  <button onClick={() => deliver(result.masked)} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[316px] h-12 rounded-full cursor-pointer">
+                    Send protected version&nbsp;&nbsp;→
+                  </button>
+                )}
+                {mode === 'Warn only' && (
+                  <button onClick={() => deliver(checkedPrompt)} className="border border-[#d92d20] text-[#d92d20] font-semibold text-sm px-5 h-12 rounded-full cursor-pointer hover:bg-[#fff0f0]">
+                    Send original anyway
+                  </button>
+                )}
                 <button onClick={() => setResult(null)} className="border border-navy-header text-navy-header font-semibold text-sm w-[180px] h-12 rounded-full cursor-pointer hover:bg-white">
                   Edit prompt
                 </button>

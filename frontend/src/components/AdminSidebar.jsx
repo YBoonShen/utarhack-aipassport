@@ -1,5 +1,6 @@
 // Admin sidebar — matches Figma "Admin sidebar" (brand, navigation with badges, admin identity)
-import { NavLink, Link } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
+import { logout } from '../lib/api.js'
 
 const nav = [
   { to: '/admin', label: 'Overview', end: true },
@@ -12,15 +13,22 @@ const nav = [
 ]
 
 export default function AdminSidebar() {
+  const navigate = useNavigate()
+
+  function handleLogout() {
+    logout()
+    navigate('/login', { replace: true })
+  }
+
   return (
     <aside className="w-60 bg-navy-header shrink-0 flex flex-col p-5">
-      <Link to="/license" className="flex items-center gap-3">
+      <div className="flex items-center gap-3">
         <div className="w-11 h-11 rounded-full border-2 border-gold-brand flex items-center justify-center text-gold-brand font-bold text-[17px]">A</div>
         <div>
           <p className="text-white font-bold text-sm leading-tight">AI PASSPORT</p>
           <p className="text-gold-brand text-[9px] font-semibold tracking-[0.9px]">ADMIN CONSOLE</p>
         </div>
-      </Link>
+      </div>
 
       <nav className="mt-7 flex flex-col gap-1.5">
         {nav.map(n => (
@@ -43,7 +51,7 @@ export default function AdminSidebar() {
       </nav>
 
       <div className="flex-1" />
-      <Link to="/license" className="text-[#cbd5e1] text-[11px] px-1.5 mb-3 hover:text-white">← Employee view</Link>
+      <button onClick={handleLogout} className="text-[#cbd5e1] text-[11px] px-1.5 mb-3 text-left cursor-pointer hover:text-white">← Log out</button>
       <div className="bg-[#173976] rounded-[12px] p-3 flex items-center gap-3">
         <div className="w-9 h-9 rounded-full bg-gold-brand flex items-center justify-center text-navy-header font-bold text-[11px]">AD</div>
         <div>

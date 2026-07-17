@@ -1,6 +1,7 @@
 // Training quiz — matches Figma frames "Training • Q1–Q3 • Unanswered/Correct/Incorrect"
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { api } from '../lib/api.js'
 
 const questions = [
   {
@@ -74,9 +75,12 @@ export default function TrainingQuiz() {
   const isCorrect = answered && selected === q.correct
   const isLast = step === questions.length - 1
 
-  function next() {
+  async function next() {
     if (!isCorrect) return
-    if (isLast) return navigate('/training/results')
+    if (isLast) {
+      try { await api.post('/training/complete') } catch { /* offline — results page shows fallback */ }
+      return navigate('/training/results')
+    }
     setStep(step + 1)
     setSelected(null)
   }

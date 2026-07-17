@@ -1,8 +1,9 @@
 // Global Employee Header — matches Figma "Global Employee Header" (bg #0b2457, brand ring, nav, bell, profile)
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import NotificationCenter from './NotificationCenter.jsx'
 import { useNotifications } from './notificationsStore.jsx'
+import { logout } from '../lib/api.js'
 
 const linkClass = ({ isActive }) =>
   `px-4 py-3 rounded-[10px] text-sm ${isActive ? 'text-gold font-semibold' : 'text-white font-medium hover:text-gold-brand'}`
@@ -18,7 +19,14 @@ function BellIcon() {
 
 export default function EmployeeHeader() {
   const [panelOpen, setPanelOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const { unreadCount } = useNotifications()
+  const navigate = useNavigate()
+
+  function handleLogout() {
+    logout()
+    navigate('/login', { replace: true })
+  }
 
   return (
     <>
@@ -35,7 +43,6 @@ export default function EmployeeHeader() {
           <NavLink to="/training" className={linkClass}>Training</NavLink>
           <NavLink to="/visas" className={linkClass}>My Visas</NavLink>
           <NavLink to="/gateway" className={linkClass}>Smart Gateway</NavLink>
-          <NavLink to="/admin" className={linkClass}>Admin</NavLink>
         </nav>
         <div className="flex items-center gap-4">
           <button
@@ -50,7 +57,24 @@ export default function EmployeeHeader() {
               </span>
             )}
           </button>
-          <div className="w-11 h-11 rounded-full bg-gold-brand flex items-center justify-center text-navy-header font-bold text-sm">JY</div>
+          <div className="relative">
+            <button
+              onClick={() => setMenuOpen(o => !o)}
+              className="w-11 h-11 rounded-full bg-gold-brand flex items-center justify-center text-navy-header font-bold text-sm cursor-pointer"
+            >
+              JY
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-13 bg-card border border-sand rounded-[12px] shadow-lg py-2 w-44 z-50">
+                <p className="px-4 py-1.5 text-navy font-semibold text-sm">Tan Jia Yin</p>
+                <p className="px-4 text-slate2 text-[11px]">Engineering · Level 2</p>
+                <div className="h-px bg-sand my-2" />
+                <button onClick={handleLogout} className="w-full text-left px-4 py-1.5 text-red-alert text-sm font-medium cursor-pointer hover:bg-chip">
+                  Log out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
       {panelOpen && <NotificationCenter onClose={() => setPanelOpen(false)} />}

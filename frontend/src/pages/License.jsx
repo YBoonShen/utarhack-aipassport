@@ -1,20 +1,21 @@
 // 01 Employee · My AI License — matches Figma frame "01 Employee • My AI License"
+// Live data: profile (points, stamps, monthly stats) comes from the backend.
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { api } from '../lib/api.js'
 
-const identityFields = [
-  ['NAME', 'Tan Jia Yin'],
-  ['DEPARTMENT', 'Engineering'],
-  ['LICENSE NO.', 'AIP-2026-004173'],
-  ['DATE ISSUED', '02 Jan 2026'],
-  ['LICENSE CLASS', 'Level 2 · Navigator'],
-  ['SAFETY POINTS', '1,240 pts'],
-]
+const fallbackProfile = {
+  name: 'Tan Jia Yin', dept: 'Engineering', licenseNo: 'AIP-2026-004173', issued: '02 Jan 2026',
+  level: 2, levelName: 'Navigator', points: 1240, target: 2000, streakDays: 21,
+  promptsProtected: 47, itemsMasked: 12, trainingCompleted: false,
+  stamps: [
+    { title: 'AI BASICS', score: 'PASSED · 92%', date: '04 JAN 2026', shape: 'circle', color: '#078b6c' },
+    { title: 'DATA PRIVACY', score: 'PASSED · 100%', date: '11 JAN 2026', shape: 'square', color: '#d92d20' },
+    { title: 'SAFE PROMPTS', score: 'PASSED · 87%', date: '25 JAN 2026', shape: 'circle', color: '#365fd9' },
+  ],
+}
 
-const earnedStamps = [
-  { title: 'AI BASICS', score: 'PASSED · 92%', date: '04 JAN 2026', shape: 'circle', color: '#078b6c', rotate: 'rotate-3' },
-  { title: 'DATA PRIVACY', score: 'PASSED · 100%', date: '11 JAN 2026', shape: 'square', color: '#d92d20', rotate: '-rotate-6' },
-  { title: 'SAFE PROMPTS', score: 'PASSED · 87%', date: '25 JAN 2026', shape: 'circle', color: '#365fd9', rotate: 'rotate-2' },
-]
+const stampRotations = ['rotate-3', '-rotate-6', 'rotate-2', 'rotate-1', '-rotate-2']
 
 const lockedStamps = [
   { title: ['PDPA &', 'COMPLIANCE'], shape: 'circle', rotate: '-rotate-2' },
@@ -50,6 +51,28 @@ function LockedStamp({ s }) {
 }
 
 export default function License() {
+  const [profile, setProfile] = useState(fallbackProfile)
+
+  useEffect(() => {
+    let alive = true
+    const load = () => api.get('/profile').then(p => alive && setProfile(p)).catch(() => {})
+    load()
+    const t = setInterval(load, 5000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
+
+  const pointsToGo = profile.target - profile.points
+  const pct = Math.round((profile.points / profile.target) * 100)
+  const identityFields = [
+    ['NAME', profile.name],
+    ['DEPARTMENT', profile.dept],
+    ['LICENSE NO.', profile.licenseNo],
+    ['DATE ISSUED', profile.issued],
+    ['LICENSE CLASS', `Level ${profile.level} · ${profile.levelName}`],
+    ['SAFETY POINTS', `${profile.points.toLocaleString()} pts`],
+  ]
+  const earnedStamps = profile.stamps.map((s, i) => ({ ...s, rotate: stampRotations[i % stampRotations.length] }))
+
   return (
     <div className="max-w-[1440px] mx-auto px-10 py-8">
       <h1 className="text-[30px] font-bold text-navy-header">My AI License</h1>
@@ -87,14 +110,14 @@ export default function License() {
           <div className="bg-[#fcfaf3] border-t border-[#e5dec7] px-7 py-4 shrink-0">
             <div className="flex justify-between">
               <p className="text-[#8a7d56] font-semibold text-[10px] tracking-wide">PROGRESS TO LEVEL 3 · AMBASSADOR</p>
-              <p className="text-[#667085] font-medium text-[11px]">760 points to go</p>
+              <p className="text-[#667085] font-medium text-[11px]">{pointsToGo.toLocaleString()} points to go</p>
             </div>
             <div className="h-2.5 rounded-full bg-[#e5dec7] mt-2.5">
-              <div className="h-2.5 rounded-full bg-gold-brand" style={{ width: '62%' }} />
+              <div className="h-2.5 rounded-full bg-gold-brand transition-all duration-700" style={{ width: `${pct}%` }} />
             </div>
             <div className="flex justify-between mt-2">
-              <p className="text-navy-header font-medium text-[11px]">Level 2 · Navigator</p>
-              <p className="text-navy-header font-semibold text-xs">1,240 / 2,000 safety points</p>
+              <p className="text-navy-header font-medium text-[11px]">Level {profile.level} · {profile.levelName}</p>
+              <p className="text-navy-header font-semibold text-xs">{profile.points.toLocaleString()} / {profile.target.toLocaleString()} safety points</p>
             </div>
           </div>
         </div>
@@ -105,26 +128,40 @@ export default function License() {
             <p className="text-gold-brand font-bold text-[11px] tracking-[1.32px]">THIS MONTH</p>
             <div className="flex gap-16 mt-3">
               <div>
-                <p className="text-white font-bold text-[30px]">47</p>
+                <p className="text-white font-bold text-[30px]">{profile.promptsProtected}</p>
                 <p className="text-[#cbd5e1] text-xs mt-1">prompts protected</p>
               </div>
               <div>
-                <p className="text-white font-bold text-[30px]">12</p>
+                <p className="text-white font-bold text-[30px]">{profile.itemsMasked}</p>
                 <p className="text-[#cbd5e1] text-xs mt-1">items masked</p>
               </div>
             </div>
             <div className="inline-block bg-[#173976] rounded-[10px] px-3 py-2 mt-4">
-              <p className="text-[#a7f3d0] font-medium text-xs">✓&nbsp;&nbsp;No unsafe prompts for 21 days</p>
+              <p className="text-[#a7f3d0] font-medium text-xs">✓&nbsp;&nbsp;No unsafe prompts for {profile.streakDays} days</p>
             </div>
           </div>
           <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-6 flex-1 flex flex-col">
-            <p className="text-[#8a7d56] font-bold text-[11px] tracking-[1.1px]">NEXT TRAINING · +150 POINTS</p>
-            <p className="text-navy-header font-semibold text-[19px] mt-2">Spotting personal data in prompts</p>
-            <p className="text-[#667085] text-[13px] mt-2">5-minute lesson&nbsp;&nbsp;·&nbsp;&nbsp;3-question quiz</p>
-            <div className="flex-1" />
-            <Link to="/training/quiz" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[188px] h-12 rounded-full flex items-center justify-center">
-              Start lesson&nbsp;&nbsp;→
-            </Link>
+            {profile.trainingCompleted ? (
+              <>
+                <p className="text-[#078b6c] font-bold text-[11px] tracking-[1.1px]">✓ TRAINING COMPLETE · +150 POINTS EARNED</p>
+                <p className="text-navy-header font-semibold text-[19px] mt-2">Spotting personal data in prompts</p>
+                <p className="text-[#667085] text-[13px] mt-2">Next: Safe AI Tool Selection&nbsp;&nbsp;·&nbsp;&nbsp;available 18 Jul</p>
+                <div className="flex-1" />
+                <Link to="/training" className="border border-navy-header text-navy-header font-semibold text-sm w-[188px] h-12 rounded-full flex items-center justify-center hover:bg-chip">
+                  View training
+                </Link>
+              </>
+            ) : (
+              <>
+                <p className="text-[#8a7d56] font-bold text-[11px] tracking-[1.1px]">NEXT TRAINING · +150 POINTS</p>
+                <p className="text-navy-header font-semibold text-[19px] mt-2">Spotting personal data in prompts</p>
+                <p className="text-[#667085] text-[13px] mt-2">5-minute lesson&nbsp;&nbsp;·&nbsp;&nbsp;3-question quiz</p>
+                <div className="flex-1" />
+                <Link to="/training/quiz" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[188px] h-12 rounded-full flex items-center justify-center">
+                  Start lesson&nbsp;&nbsp;→
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </div>

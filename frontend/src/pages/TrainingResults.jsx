@@ -1,5 +1,8 @@
 // Training results — matches Figma frame "Training • Results"
+// Live data: license progress reflects the +150 points credited on completion.
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { api } from '../lib/api.js'
 
 const questionResults = [
   { n: 1, label: 'Recognising direct identifiers', highlight: true },
@@ -39,6 +42,16 @@ function Stamp() {
 }
 
 export default function TrainingResults() {
+  const [profile, setProfile] = useState({ points: 1390, target: 2000 })
+
+  useEffect(() => {
+    api.get('/profile').then(setProfile).catch(() => {})
+  }, [])
+
+  const toGo = profile.target - profile.points
+  const pct = Math.round((profile.points / profile.target) * 100)
+  const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+
   return (
     <div className="max-w-[1320px] mx-auto px-10 pt-8 pb-10">
       <div className="flex items-start justify-between">
@@ -54,7 +67,7 @@ export default function TrainingResults() {
         <div className="bg-card border border-sand rounded-[18px] p-7 pt-5">
           <p className="text-gold text-xs font-semibold">MODULE RESULT</p>
           <p className="text-navy font-bold text-2xl mt-2">Spotting Personal Data in Prompts</p>
-          <p className="text-slate2 text-sm mt-1.5">Completed 17 Jul 2026</p>
+          <p className="text-slate2 text-sm mt-1.5">Completed {today}</p>
 
           <div className="flex items-center gap-8 mt-6">
             <ScoreRing />
@@ -88,16 +101,16 @@ export default function TrainingResults() {
             <Stamp />
             <div>
               <p className="text-white font-semibold text-base">Training stamp earned</p>
-              <p className="text-white text-sm mt-1.5">Added to your AI Passport<br />17 Jul 2026</p>
+              <p className="text-white text-sm mt-1.5">Added to your AI Passport<br />{today}</p>
             </div>
           </div>
 
           <p className="text-gold text-xs font-semibold mt-5">LICENSE PROGRESS</p>
-          <p className="text-white font-bold text-xl mt-1.5">1,390 / 2,000 miles</p>
+          <p className="text-white font-bold text-xl mt-1.5">{profile.points.toLocaleString()} / {profile.target.toLocaleString()} miles</p>
           <div className="h-3 rounded-full bg-navy-track mt-3.5">
-            <div className="h-3 rounded-full bg-gold" style={{ width: '70%' }} />
+            <div className="h-3 rounded-full bg-gold transition-all duration-700" style={{ width: `${pct}%` }} />
           </div>
-          <p className="text-white text-sm mt-2.5">610 miles to Level 3 · Ambassador</p>
+          <p className="text-white text-sm mt-2.5">{toGo.toLocaleString()} miles to Level 3 · Ambassador</p>
 
           <div className="bg-[#132e66] rounded-[12px] px-3.5 py-2 mt-5">
             <p className="text-gold text-[11px] font-semibold">NEXT: SAFE AI TOOL SELECTION</p>

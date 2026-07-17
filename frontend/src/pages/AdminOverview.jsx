@@ -1,5 +1,10 @@
 // 11 Admin · Governance Overview — matches Figma frame "11 Admin • Governance Overview"
+// Live data: KPIs and the audit log poll the backend, so employee activity
+// (masked prompts, quiz completions) appears here in near-real time.
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { api } from '../lib/api.js'
+import ComplianceReport from '../components/ComplianceReport.jsx'
 
 const departments = [
   { name: 'Engineering', value: 420, height: 178, color: '#0b2457' },
@@ -27,17 +32,24 @@ const alerts = [
   },
 ]
 
-const auditRows = [
-  ['14:02', 'E-217', 'Eng', 'ChatGPT', 'MASKED', 'Fix bug for client [MASKED-NAME] in module…'],
-  ['13:58', 'F-102', 'Fin', 'Gemini', 'ALERT', 'Summarise payment for [MASKED-ID] invoice…'],
-  ['13:51', 'S-044', 'Sales', 'AltTool', 'REDIRECTED', 'Switched to approved tool · ChatGPT'],
-  ['13:47', 'E-198', 'Eng', 'ChatGPT', 'CLEAN', 'Explain the difference between SQL joins…'],
-  ['13:40', 'H-011', 'HR', 'Gemini', 'MASKED', 'Draft letter to [MASKED-NAME], [MASKED-PHONE]…'],
-]
-
 const cols = 'grid grid-cols-[72px_90px_100px_110px_112px_1fr]'
 
 export default function AdminOverview() {
+  const [stats, setStats] = useState({ promptsToday: 312, maskedToday: 58, openAlerts: 3, avgLicense: 2.1 })
+  const [events, setEvents] = useState([])
+  const [reportOpen, setReportOpen] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      api.get('/stats').then(s => alive && setStats(s)).catch(() => {})
+      api.get('/audit').then(a => alive && setEvents(a.events)).catch(() => {})
+    }
+    load()
+    const t = setInterval(load, 3000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
+
   return (
     <div>
       <div className="flex items-start justify-between">
@@ -45,7 +57,7 @@ export default function AdminOverview() {
           <h1 className="text-[28px] font-bold text-navy-header">Overview</h1>
           <p className="text-[#667085] text-xs mt-1">Company-wide AI usage · refreshed live</p>
         </div>
-        <button className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-11 h-[46px] rounded-full cursor-pointer">
+        <button onClick={() => setReportOpen(true)} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-11 h-[46px] rounded-full cursor-pointer">
           Export audit report&nbsp;&nbsp;↓
         </button>
       </div>
@@ -55,21 +67,21 @@ export default function AdminOverview() {
         <div className="bg-navy-header rounded-[14px] px-5 py-4">
           <p className="text-gold-brand font-semibold text-[10px] tracking-[1px]">PROMPTS PROTECTED TODAY</p>
           <div className="flex items-baseline gap-3 mt-2">
-            <p className="text-white font-bold text-[30px]">312</p>
+            <p className="text-white font-bold text-[30px]">{stats.promptsToday}</p>
             <p className="text-[#a7f3d0] font-medium text-[11px]">▲ 8%</p>
           </div>
         </div>
         <div className="bg-white rounded-[14px] px-5 py-4">
           <p className="text-[#8a7d56] font-semibold text-[10px] tracking-[1px]">ITEMS MASKED TODAY</p>
           <div className="flex items-baseline gap-3 mt-2">
-            <p className="text-navy-header font-bold text-[30px]">58</p>
+            <p className="text-navy-header font-bold text-[30px]">{stats.maskedToday}</p>
             <p className="text-[#667085] font-medium text-[11px]">12 fewer than yesterday</p>
           </div>
         </div>
         <div className="bg-[#fff0f0] border border-[rgba(217,45,32,0.3)] rounded-[14px] px-5 py-4">
           <p className="text-[#d92d20] font-semibold text-[10px] tracking-[1px]">ACTIVE RISK ALERTS</p>
           <div className="flex items-baseline gap-3 mt-2">
-            <p className="text-[#d92d20] font-bold text-[30px]">3</p>
+            <p className="text-[#d92d20] font-bold text-[30px]">{stats.openAlerts}</p>
             <p className="text-[#d92d20] font-medium text-[11px]">Needs review</p>
           </div>
         </div>
@@ -126,12 +138,14 @@ export default function AdminOverview() {
         <div className={`${cols} bg-navy-header rounded-[9px] text-gold-brand font-semibold text-[10px] tracking-[0.6px] px-3.5 py-2.5 mt-3`}>
           <p>TIME</p><p>USER</p><p>DEPT</p><p>TOOL</p><p>ACTION</p><p>MASKED PROMPT · STORED VERSION</p>
         </div>
-        {auditRows.map((row, i) => (
-          <div key={i} className={`${cols} text-[#475467] text-[10px] px-3.5 py-3.5 ${i % 2 === 0 ? 'bg-[#fcfaf3]' : 'bg-white'}`}>
-            {row.map((cell, j) => <p key={j}>{cell}</p>)}
+        {events.slice(0, 5).map((e, i) => (
+          <div key={e.id} className={`${cols} text-[#475467] text-[10px] px-3.5 py-3.5 ${i % 2 === 0 ? 'bg-[#fcfaf3]' : 'bg-white'}`}>
+            <p>{e.time}</p><p>{e.user}</p><p>{e.dept}</p><p>{e.tool}</p><p>{e.action}</p><p className="truncate pr-2">{e.record}</p>
           </div>
         ))}
       </div>
+
+      {reportOpen && <ComplianceReport onClose={() => setReportOpen(false)} />}
     </div>
   )
 }

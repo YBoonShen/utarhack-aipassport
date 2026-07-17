@@ -1,5 +1,8 @@
 // 17 Admin · Settings — matches Figma frames "17 / 17A–17D Admin • Settings"
-import { useState } from 'react'
+// Live data: saving really updates the Gateway policy — the employee's Smart
+// Gateway immediately masks/warns/blocks according to what is set here.
+import { useEffect, useState } from 'react'
+import { api } from '../../lib/api.js'
 
 const categories = [
   { title: 'Gateway policy', sub: 'Protection mode and data types', active: true },
@@ -17,17 +20,34 @@ const modes = [
 ]
 
 const dataControls = [
-  ['Personal identifiers', 'Names, IC, phone and email', true],
-  ['Customer records', 'Accounts, cases and transactions', true],
-  ['Financial figures', 'Invoices, forecasts and pricing', true],
-  ['Source code', 'Internal repositories and secrets', false],
+  { key: 'personalIdentifiers', title: 'Personal identifiers', sub: 'Names, IC, phone and email' },
+  { key: 'customerRecords', title: 'Customer records', sub: 'Accounts, cases and transactions' },
+  { key: 'financialFigures', title: 'Financial figures', sub: 'Invoices, forecasts and pricing' },
+  { key: 'sourceCode', title: 'Source code', sub: 'Internal repositories and secrets' },
 ]
 
-const experience = [
-  ['Explain each mask', true],
-  ['Show safe version', true],
-  ['Award safety points', true],
+const experienceItems = [
+  { key: 'explainMask', title: 'Explain each mask' },
+  { key: 'showSafeVersion', title: 'Show safe version' },
+  { key: 'awardPoints', title: 'Award safety points' },
 ]
+
+const defaultSettings = {
+  mode: 'Mask and continue',
+  controls: { personalIdentifiers: true, customerRecords: true, financialFigures: true, sourceCode: false },
+  experience: { explainMask: true, showSafeVersion: true, awardPoints: true },
+  escalate: true,
+  policyVersion: 11,
+}
+
+function countChanges(a, b) {
+  let n = 0
+  if (a.mode !== b.mode) n++
+  for (const k of Object.keys(a.controls)) if (a.controls[k] !== b.controls[k]) n++
+  for (const k of Object.keys(a.experience)) if (a.experience[k] !== b.experience[k]) n++
+  if (a.escalate !== b.escalate) n++
+  return n
+}
 
 function Toggle({ on, onClick }) {
   return (
@@ -52,13 +72,42 @@ function Modal({ children, onClose }) {
 }
 
 export default function Settings() {
-  const [mode, setMode] = useState('Mask and continue')
-  const [controls, setControls] = useState(dataControls.map(c => c[2]))
-  const [exp, setExp] = useState(experience.map(e => e[1]))
-  const [escalate, setEscalate] = useState(true)
+  const [draft, setDraft] = useState(defaultSettings)
+  const [saved, setSaved] = useState(defaultSettings)
   const [modal, setModal] = useState(null) // 'confirmSave' | 'saved' | 'confirmDiscard' | 'discarded'
+  const [busy, setBusy] = useState(false)
 
-  const enabledCount = controls.filter(Boolean).length + exp.filter(Boolean).length + (escalate ? 1 : 0)
+  useEffect(() => {
+    api.get('/settings').then(s => { setDraft(s); setSaved(s) }).catch(() => {})
+  }, [])
+
+  const { mode, controls, experience: exp, escalate } = draft
+  const setMode = m => setDraft(d => ({ ...d, mode: m }))
+  const toggleControl = k => setDraft(d => ({ ...d, controls: { ...d.controls, [k]: !d.controls[k] } }))
+  const toggleExp = k => setDraft(d => ({ ...d, experience: { ...d.experience, [k]: !d.experience[k] } }))
+  const toggleEscalate = () => setDraft(d => ({ ...d, escalate: !d.escalate }))
+
+  const changes = countChanges(draft, saved)
+  const enabledCount = Object.values(controls).filter(Boolean).length + Object.values(exp).filter(Boolean).length + (escalate ? 1 : 0)
+
+  async function confirmSave() {
+    setBusy(true)
+    try {
+      const next = await api.put('/settings', { mode, controls, experience: exp, escalate })
+      setSaved(next)
+      setDraft(next)
+      setModal('saved')
+    } catch {
+      setModal(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function confirmDiscard() {
+    setDraft(saved)
+    setModal('discarded')
+  }
 
   return (
     <div>
@@ -135,13 +184,13 @@ export default function Settings() {
             <div className="bg-[#fffcef] border border-[#d8d0b4] rounded-[10px] p-4">
               <p className="text-[#17213a] font-bold text-base">Sensitive data controls</p>
               <p className="text-[#667085] text-[11px] mt-1">Apply before a prompt leaves the browser.</p>
-              {dataControls.map(([title, sub], i) => (
-                <div key={title} className={`flex items-center justify-between py-2.5 ${i > 0 ? 'border-t border-[#d8d0b4]' : 'mt-2'}`}>
+              {dataControls.map((c, i) => (
+                <div key={c.key} className={`flex items-center justify-between py-2.5 ${i > 0 ? 'border-t border-[#d8d0b4]' : 'mt-2'}`}>
                   <div>
-                    <p className="text-[#17213a] font-semibold text-xs">{title}</p>
-                    <p className="text-[#667085] text-[10px] mt-0.5">{sub}</p>
+                    <p className="text-[#17213a] font-semibold text-xs">{c.title}</p>
+                    <p className="text-[#667085] text-[10px] mt-0.5">{c.sub}</p>
                   </div>
-                  <Toggle on={controls[i]} onClick={() => setControls(c => c.map((v, j) => (j === i ? !v : v)))} />
+                  <Toggle on={controls[c.key]} onClick={() => toggleControl(c.key)} />
                 </div>
               ))}
             </div>
@@ -149,10 +198,10 @@ export default function Settings() {
             {/* Employee experience */}
             <div className="bg-[#fffcef] border border-[#d8d0b4] rounded-[10px] p-4 flex flex-col">
               <p className="text-[#17213a] font-bold text-base">Employee experience</p>
-              {experience.map(([title], i) => (
-                <div key={title} className={`flex items-center justify-between py-3 ${i > 0 ? 'border-t border-[#d8d0b4]' : 'mt-1'}`}>
-                  <p className="text-[#17213a] font-semibold text-[11px]">{title}</p>
-                  <Toggle on={exp[i]} onClick={() => setExp(e => e.map((v, j) => (j === i ? !v : v)))} />
+              {experienceItems.map((e, i) => (
+                <div key={e.key} className={`flex items-center justify-between py-3 ${i > 0 ? 'border-t border-[#d8d0b4]' : 'mt-1'}`}>
+                  <p className="text-[#17213a] font-semibold text-[11px]">{e.title}</p>
+                  <Toggle on={exp[e.key]} onClick={() => toggleExp(e.key)} />
                 </div>
               ))}
               <div className="bg-[#eef2ff] rounded-[8px] px-3 py-3 mt-auto">
@@ -179,14 +228,20 @@ export default function Settings() {
               <p className="text-[#17213a] font-semibold text-[13px]">Escalate high-risk alerts</p>
               <p className="text-[#667085] text-[11px] mt-1">Notify Compliance and the department owner within 15 minutes.</p>
             </div>
-            <Toggle on={escalate} onClick={() => setEscalate(v => !v)} />
+            <Toggle on={escalate} onClick={toggleEscalate} />
           </div>
 
           {/* Unsaved changes */}
-          <div className="bg-[#fff5de] rounded-[10px] px-3.5 py-3.5 mt-4 flex justify-between items-center">
-            <p className="text-[#d97706] font-medium text-[11px]">● 2 unsaved changes · protection mode and source-code control</p>
-            <button className="text-[#365fd9] font-semibold text-[11px] cursor-pointer">Review changes ›</button>
-          </div>
+          {changes > 0 ? (
+            <div className="bg-[#fff5de] rounded-[10px] px-3.5 py-3.5 mt-4 flex justify-between items-center">
+              <p className="text-[#d97706] font-medium text-[11px]">● {changes} unsaved change{changes === 1 ? '' : 's'} · save to apply the new policy to every employee</p>
+              <button onClick={() => setModal('confirmSave')} className="text-[#365fd9] font-semibold text-[11px] cursor-pointer">Review changes ›</button>
+            </div>
+          ) : (
+            <div className="bg-[#e9f8f2] rounded-[10px] px-3.5 py-3.5 mt-4">
+              <p className="text-[#078b6c] font-medium text-[11px]">✓ Policy v{saved.policyVersion} active · all changes saved</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -207,8 +262,8 @@ export default function Settings() {
             <button onClick={() => setModal(null)} className="border border-navy text-navy font-semibold text-[15px] w-[180px] h-12 rounded-full cursor-pointer hover:bg-chip">
               Keep editing
             </button>
-            <button onClick={() => setModal('saved')} className="bg-gold hover:bg-gold-dark text-navy font-semibold text-[15px] flex-1 h-12 rounded-full cursor-pointer">
-              Yes, save changes
+            <button onClick={confirmSave} disabled={busy} className="bg-gold hover:bg-gold-dark text-navy font-semibold text-[15px] flex-1 h-12 rounded-full cursor-pointer disabled:opacity-60">
+              {busy ? 'Saving…' : 'Yes, save changes'}
             </button>
           </div>
         </Modal>
@@ -220,7 +275,7 @@ export default function Settings() {
           <span className="inline-block bg-green-soft text-green font-semibold text-xs rounded-full px-3 py-2">✓ CHANGES SAVED</span>
           <p className="text-navy font-bold text-[27px] mt-4">Changes are now Saved</p>
           <p className="text-ink text-base mt-2">
-            Gateway policy v12 is active. A policy-change event was written to the audit log for traceability.
+            Gateway policy v{saved.policyVersion} is active. A policy-change event was written to the audit log for traceability.
           </p>
           <div className="bg-[#edf2ff] rounded-[10px] px-3.5 py-3.5 mt-4">
             <p className="text-navy font-medium text-sm">New prompts now use the updated protection settings.</p>
@@ -240,13 +295,13 @@ export default function Settings() {
             Your edits to the Gateway policy will be lost. The current active policy stays in force.
           </p>
           <div className="bg-[#edf2ff] rounded-[10px] px-3.5 py-3.5 mt-4">
-            <p className="text-slate2 text-sm">2 unsaved changes · protection mode and source-code control</p>
+            <p className="text-slate2 text-sm">{changes} unsaved change{changes === 1 ? '' : 's'} will be reverted to policy v{saved.policyVersion}</p>
           </div>
           <div className="flex gap-4 mt-6">
             <button onClick={() => setModal(null)} className="border border-navy text-navy font-semibold text-[15px] w-[180px] h-12 rounded-full cursor-pointer hover:bg-chip">
               Keep editing
             </button>
-            <button onClick={() => setModal('discarded')} className="bg-gold hover:bg-gold-dark text-navy font-semibold text-[15px] flex-1 h-12 rounded-full cursor-pointer">
+            <button onClick={confirmDiscard} className="bg-gold hover:bg-gold-dark text-navy font-semibold text-[15px] flex-1 h-12 rounded-full cursor-pointer">
               Confirm discard
             </button>
           </div>
@@ -258,7 +313,7 @@ export default function Settings() {
         <Modal onClose={() => setModal(null)}>
           <span className="inline-block bg-green-soft text-green font-semibold text-xs rounded-full px-3 py-2">✓ CHANGES DISCARDED</span>
           <p className="text-navy font-bold text-[27px] mt-4">Changes Discarded</p>
-          <p className="text-ink text-base mt-2">Your unsaved edits were removed. Gateway policy v11 remains active.</p>
+          <p className="text-ink text-base mt-2">Your unsaved edits were removed. Gateway policy v{saved.policyVersion} remains active.</p>
           <button onClick={() => setModal(null)} className="bg-gold hover:bg-gold-dark text-navy font-semibold text-[15px] w-full h-12 rounded-full mt-6 cursor-pointer">
             Done
           </button>

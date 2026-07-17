@@ -1,12 +1,8 @@
 // 04 Employee · Training Dashboard — matches Figma frame "04 Employee • Training Dashboard"
+// Live data: miles/stamps come from the backend profile.
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-
-const kpis = [
-  { label: 'CURRENT MODULE', value: '1 in progress', dark: true },
-  { label: 'COMPLETED', value: '3 stamps earned' },
-  { label: 'SAFETY MILES', value: '1,240 miles' },
-  { label: 'NEXT LEVEL', value: '760 miles to go' },
-]
+import { api } from '../lib/api.js'
 
 const upcoming = [
   {
@@ -24,6 +20,21 @@ const upcoming = [
 ]
 
 export default function Training() {
+  const [profile, setProfile] = useState({ points: 1240, target: 2000, stamps: [{}, {}, {}], trainingCompleted: false })
+
+  useEffect(() => {
+    api.get('/profile').then(setProfile).catch(() => {})
+  }, [])
+
+  const done = profile.trainingCompleted
+  const kpis = [
+    { label: 'CURRENT MODULE', value: done ? 'Completed today' : '1 in progress', dark: true },
+    { label: 'COMPLETED', value: `${profile.stamps.length} stamps earned` },
+    { label: 'SAFETY MILES', value: `${profile.points.toLocaleString()} miles` },
+    { label: 'NEXT LEVEL', value: `${(profile.target - profile.points).toLocaleString()} miles to go` },
+  ]
+  const pathPct = done ? 100 : 67
+
   return (
     <div className="max-w-[1400px] mx-auto px-10 py-7">
       <h1 className="text-[32px] font-bold text-navy">Training</h1>
@@ -41,7 +52,9 @@ export default function Training() {
       <h2 className="text-[22px] font-bold text-navy mt-7 mb-3">Current training</h2>
       <div className="grid grid-cols-[1fr_456px] gap-6 items-stretch">
         <div className="bg-card border border-sand rounded-[16px] p-6 pt-5">
-          <span className="inline-block bg-[#edf2ff] text-navy text-xs font-semibold px-4 py-1.5 rounded-full">IN PROGRESS</span>
+          <span className={`inline-block text-xs font-semibold px-4 py-1.5 rounded-full ${done ? 'bg-green-soft text-green' : 'bg-[#edf2ff] text-navy'}`}>
+            {done ? '✓ COMPLETED' : 'IN PROGRESS'}
+          </span>
           <p className="text-navy font-bold text-[26px] mt-3.5">Spotting Personal Data in Prompts</p>
           <p className="text-ink text-base mt-2 max-w-[790px]">
             Learn to identify names, identifiers, contact details and customer records before they reach an AI tool.
@@ -54,28 +67,30 @@ export default function Training() {
           <div className="flex items-center gap-4 mt-6">
             <p className="text-slate2 text-[13px] font-semibold shrink-0">Quiz progress</p>
             <div className="h-2.5 rounded-full bg-chip flex-1 max-w-[476px]">
-              <div className="h-2.5 rounded-full bg-gold" style={{ width: '33%' }} />
+              <div className="h-2.5 rounded-full bg-gold transition-all duration-700" style={{ width: done ? '100%' : '33%' }} />
             </div>
-            <p className="text-navy text-sm font-semibold shrink-0">1 of 3</p>
+            <p className="text-navy text-sm font-semibold shrink-0">{done ? '3 of 3' : '1 of 3'}</p>
             <Link
-              to="/training/quiz"
+              to={done ? '/training/results' : '/training/quiz'}
               className="bg-gold hover:bg-gold-dark text-navy font-semibold text-[15px] px-5 h-12 rounded-full flex items-center shrink-0"
             >
-              Resume training →
+              {done ? 'View results →' : 'Resume training →'}
             </Link>
           </div>
         </div>
 
         <div className="bg-navy rounded-[16px] p-6">
           <p className="text-gold text-xs font-semibold">YOUR LEARNING PROGRESS</p>
-          <p className="text-white text-[44px] font-bold mt-2">67%</p>
+          <p className="text-white text-[44px] font-bold mt-2">{pathPct}%</p>
           <p className="text-white text-base mt-1">Level 2 learning path complete</p>
           <div className="h-3 rounded-full bg-navy-track mt-4">
-            <div className="h-3 rounded-full bg-gold" style={{ width: '67%' }} />
+            <div className="h-3 rounded-full bg-gold transition-all duration-700" style={{ width: `${pathPct}%` }} />
           </div>
-          <p className="text-white text-sm font-medium mt-3">3 modules completed&nbsp;&nbsp;·&nbsp;&nbsp;21-day safe streak</p>
+          <p className="text-white text-sm font-medium mt-3">{profile.stamps.length} modules completed&nbsp;&nbsp;·&nbsp;&nbsp;21-day safe streak</p>
           <div className="bg-navy-mid rounded-[10px] px-3 py-2 mt-4">
-            <p className="text-white text-[13px] font-medium">Next stamp unlocks at 1,390 miles</p>
+            <p className="text-white text-[13px] font-medium">
+              {done ? 'Next module: Safe AI Tool Selection · 18 Jul' : 'Next stamp unlocks at 1,390 miles'}
+            </p>
           </div>
         </div>
       </div>

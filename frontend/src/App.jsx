@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import EmployeeHeader from './components/EmployeeHeader.jsx'
 import AdminLayout from './components/AdminLayout.jsx'
 import { NotificationsProvider } from './components/notificationsStore.jsx'
+import { currentUser } from './lib/api.js'
+import Login from './pages/Login.jsx'
 import License from './pages/License.jsx'
 import Gateway from './pages/Gateway.jsx'
 import Training from './pages/Training.jsx'
@@ -17,12 +19,27 @@ import ToolApprovals from './pages/admin/ToolApprovals.jsx'
 import Employees from './pages/admin/Employees.jsx'
 import Settings from './pages/admin/Settings.jsx'
 
-function EmployeeLayout({ children }) {
+function RequireRole({ role, children }) {
+  const user = currentUser()
+  if (!user) return <Navigate to="/login" replace />
+  if (role && user.role !== role) return <Navigate to={user.role === 'admin' ? '/admin' : '/license'} replace />
+  return children
+}
+
+function HomeRedirect() {
+  const user = currentUser()
+  if (!user) return <Navigate to="/login" replace />
+  return <Navigate to={user.role === 'admin' ? '/admin' : '/license'} replace />
+}
+
+function EmployeePage({ children }) {
   return (
-    <div className="min-h-screen bg-cream">
-      <EmployeeHeader />
-      {children}
-    </div>
+    <RequireRole role="employee">
+      <div className="min-h-screen bg-cream">
+        <EmployeeHeader />
+        {children}
+      </div>
+    </RequireRole>
   )
 }
 
@@ -31,19 +48,22 @@ export default function App() {
     <NotificationsProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Navigate to="/license" replace />} />
-          <Route path="/license" element={<EmployeeLayout><License /></EmployeeLayout>} />
-          <Route path="/gateway" element={<EmployeeLayout><Gateway /></EmployeeLayout>} />
-          <Route path="/training" element={<EmployeeLayout><Training /></EmployeeLayout>} />
-          <Route path="/training/quiz" element={<EmployeeLayout><TrainingQuiz /></EmployeeLayout>} />
-          <Route path="/training/results" element={<EmployeeLayout><TrainingResults /></EmployeeLayout>} />
-          <Route path="/visas" element={<EmployeeLayout><Visas /></EmployeeLayout>} />
+          <Route path="/" element={<HomeRedirect />} />
+          <Route path="/login" element={<Login />} />
 
-          {/* Public — no employee header, reachable without login */}
+          {/* Employee side */}
+          <Route path="/license" element={<EmployeePage><License /></EmployeePage>} />
+          <Route path="/gateway" element={<EmployeePage><Gateway /></EmployeePage>} />
+          <Route path="/training" element={<EmployeePage><Training /></EmployeePage>} />
+          <Route path="/training/quiz" element={<EmployeePage><TrainingQuiz /></EmployeePage>} />
+          <Route path="/training/results" element={<EmployeePage><TrainingResults /></EmployeePage>} />
+          <Route path="/visas" element={<EmployeePage><Visas /></EmployeePage>} />
+
+          {/* Public — no login required */}
           <Route path="/transparency" element={<Transparency />} />
 
-          {/* Admin console — shared sidebar layout */}
-          <Route path="/admin" element={<AdminLayout />}>
+          {/* Admin console — separate full-screen layout */}
+          <Route path="/admin" element={<RequireRole role="admin"><AdminLayout /></RequireRole>}>
             <Route index element={<AdminOverview />} />
             <Route path="departments" element={<Departments />} />
             <Route path="risk-alerts" element={<RiskAlerts />} />
@@ -52,6 +72,8 @@ export default function App() {
             <Route path="employees" element={<Employees />} />
             <Route path="settings" element={<Settings />} />
           </Route>
+
+          <Route path="*" element={<HomeRedirect />} />
         </Routes>
       </BrowserRouter>
     </NotificationsProvider>

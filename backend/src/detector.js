@@ -1,7 +1,7 @@
 // Layer 1 detection service — rule-based (regex) masking.
 // Layer 2 (Gemini API for names/context) will be added later — see proposal Section 4.
 
-const RULES = [
+export const RULES = [
   // Malaysian IC: 990101-14-5678 (with or without dashes)
   { type: 'IC', regex: /\b\d{6}-?\d{2}-?\d{4}\b/g, token: '[MASKED-IC]' },
   // Malaysian passport: letter + 8 digits, e.g. A12345678
