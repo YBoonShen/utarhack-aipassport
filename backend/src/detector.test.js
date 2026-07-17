@@ -6,6 +6,8 @@ const cases = [
   ['Call me at 012-345 6789 tomorrow', '[MASKED-PHONE]'],
   ['Send report to jiayin@company.com.my please', '[MASKED-EMAIL]'],
   ['password: hunter2 should never leak', '[MASKED-CREDENTIAL]'],
+  ['Passport A12345678 expires next year', '[MASKED-PASSPORT]'],
+  ['Invoice of RM 4,500 due last month', '[MASKED-AMOUNT]'],
   ['Explain SQL joins to me', null], // clean prompt: nothing masked
 ]
 

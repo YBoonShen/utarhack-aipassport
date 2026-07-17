@@ -4,6 +4,10 @@
 const RULES = [
   // Malaysian IC: 990101-14-5678 (with or without dashes)
   { type: 'IC', regex: /\b\d{6}-?\d{2}-?\d{4}\b/g, token: '[MASKED-IC]' },
+  // Malaysian passport: letter + 8 digits, e.g. A12345678
+  { type: 'PASSPORT', regex: /\b[A-Z]\d{8}\b/g, token: '[MASKED-PASSPORT]' },
+  // Financial figures: RM 4,500 / RM4500.00 / USD 1,000,000
+  { type: 'FINANCIAL', regex: /\b(?:RM|MYR|USD|SGD)\s?\d[\d,]*(?:\.\d{1,2})?\b/g, token: '[MASKED-AMOUNT]' },
   // Malaysian phone numbers: 012-3456789, +60123456789, 03-12345678 etc.
   { type: 'PHONE', regex: /(?:\+?60|0)1\d[- ]?\d{3,4}[- ]?\d{4}\b/g, token: '[MASKED-PHONE]' },
   // Email addresses

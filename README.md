@@ -9,11 +9,10 @@ sensitive data ("mask, don't block"), an **Admin Dashboard** with one-click audi
 and an **AI Tool Approval workflow** ("guide, don't punish").
 
 ## Team Members
-<!-- TODO: replace with full names + student IDs -->
-- Boon Shen (@YBoonShen) — Team Leader
-- Ikhlas
-- Samantha
-- Jia Yin
+- Yeap Boon Shen (@YBoonShen) — Team Leader
+- Lee Jia Yin
+- Muhammad Ikhlas Bin Mohd Faizal
+- Samantha Chan Pei Yin
 
 ## Project Structure
 ```
