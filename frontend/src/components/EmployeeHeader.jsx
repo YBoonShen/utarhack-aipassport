@@ -1,7 +1,7 @@
-// Global Employee Header — matches Figma "Global Employee Header" (bg #0b2457, brand ring, nav, bell, profile)
+// Global Employee Header — matches Figma "Global Employee Header"
+// (brand ring, nav, logout button, notification bell with badge, JY profile)
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
-import NotificationCenter from './NotificationCenter.jsx'
+import { NavLink, useNavigate } from 'react-router-dom'
 import LogoutConfirm from './LogoutConfirm.jsx'
 import { useNotifications } from './notificationsStore.jsx'
 
@@ -17,11 +17,19 @@ function BellIcon() {
   )
 }
 
+function LogoutIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M12.5 3H5.8C4.8 3 4 3.8 4 4.8v10.4c0 1 .8 1.8 1.8 1.8h6.7" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M9 10h8m0 0-2.8-2.8M17 10l-2.8 2.8" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 export default function EmployeeHeader() {
-  const [panelOpen, setPanelOpen] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
   const [logoutOpen, setLogoutOpen] = useState(false)
   const { unreadCount } = useNotifications()
+  const navigate = useNavigate()
 
   return (
     <>
@@ -39,11 +47,20 @@ export default function EmployeeHeader() {
           <NavLink to="/visas" className={linkClass}>My Visas</NavLink>
           <NavLink to="/gateway" className={linkClass}>Smart Gateway</NavLink>
         </nav>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setPanelOpen(o => !o)}
+            onClick={() => setLogoutOpen(true)}
+            className="w-11 h-11 rounded-full bg-navy flex items-center justify-center cursor-pointer hover:bg-navy-mid"
+            aria-label="Log out"
+            title="Log out"
+          >
+            <LogoutIcon />
+          </button>
+          <button
+            onClick={() => navigate('/notifications')}
             className="relative w-11 h-11 rounded-full bg-navy flex items-center justify-center cursor-pointer hover:bg-navy-mid"
             aria-label="Notifications"
+            title="Notifications"
           >
             <BellIcon />
             {unreadCount > 0 && (
@@ -52,30 +69,9 @@ export default function EmployeeHeader() {
               </span>
             )}
           </button>
-          <div className="relative">
-            <button
-              onClick={() => setMenuOpen(o => !o)}
-              className="w-11 h-11 rounded-full bg-gold-brand flex items-center justify-center text-navy-header font-bold text-sm cursor-pointer"
-            >
-              JY
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 top-13 bg-card border border-sand rounded-[12px] shadow-lg py-2 w-44 z-50">
-                <p className="px-4 py-1.5 text-navy font-semibold text-sm">Tan Jia Yin</p>
-                <p className="px-4 text-slate2 text-[11px]">Engineering · Level 2</p>
-                <div className="h-px bg-sand my-2" />
-                <button
-                  onClick={() => { setMenuOpen(false); setLogoutOpen(true) }}
-                  className="w-full text-left px-4 py-1.5 text-red-alert text-sm font-medium cursor-pointer hover:bg-chip"
-                >
-                  Log out
-                </button>
-              </div>
-            )}
-          </div>
+          <div className="w-11 h-11 rounded-full bg-gold-brand flex items-center justify-center text-navy-header font-bold text-sm">JY</div>
         </div>
       </header>
-      {panelOpen && <NotificationCenter onClose={() => setPanelOpen(false)} />}
       {logoutOpen && <LogoutConfirm role="employee" onClose={() => setLogoutOpen(false)} />}
     </>
   )

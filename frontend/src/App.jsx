@@ -10,6 +10,7 @@ import Training from './pages/Training.jsx'
 import TrainingQuiz from './pages/TrainingQuiz.jsx'
 import TrainingResults from './pages/TrainingResults.jsx'
 import Visas from './pages/Visas.jsx'
+import Notifications from './pages/Notifications.jsx'
 import Transparency from './pages/Transparency.jsx'
 import Extension from './pages/Extension.jsx'
 import AdminOverview from './pages/AdminOverview.jsx'
@@ -59,6 +60,7 @@ export default function App() {
           <Route path="/training/quiz" element={<EmployeePage><TrainingQuiz /></EmployeePage>} />
           <Route path="/training/results" element={<EmployeePage><TrainingResults /></EmployeePage>} />
           <Route path="/visas" element={<EmployeePage><Visas /></EmployeePage>} />
+          <Route path="/notifications" element={<EmployeePage><Notifications /></EmployeePage>} />
 
           {/* Public — no login required */}
           <Route path="/transparency" element={<Transparency />} />
