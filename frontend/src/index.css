@@ -1,10 +1,22 @@
 @import "tailwindcss";
 
 @theme {
-  --color-navy: #12275a;
-  --color-navy-dark: #0b1a3f;
-  --color-gold: #d4af37;
+  /* Figma-exact palette (file: Soda / AI Passport) */
+  --color-navy: #0a204f;        /* primary navy — headings, dark cards */
+  --color-navy-header: #0b2457; /* global header bar */
+  --color-navy-mid: #143370;    /* inner panels on navy */
+  --color-navy-track: #1f3b7a;  /* progress tracks on navy */
+  --color-navy-dark: #081737;   /* overlays */
+  --color-gold: #d5a71f;        /* buttons, accents */
+  --color-gold-brand: #d9b32c;  /* brand ring / brand text */
   --color-gold-dark: #b8912a;
-  --color-cream: #f7f1e3;
-  --color-card: #fdfaf2;
+  --color-cream: #f8f2df;       /* page background */
+  --color-card: #fffefa;        /* light cards */
+  --color-sand: #d1c79e;        /* card borders */
+  --color-chip: #f5f2e5;        /* neutral chips */
+  --color-ink: #141a29;         /* body text */
+  --color-slate2: #5c667d;      /* secondary text */
+  --color-green: #058f6b;       /* success text */
+  --color-green-soft: #dbfaed;  /* success chip bg */
+  --color-red-alert: #db2629;   /* unread badge */
 }

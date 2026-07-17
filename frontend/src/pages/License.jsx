@@ -1,137 +1,146 @@
-// 01 Employee · My AI License — built to match Figma frame "01 Employee • My AI License"
-const user = {
-  name: 'Tan Jia Yin', dept: 'Engineering', licenseNo: 'AIP-2026-004173',
-  issued: '02 Jan 2026', level: 'Level 2 · Navigator', points: 1240, target: 2000,
-}
+// 01 Employee · My AI License — matches Figma frame "01 Employee • My AI License"
+import { Link } from 'react-router-dom'
 
-const stamps = [
-  { name: 'AI BASICS', score: 'PASSED · 92%', date: '04 JAN 2026', color: '#0f766e', shape: 'round' },
-  { name: 'DATA PRIVACY', score: 'PASSED · 100%', date: '11 JAN 2026', color: '#b91c1c', shape: 'rect' },
-  { name: 'SAFE PROMPTS', score: 'PASSED · 87%', date: '25 JAN 2026', color: '#1d4ed8', shape: 'round' },
+const identityFields = [
+  ['NAME', 'Tan Jia Yin'],
+  ['DEPARTMENT', 'Engineering'],
+  ['LICENSE NO.', 'AIP-2026-004173'],
+  ['DATE ISSUED', '02 Jan 2026'],
+  ['LICENSE CLASS', 'Level 2 · Navigator'],
+  ['SAFETY POINTS', '1,240 pts'],
 ]
-const lockedStamps = ['PDPA & COMPLIANCE', 'HANDLING CUSTOMER DATA', 'ADVANCED AI ETHICS']
 
-function Stamp({ s }) {
-  const base = 'flex flex-col items-center justify-center text-center p-2 -rotate-3'
-  const style = { borderColor: s.color, color: s.color }
-  return s.shape === 'round' ? (
-    <div className={`${base} w-32 h-32 rounded-full border-4`} style={style}>
-      <div className="w-[104px] h-[104px] rounded-full border flex flex-col items-center justify-center" style={style}>
-        <p className="text-[11px] font-bold tracking-wide">{s.name}</p>
-        <p className="text-[10px]">{s.score}</p>
-        <p className="text-[9px] font-mono">{s.date}</p>
+const earnedStamps = [
+  { title: 'AI BASICS', score: 'PASSED · 92%', date: '04 JAN 2026', shape: 'circle', color: '#078b6c', rotate: 'rotate-3' },
+  { title: 'DATA PRIVACY', score: 'PASSED · 100%', date: '11 JAN 2026', shape: 'square', color: '#d92d20', rotate: '-rotate-6' },
+  { title: 'SAFE PROMPTS', score: 'PASSED · 87%', date: '25 JAN 2026', shape: 'circle', color: '#365fd9', rotate: 'rotate-2' },
+]
+
+const lockedStamps = [
+  { title: ['PDPA &', 'COMPLIANCE'], shape: 'circle', rotate: '-rotate-2' },
+  { title: ['HANDLING', 'CUSTOMER DATA'], shape: 'square', rotate: 'rotate-1' },
+  { title: ['ADVANCED', 'AI ETHICS'], shape: 'circle', rotate: '-rotate-3' },
+]
+
+function InkStamp({ s }) {
+  const round = s.shape === 'circle' ? 'rounded-full' : 'rounded-[8px]'
+  const size = s.shape === 'circle' ? 'w-[154px] h-[154px]' : 'w-[154px] h-[132px]'
+  return (
+    <div className={`${s.rotate} ${size} border-[3px] ${round} flex items-center justify-center`} style={{ borderColor: s.color }}>
+      <div
+        className={`${s.shape === 'circle' ? 'w-[134px] h-[134px]' : 'w-[134px] h-[113px]'} border-[1.5px] ${round} flex flex-col items-center justify-center text-center`}
+        style={{ borderColor: s.color, color: s.color }}
+      >
+        <p className="font-bold text-xs tracking-[0.96px]">{s.title}</p>
+        <p className="font-medium text-[11px] mt-1.5">{s.score}</p>
+        <p className="font-medium text-[10px] mt-1.5 tracking-[0.4px]">{s.date}</p>
       </div>
     </div>
-  ) : (
-    <div className={`${base} w-36 h-24 rounded-lg border-4 rotate-3`} style={style}>
-      <p className="text-[11px] font-bold tracking-wide">{s.name}</p>
-      <p className="text-[10px]">{s.score}</p>
-      <p className="text-[9px] font-mono">{s.date}</p>
+  )
+}
+
+function LockedStamp({ s }) {
+  const round = s.shape === 'circle' ? 'rounded-full' : 'rounded-[8px]'
+  const size = s.shape === 'circle' ? 'w-[142px] h-[142px]' : 'w-[154px] h-[126px]'
+  return (
+    <div className={`${s.rotate} ${size} border-2 border-dashed border-[#d8d0b4] opacity-70 ${round} flex flex-col items-center justify-center text-center`}>
+      {s.title.map(line => <p key={line} className="text-[#d8d0b4] font-medium text-[11px] leading-snug">{line}</p>)}
     </div>
   )
 }
 
 export default function License() {
-  const pct = (user.points / user.target) * 100
   return (
-    <div className="max-w-[1360px] mx-auto px-10 py-8">
-      <h1 className="text-3xl font-bold text-navy">My AI License</h1>
-      <p className="text-gray-500 text-sm mt-1 mb-6">Your access, training and safe-use progress — in one trusted record.</p>
+    <div className="max-w-[1440px] mx-auto px-10 py-8">
+      <h1 className="text-[30px] font-bold text-navy-header">My AI License</h1>
+      <p className="text-[#667085] text-sm mt-1.5 mb-6">Your access, training and safe-use progress — in one trusted record.</p>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
-        {/* Passport card */}
-        <div className="bg-card border-[3px] border-navy rounded-2xl overflow-hidden">
-          <div className="bg-navy flex justify-between items-center px-6 py-4">
-            <p className="text-gold text-sm font-bold tracking-[0.2em]">DIGITAL AI LICENSE · EMPLOYEE PASSPORT</p>
-            <p className="text-slate-200 font-mono text-xs tracking-widest">MYS · AIP</p>
+      <div className="grid grid-cols-[1fr_436px] gap-6 items-stretch">
+        {/* Digital AI Passport */}
+        <div className="bg-white border-2 border-navy-header rounded-[18px] overflow-hidden flex flex-col">
+          <div className="bg-navy-header h-14 flex items-center justify-between px-6 shrink-0">
+            <p className="text-gold-brand font-bold text-sm tracking-[1.4px]">DIGITAL AI LICENSE · EMPLOYEE PASSPORT</p>
+            <p className="text-white font-semibold text-[11px]">MYS&nbsp;&nbsp;·&nbsp;&nbsp;AIP</p>
           </div>
-          <div className="p-8 flex gap-8">
-            <div className="w-40 shrink-0 text-center">
-              <div className="w-40 h-44 rounded-xl bg-[#e9e2cf] border-2 border-gold-dark flex flex-col items-center justify-center">
-                <div className="w-20 h-20 rounded-full bg-gold/80 flex items-center justify-center text-navy font-bold text-2xl">JY</div>
-                <p className="mt-3 text-xs font-bold text-navy tracking-wide">{user.name.toUpperCase()}</p>
-                <p className="text-[10px] text-[#8a7f60] tracking-wide">EMPLOYEE · E-217</p>
+          <div className="flex gap-7 px-7 py-6 flex-1">
+            <div className="bg-[#f1eddf] border border-gold-brand rounded-[14px] w-[170px] shrink-0 flex flex-col items-center pt-12 pb-6">
+              <div className="w-[88px] h-[88px] rounded-full bg-[#d8d0b4] flex items-center justify-center">
+                <p className="text-navy-header font-bold text-2xl">JY</p>
+              </div>
+              <p className="text-navy-header font-semibold text-sm mt-2.5">TAN JIA YIN</p>
+              <p className="text-[#667085] font-medium text-[10px] tracking-[0.8px] mt-1.5">EMPLOYEE · E-217</p>
+            </div>
+            <div className="flex-1 pt-2">
+              <div className="grid grid-cols-2 gap-x-14 gap-y-4 max-w-[606px]">
+                {identityFields.map(([label, value]) => (
+                  <div key={label}>
+                    <p className="text-[#8a7d56] font-semibold text-[10px] tracking-[1px]">{label}</p>
+                    <p className="text-navy-header font-semibold text-base mt-0.5">{value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="inline-block bg-[#eef2ff] rounded-[8px] px-3 py-1.5 mt-5">
+                <p className="text-[#365fd9] font-medium text-xs">✓&nbsp;&nbsp;Unlocked: ChatGPT, Gemini · Internal non-personal data</p>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-x-12 gap-y-5 flex-1">
-              <Field label="NAME" value={user.name} />
-              <Field label="DEPARTMENT" value={user.dept} />
-              <Field label="LICENSE NO." value={user.licenseNo} mono />
-              <Field label="DATE ISSUED" value={user.issued} />
-              <Field label="LICENSE CLASS" value={user.level} />
-              <Field label="SAFETY POINTS" value={`${user.points.toLocaleString()} pts`} />
-              <div className="col-span-2">
-                <span className="inline-block bg-blue-50 text-navy text-xs px-3 py-1.5 rounded-full border border-blue-200">
-                  ✓ Unlocked: ChatGPT, Gemini · Internal non-personal data
-                </span>
-              </div>
-            </div>
           </div>
-          <div className="px-8 pb-6">
-            <div className="flex justify-between text-[11px] font-bold tracking-wider text-[#8a7f60] mb-2">
-              <span>PROGRESS TO LEVEL 3 · AMBASSADOR</span>
-              <span>{user.target - user.points} points to go</span>
+          <div className="bg-[#fcfaf3] border-t border-[#e5dec7] px-7 py-4 shrink-0">
+            <div className="flex justify-between">
+              <p className="text-[#8a7d56] font-semibold text-[10px] tracking-wide">PROGRESS TO LEVEL 3 · AMBASSADOR</p>
+              <p className="text-[#667085] font-medium text-[11px]">760 points to go</p>
             </div>
-            <div className="h-2.5 rounded-full bg-[#e9e2cf]">
-              <div className="h-2.5 rounded-full bg-gold" style={{ width: `${pct}%` }} />
+            <div className="h-2.5 rounded-full bg-[#e5dec7] mt-2.5">
+              <div className="h-2.5 rounded-full bg-gold-brand" style={{ width: '62%' }} />
             </div>
-            <div className="flex justify-between text-xs text-gray-500 mt-2">
-              <span>Level 2 · Navigator</span>
-              <span className="font-bold text-navy">{user.points.toLocaleString()} / {user.target.toLocaleString()} safety points</span>
+            <div className="flex justify-between mt-2">
+              <p className="text-navy-header font-medium text-[11px]">Level 2 · Navigator</p>
+              <p className="text-navy-header font-semibold text-xs">1,240 / 2,000 safety points</p>
             </div>
           </div>
         </div>
 
-        {/* Right column */}
-        <div className="flex flex-col gap-5">
-          <div className="bg-navy rounded-2xl p-6 text-white">
-            <p className="text-gold text-xs font-bold tracking-[0.18em] mb-4">THIS MONTH</p>
-            <div className="flex gap-10">
-              <div><p className="text-4xl font-bold">47</p><p className="text-xs text-slate-300">prompts protected</p></div>
-              <div><p className="text-4xl font-bold">12</p><p className="text-xs text-slate-300">items masked</p></div>
+        {/* Side rail */}
+        <div className="flex flex-col gap-4">
+          <div className="bg-navy-header rounded-[16px] p-6">
+            <p className="text-gold-brand font-bold text-[11px] tracking-[1.32px]">THIS MONTH</p>
+            <div className="flex gap-16 mt-3">
+              <div>
+                <p className="text-white font-bold text-[30px]">47</p>
+                <p className="text-[#cbd5e1] text-xs mt-1">prompts protected</p>
+              </div>
+              <div>
+                <p className="text-white font-bold text-[30px]">12</p>
+                <p className="text-[#cbd5e1] text-xs mt-1">items masked</p>
+              </div>
             </div>
-            <div className="mt-4 bg-[#1c3572] rounded-lg px-4 py-2.5 text-xs text-emerald-200">
-              ✓ No unsafe prompts for 21 days
+            <div className="inline-block bg-[#173976] rounded-[10px] px-3 py-2 mt-4">
+              <p className="text-[#a7f3d0] font-medium text-xs">✓&nbsp;&nbsp;No unsafe prompts for 21 days</p>
             </div>
           </div>
-          <div className="bg-card border-2 border-[#d8cfae] rounded-2xl p-6">
-            <p className="text-[#8a7f60] text-xs font-bold tracking-[0.18em]">NEXT TRAINING · +150 POINTS</p>
-            <p className="text-navy font-bold text-lg mt-3">Spotting personal data in prompts</p>
-            <p className="text-gray-500 text-sm mt-1">5-minute lesson · 3-question quiz</p>
-            <button className="mt-5 bg-gold hover:bg-gold-dark text-navy font-bold px-6 py-2.5 rounded-full text-sm">
-              Start lesson →
-            </button>
+          <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-6 flex-1 flex flex-col">
+            <p className="text-[#8a7d56] font-bold text-[11px] tracking-[1.1px]">NEXT TRAINING · +150 POINTS</p>
+            <p className="text-navy-header font-semibold text-[19px] mt-2">Spotting personal data in prompts</p>
+            <p className="text-[#667085] text-[13px] mt-2">5-minute lesson&nbsp;&nbsp;·&nbsp;&nbsp;3-question quiz</p>
+            <div className="flex-1" />
+            <Link to="/training/quiz" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[188px] h-12 rounded-full flex items-center justify-center">
+              Start lesson&nbsp;&nbsp;→
+            </Link>
           </div>
         </div>
       </div>
 
-      {/* Stamps */}
-      <div className="mt-10">
-        <div className="flex items-end justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-navy">Training Stamps</h2>
-            <p className="text-gray-500 text-sm">Complete a module to add a verified stamp to your passport.</p>
-          </div>
-          <a href="#" className="text-sm text-navy font-medium">View training →</a>
+      {/* Training Stamps */}
+      <div className="flex items-end justify-between mt-9">
+        <div>
+          <h2 className="text-[22px] font-bold text-navy-header">Training Stamps</h2>
+          <p className="text-[#667085] text-xs mt-1">Complete a module to add a verified stamp to your passport.</p>
         </div>
-        <div className="mt-4 bg-card border-2 border-[#d8cfae] rounded-2xl p-8 flex items-center gap-12 flex-wrap">
-          {stamps.map(s => <Stamp key={s.name} s={s} />)}
-          {lockedStamps.map(n => (
-            <div key={n} className="w-32 h-32 rounded-full border-2 border-dashed border-[#8a7f60]/40 flex items-center justify-center text-center p-4">
-              <p className="text-[10px] text-[#8a7f60]/60 font-medium">{n}</p>
-            </div>
-          ))}
-        </div>
+        <Link to="/training" className="text-[#365fd9] font-semibold text-xs">View training&nbsp;&nbsp;→</Link>
       </div>
-    </div>
-  )
-}
-
-function Field({ label, value, mono }) {
-  return (
-    <div>
-      <p className="text-[10px] font-bold tracking-[0.15em] text-[#8a7f60]">{label}</p>
-      <p className={`text-navy font-bold ${mono ? 'font-mono' : ''} mt-0.5`}>{value}</p>
+      <div className="bg-white border border-[#d8d0b4] rounded-[16px] mt-4 px-8 py-8 flex items-center justify-between flex-wrap gap-6">
+        {earnedStamps.map(s => <InkStamp key={s.title} s={s} />)}
+        {lockedStamps.map(s => <LockedStamp key={s.title[0]} s={s} />)}
+      </div>
     </div>
   )
 }

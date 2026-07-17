@@ -1,86 +1,103 @@
 // 04 Employee · Training Dashboard — matches Figma frame "04 Employee • Training Dashboard"
-import { useState } from 'react'
-import TrainingQuiz from '../components/TrainingQuiz.jsx'
+import { Link } from 'react-router-dom'
 
-const stats = [
-  { label: '1 in progress', accent: true },
-  { label: '3 stamps earned' },
-  { label: '1,240 miles' },
-  { label: '760 miles to go' },
+const kpis = [
+  { label: 'CURRENT MODULE', value: '1 in progress', dark: true },
+  { label: 'COMPLETED', value: '3 stamps earned' },
+  { label: 'SAFETY MILES', value: '1,240 miles' },
+  { label: 'NEXT LEVEL', value: '760 miles to go' },
 ]
 
 const upcoming = [
-  { title: 'Safe AI Tool Selection', desc: 'Choose approved tools and match each task to the right data class.', meta: '3 questions · 4 miles' },
-  { title: 'Human Review in AI-Assisted Decisions', desc: 'Know when a person must review, explain and contest an AI-generated outcome.', meta: '10 mins · 4 miles' },
+  {
+    available: 'AVAILABLE 18 JUL 2026',
+    title: 'Safe AI Tool Selection',
+    desc: 'Choose approved tools and match each task to the right data scope.',
+    meta: '8 min · 4 questions · +120 miles',
+  },
+  {
+    available: 'AVAILABLE 25 JUL 2026',
+    title: 'Human Review in AI-Assisted Decisions',
+    desc: 'Know when a person must review, explain and record an AI-supported outcome.',
+    meta: '10 min · 5 questions · +180 miles',
+  },
 ]
 
 export default function Training() {
-  const [quizOpen, setQuizOpen] = useState(false)
-  const [done, setDone] = useState(false)
-
   return (
-    <div className="max-w-[1360px] mx-auto px-10 py-8">
-      <h1 className="text-3xl font-bold text-navy">Training</h1>
-      <p className="text-gray-500 text-sm mt-1 mb-6">Build your AI safety habits with short, role-relevant modules.</p>
+    <div className="max-w-[1400px] mx-auto px-10 py-7">
+      <h1 className="text-[32px] font-bold text-navy">Training</h1>
+      <p className="text-slate2 text-base mt-1">Build practical AI safety habits with short, role-relevant modules.</p>
 
-      <div className="flex gap-4 flex-wrap">
-        {stats.map(s => (
-          <div key={s.label} className={`px-5 py-3 rounded-xl border-2 text-sm font-bold ${s.accent ? 'bg-gold border-gold-dark text-navy' : 'bg-card border-[#d8cfae] text-navy'}`}>
-            {s.label}
+      <div className="grid grid-cols-4 gap-5 mt-4">
+        {kpis.map(k => (
+          <div key={k.label} className={`rounded-[14px] px-4 py-3 border ${k.dark ? 'bg-navy border-navy' : 'bg-card border-sand'}`}>
+            <p className={`text-xs font-semibold ${k.dark ? 'text-gold' : 'text-slate2'}`}>{k.label}</p>
+            <p className={`text-[22px] font-bold mt-1.5 ${k.dark ? 'text-white' : 'text-navy'}`}>{k.value}</p>
           </div>
         ))}
       </div>
 
-      <h2 className="text-xl font-bold text-navy mt-8 mb-3">Current training</h2>
-      <div className="bg-card border-2 border-[#d8cfae] rounded-2xl p-6 flex gap-6 items-stretch">
-        <div className="flex-1">
-          <span className="inline-block bg-amber-100 text-amber-800 text-[10px] font-bold px-2.5 py-1 rounded-full">IN PROGRESS</span>
-          <p className="text-navy font-bold text-lg mt-3">Spotting Personal Data in Prompts</p>
-          <p className="text-gray-500 text-sm mt-1">
-            {done ? 'Completed — nice work! Your training stamp has been added.' : 'Learn to identify, classify and protect personal details before they reach an AI tool.'}
+      <h2 className="text-[22px] font-bold text-navy mt-7 mb-3">Current training</h2>
+      <div className="grid grid-cols-[1fr_456px] gap-6 items-stretch">
+        <div className="bg-card border border-sand rounded-[16px] p-6 pt-5">
+          <span className="inline-block bg-[#edf2ff] text-navy text-xs font-semibold px-4 py-1.5 rounded-full">IN PROGRESS</span>
+          <p className="text-navy font-bold text-[26px] mt-3.5">Spotting Personal Data in Prompts</p>
+          <p className="text-ink text-base mt-2 max-w-[790px]">
+            Learn to identify names, identifiers, contact details and customer records before they reach an AI tool.
           </p>
-          <div className="mt-4 h-2 rounded-full bg-[#e9e2cf] max-w-xs">
-            <div className="h-2 rounded-full bg-emerald-600" style={{ width: done ? '100%' : '33%' }} />
+          <div className="flex gap-2.5 mt-4">
+            <span className="bg-chip text-slate2 text-xs font-semibold px-4 py-1.5 rounded-full">5-minute lesson</span>
+            <span className="bg-chip text-slate2 text-xs font-semibold px-4 py-1.5 rounded-full">3 questions</span>
+            <span className="bg-green-soft text-green text-xs font-semibold px-4 py-1.5 rounded-full">+150 miles</span>
           </div>
-          <p className="text-xs text-gray-500 mt-1.5">{done ? '3 of 3' : '1 of 3'} · 5-minute lesson</p>
+          <div className="flex items-center gap-4 mt-6">
+            <p className="text-slate2 text-[13px] font-semibold shrink-0">Quiz progress</p>
+            <div className="h-2.5 rounded-full bg-chip flex-1 max-w-[476px]">
+              <div className="h-2.5 rounded-full bg-gold" style={{ width: '33%' }} />
+            </div>
+            <p className="text-navy text-sm font-semibold shrink-0">1 of 3</p>
+            <Link
+              to="/training/quiz"
+              className="bg-gold hover:bg-gold-dark text-navy font-semibold text-[15px] px-5 h-12 rounded-full flex items-center shrink-0"
+            >
+              Resume training →
+            </Link>
+          </div>
         </div>
-        <div className="bg-navy rounded-xl p-6 w-64 shrink-0 flex flex-col justify-between text-white">
-          <div>
-            <p className="text-3xl font-bold">{done ? '100%' : '67%'}</p>
-            <p className="text-gold text-xs mt-1">Level 2 training path complete</p>
-            <p className="text-slate-300 text-xs mt-3">{done ? 'Lesson complete' : '3 minutes completed · 2 mins left'}</p>
+
+        <div className="bg-navy rounded-[16px] p-6">
+          <p className="text-gold text-xs font-semibold">YOUR LEARNING PROGRESS</p>
+          <p className="text-white text-[44px] font-bold mt-2">67%</p>
+          <p className="text-white text-base mt-1">Level 2 learning path complete</p>
+          <div className="h-3 rounded-full bg-navy-track mt-4">
+            <div className="h-3 rounded-full bg-gold" style={{ width: '67%' }} />
           </div>
-          <button
-            onClick={() => !done && setQuizOpen(true)}
-            className="mt-4 bg-gold hover:bg-gold-dark text-navy font-bold px-5 py-2.5 rounded-full text-sm disabled:opacity-60"
-            disabled={done}
-          >
-            {done ? '✓ Completed' : 'Resume Lesson →'}
-          </button>
+          <p className="text-white text-sm font-medium mt-3">3 modules completed&nbsp;&nbsp;·&nbsp;&nbsp;21-day safe streak</p>
+          <div className="bg-navy-mid rounded-[10px] px-3 py-2 mt-4">
+            <p className="text-white text-[13px] font-medium">Next stamp unlocks at 1,390 miles</p>
+          </div>
         </div>
       </div>
 
-      <h2 className="text-xl font-bold text-navy mt-8 mb-3">Upcoming training</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <h2 className="text-[22px] font-bold text-navy mt-8 mb-3">Upcoming training</h2>
+      <div className="grid grid-cols-2 gap-5">
         {upcoming.map(u => (
-          <div key={u.title} className="bg-card border-2 border-[#d8cfae] rounded-2xl p-6">
-            <span className="inline-block bg-slate-200 text-slate-600 text-[10px] font-bold px-2.5 py-1 rounded-full">UNLOCKS AT LVL 3</span>
-            <p className="text-navy font-bold mt-3">{u.title}</p>
-            <p className="text-gray-500 text-sm mt-1">{u.desc}</p>
-            <div className="flex justify-between items-center mt-4">
-              <p className="text-xs text-gray-400">{u.meta}</p>
-              <span className="text-[10px] font-bold text-gray-400 tracking-wide">UPCOMING</span>
+          <div key={u.title} className="bg-card border border-sand rounded-[16px] p-5">
+            <p className="text-gold text-xs font-semibold">{u.available}</p>
+            <p className="text-navy font-bold text-[21px] mt-2">{u.title}</p>
+            <p className="text-ink text-[15px] mt-2">{u.desc}</p>
+            <div className="flex items-end justify-between mt-5">
+              <p className="text-slate2 text-[13px] font-medium">{u.meta}</p>
+              <span className="bg-chip text-slate2 text-xs font-semibold px-4 py-1.5 rounded-full">UPCOMING</span>
             </div>
           </div>
         ))}
       </div>
 
-      {quizOpen && (
-        <TrainingQuiz
-          onClose={() => setQuizOpen(false)}
-          onComplete={() => { setQuizOpen(false); setDone(true) }}
-        />
-      )}
+      <p className="text-slate2 text-[13px] mt-6">
+        Training is assigned by role and risk signals. Completed modules add a stamp to your AI Passport.
+      </p>
     </div>
   )
 }
