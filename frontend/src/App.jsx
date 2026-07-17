@@ -3,7 +3,7 @@ import EmployeeHeader from './components/EmployeeHeader.jsx'
 import AdminLayout from './components/AdminLayout.jsx'
 import { NotificationsProvider } from './components/notificationsStore.jsx'
 import { currentUser } from './lib/api.js'
-import Login from './pages/Login.jsx'
+import Auth from './pages/Auth.jsx'
 import License from './pages/License.jsx'
 import Gateway from './pages/Gateway.jsx'
 import Training from './pages/Training.jsx'
@@ -11,6 +11,7 @@ import TrainingQuiz from './pages/TrainingQuiz.jsx'
 import TrainingResults from './pages/TrainingResults.jsx'
 import Visas from './pages/Visas.jsx'
 import Transparency from './pages/Transparency.jsx'
+import Extension from './pages/Extension.jsx'
 import AdminOverview from './pages/AdminOverview.jsx'
 import Departments from './pages/admin/Departments.jsx'
 import RiskAlerts from './pages/admin/RiskAlerts.jsx'
@@ -49,7 +50,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<HomeRedirect />} />
-          <Route path="/login" element={<Login />} />
+          <Route path="/login" element={<Auth />} />
 
           {/* Employee side */}
           <Route path="/license" element={<EmployeePage><License /></EmployeePage>} />
@@ -61,6 +62,7 @@ export default function App() {
 
           {/* Public — no login required */}
           <Route path="/transparency" element={<Transparency />} />
+          <Route path="/extension" element={<Extension />} />
 
           {/* Admin console — separate full-screen layout */}
           <Route path="/admin" element={<RequireRole role="admin"><AdminLayout /></RequireRole>}>

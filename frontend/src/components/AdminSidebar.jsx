@@ -1,6 +1,7 @@
 // Admin sidebar — matches Figma "Admin sidebar" (brand, navigation with badges, admin identity)
-import { NavLink, useNavigate } from 'react-router-dom'
-import { logout } from '../lib/api.js'
+import { useState } from 'react'
+import { NavLink } from 'react-router-dom'
+import LogoutConfirm from './LogoutConfirm.jsx'
 
 const nav = [
   { to: '/admin', label: 'Overview', end: true },
@@ -13,12 +14,7 @@ const nav = [
 ]
 
 export default function AdminSidebar() {
-  const navigate = useNavigate()
-
-  function handleLogout() {
-    logout()
-    navigate('/login', { replace: true })
-  }
+  const [logoutOpen, setLogoutOpen] = useState(false)
 
   return (
     <aside className="w-60 bg-navy-header shrink-0 flex flex-col p-5">
@@ -51,7 +47,7 @@ export default function AdminSidebar() {
       </nav>
 
       <div className="flex-1" />
-      <button onClick={handleLogout} className="text-[#cbd5e1] text-[11px] px-1.5 mb-3 text-left cursor-pointer hover:text-white">← Log out</button>
+      <button onClick={() => setLogoutOpen(true)} className="text-[#cbd5e1] text-[11px] px-1.5 mb-3 text-left cursor-pointer hover:text-white">← Log out</button>
       <div className="bg-[#173976] rounded-[12px] p-3 flex items-center gap-3">
         <div className="w-9 h-9 rounded-full bg-gold-brand flex items-center justify-center text-navy-header font-bold text-[11px]">AD</div>
         <div>
@@ -59,6 +55,7 @@ export default function AdminSidebar() {
           <p className="text-[#cbd5e1] text-[10px]">Compliance role</p>
         </div>
       </div>
+      {logoutOpen && <LogoutConfirm role="admin" onClose={() => setLogoutOpen(false)} />}
     </aside>
   )
 }

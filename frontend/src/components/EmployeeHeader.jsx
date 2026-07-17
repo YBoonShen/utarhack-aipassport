@@ -1,9 +1,9 @@
 // Global Employee Header — matches Figma "Global Employee Header" (bg #0b2457, brand ring, nav, bell, profile)
 import { useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 import NotificationCenter from './NotificationCenter.jsx'
+import LogoutConfirm from './LogoutConfirm.jsx'
 import { useNotifications } from './notificationsStore.jsx'
-import { logout } from '../lib/api.js'
 
 const linkClass = ({ isActive }) =>
   `px-4 py-3 rounded-[10px] text-sm ${isActive ? 'text-gold font-semibold' : 'text-white font-medium hover:text-gold-brand'}`
@@ -20,13 +20,8 @@ function BellIcon() {
 export default function EmployeeHeader() {
   const [panelOpen, setPanelOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [logoutOpen, setLogoutOpen] = useState(false)
   const { unreadCount } = useNotifications()
-  const navigate = useNavigate()
-
-  function handleLogout() {
-    logout()
-    navigate('/login', { replace: true })
-  }
 
   return (
     <>
@@ -69,7 +64,10 @@ export default function EmployeeHeader() {
                 <p className="px-4 py-1.5 text-navy font-semibold text-sm">Tan Jia Yin</p>
                 <p className="px-4 text-slate2 text-[11px]">Engineering · Level 2</p>
                 <div className="h-px bg-sand my-2" />
-                <button onClick={handleLogout} className="w-full text-left px-4 py-1.5 text-red-alert text-sm font-medium cursor-pointer hover:bg-chip">
+                <button
+                  onClick={() => { setMenuOpen(false); setLogoutOpen(true) }}
+                  className="w-full text-left px-4 py-1.5 text-red-alert text-sm font-medium cursor-pointer hover:bg-chip"
+                >
                   Log out
                 </button>
               </div>
@@ -78,6 +76,7 @@ export default function EmployeeHeader() {
         </div>
       </header>
       {panelOpen && <NotificationCenter onClose={() => setPanelOpen(false)} />}
+      {logoutOpen && <LogoutConfirm role="employee" onClose={() => setLogoutOpen(false)} />}
     </>
   )
 }

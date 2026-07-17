@@ -1,20 +1,13 @@
-// Notification panel + detail modal — matches Figma "Notification Panel" states and "Notification detail" frames (05 series)
+// Notification panel + detail + delete confirmation — matches Figma "Employee
+// Notification Workspace", "Notification detail" and "Overlay • Delete notification".
 import { useState } from 'react'
 import { useNotifications } from './notificationsStore.jsx'
 
 function NotificationCard({ n, onOpen }) {
-  if (n.deleted) {
-    return (
-      <div className="border border-dashed border-sand rounded-[12px] px-4 py-3.5 flex items-center justify-between bg-chip">
-        <p className="text-slate2 text-xs">Notification deleted.</p>
-        <button onClick={() => onOpen('restore', n.id)} className="text-[#2e5ccc] text-[11px] font-semibold cursor-pointer">Undo</button>
-      </div>
-    )
-  }
   const unread = !n.read
   return (
     <button
-      onClick={() => onOpen('detail', n.id)}
+      onClick={() => onOpen(n.id)}
       className={`w-full text-left rounded-[12px] p-4 pt-2.5 cursor-pointer border ${unread ? 'bg-[#edf2ff] border-[#2e5ccc]' : 'bg-card border-sand'}`}
     >
       <div className="flex items-center gap-2">
@@ -29,7 +22,37 @@ function NotificationCard({ n, onOpen }) {
   )
 }
 
-function DetailModal({ n, onClose, onDelete }) {
+function DeleteConfirm({ n, onCancel, onConfirm }) {
+  return (
+    <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-6 z-[60]" onClick={onCancel}>
+      <div
+        className="bg-white border-[1.5px] border-navy-header rounded-[18px] shadow-[0px_12px_16px_rgba(5,15,38,0.22)] w-full max-w-[480px] p-7"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between">
+          <div className="w-12 h-12 rounded-full bg-[#fff0f0] border-2 border-[#d92d20] flex items-center justify-center">
+            <span className="text-[#d92d20] font-bold text-[22px]">!</span>
+          </div>
+          <button onClick={onCancel} className="w-10 h-10 rounded-full border border-sand text-navy-header text-xl leading-none cursor-pointer hover:bg-chip" aria-label="Close">×</button>
+        </div>
+        <p className="text-navy-header font-bold text-[22px] mt-4">Delete this notification?</p>
+        <p className="text-[#667085] text-sm mt-2.5">
+          This removes “{n.title}” from your notification inbox. This action cannot be undone.
+        </p>
+        <div className="flex justify-end gap-3 mt-8">
+          <button onClick={onCancel} className="border border-sand text-navy-header font-semibold text-sm w-28 h-12 rounded-full cursor-pointer hover:bg-chip">
+            Cancel
+          </button>
+          <button onClick={onConfirm} className="bg-[#d92d20] hover:bg-[#b8241a] text-white font-semibold text-sm w-32 h-12 rounded-full cursor-pointer">
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DetailModal({ n, onClose, onDeleteRequest }) {
   return (
     <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-6 z-50" onClick={onClose}>
       <div
@@ -59,7 +82,7 @@ function DetailModal({ n, onClose, onDelete }) {
         </div>
         <div className="flex justify-end mt-5">
           <button
-            onClick={() => onDelete(n.id)}
+            onClick={onDeleteRequest}
             className="border border-red-alert text-red-alert text-sm font-semibold px-8 h-12 rounded-full cursor-pointer hover:bg-red-50"
           >
             Delete notification
@@ -71,15 +94,24 @@ function DetailModal({ n, onClose, onDelete }) {
 }
 
 export default function NotificationCenter({ onClose }) {
-  const { items, markRead, remove, restore } = useNotifications()
+  const { items, markRead, remove } = useNotifications()
   const [detailId, setDetailId] = useState(null)
-  const unread = items.filter(n => !n.read && !n.deleted).length
-  const detail = items.find(n => n.id === detailId)
+  const [deleteId, setDeleteId] = useState(null)
 
-  function handleOpen(action, id) {
-    if (action === 'restore') return restore(id)
+  const visible = items.filter(n => !n.deleted)
+  const unread = visible.filter(n => !n.read).length
+  const detail = visible.find(n => n.id === detailId)
+  const deleting = visible.find(n => n.id === deleteId)
+
+  function openDetail(id) {
     markRead(id)
     setDetailId(id)
+  }
+
+  function confirmDelete() {
+    remove(deleteId)
+    setDeleteId(null)
+    setDetailId(null)
   }
 
   return (
@@ -95,19 +127,23 @@ export default function NotificationCenter({ onClose }) {
         <div className="px-6">
           <p className="text-gold text-[11px] font-semibold tracking-wide mb-3">LATEST</p>
           <div className="flex flex-col gap-3">
-            {items.map(n => <NotificationCard key={n.id} n={n} onOpen={handleOpen} />)}
+            {visible.length === 0 && <p className="text-slate2 text-sm py-6 text-center">No notifications.</p>}
+            {visible.map(n => <NotificationCard key={n.id} n={n} onOpen={openDetail} />)}
           </div>
           <div className="bg-[#edf2ff] rounded-[10px] px-3.5 py-4 my-5">
             <p className="text-slate2 text-xs">Notifications are retained for 30 days unless you delete them.</p>
           </div>
         </div>
       </div>
-      {detail && !detail.deleted && (
+      {detail && !deleting && (
         <DetailModal
           n={detail}
           onClose={() => setDetailId(null)}
-          onDelete={id => { remove(id); setDetailId(null) }}
+          onDeleteRequest={() => setDeleteId(detail.id)}
         />
+      )}
+      {deleting && (
+        <DeleteConfirm n={deleting} onCancel={() => setDeleteId(null)} onConfirm={confirmDelete} />
       )}
     </>
   )
