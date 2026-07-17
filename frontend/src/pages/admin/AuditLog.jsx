@@ -1,70 +1,97 @@
 // 14 Admin · Audit Log — matches Figma frame "14 Admin • Audit Log"
-const log = [
-  { t: '14:02', u: 'E-217', d: 'Eng', tool: 'ChatGPT', s: 'MASKED', text: 'Fix bug for client [MASKED-NAME] in module…' },
-  { t: '13:58', u: 'F-102', d: 'Fin', tool: 'Gemini', s: 'ALERT', text: 'Summarise payment of [MASKED-IC] invoice…' },
-  { t: '13:51', u: 'S-044', d: 'Sales', tool: 'SummarizerX', s: 'REDIRECTED', text: '→ switched to approved tool (ChatGPT)' },
-  { t: '13:47', u: 'E-198', d: 'Eng', tool: 'ChatGPT', s: 'CLEAN', text: 'Explain difference between SQL joins…' },
-  { t: '13:40', u: 'H-011', d: 'HR', tool: 'Gemini', s: 'MASKED', text: 'Draft letter to [MASKED-NAME], [MASKED-PHONE]…' },
-  { t: '13:22', u: 'M-019', d: 'Mktg', tool: 'ChatGPT', s: 'CLEAN', text: 'Suggest 5 taglines for Q3 campaign…' },
-  { t: '13:15', u: 'F-102', d: 'Fin', tool: 'Gemini', s: 'MASKED', text: 'Reconcile invoice for [MASKED-NAME]…' },
-  { t: '12:58', u: 'E-084', d: 'Eng', tool: 'ChatGPT', s: 'CLEAN', text: 'Write unit test for masking util…' },
-]
-const chip = {
-  MASKED: 'bg-emerald-100 text-emerald-800', ALERT: 'bg-red-100 text-red-800',
-  REDIRECTED: 'bg-amber-100 text-amber-800', CLEAN: 'bg-indigo-100 text-indigo-800',
+const statusChip = {
+  MASKED: 'bg-[#e9f8f2] text-[#078b6c]',
+  ALERT: 'bg-[#fff0f0] text-[#d92d20]',
+  REDIRECTED: 'bg-[#fff5de] text-[#d97706]',
+  CLEAN: 'bg-[#eef2ff] text-[#365fd9]',
 }
+
+const assurance = [
+  ['● LIVE', 'Events stream in real time'],
+  ['✓ INTEGRITY VERIFIED', 'Append-only event chain'],
+  ['90-DAY RETENTION', 'Masked prompts only'],
+  ['3 FRAMEWORKS', 'NIST AI RMF · EU AI Act · PDPA'],
+]
+
+const events = [
+  ['14:02', 'EV-8217', 'E-217', 'Eng', 'ChatGPT', 'MASKED', 'NIST PR.DS', 'Fix bug for client [MASKED-NAME] in module…'],
+  ['13:58', 'EV-8216', 'F-102', 'Fin', 'Gemini', 'ALERT', 'PDPA P7', 'Summarise payment for [MASKED-ID] invoice…'],
+  ['13:51', 'EV-8215', 'S-044', 'Sales', 'SummarizerX', 'REDIRECTED', 'AIGE 4.2', 'Switched to approved tool · ChatGPT'],
+  ['13:47', 'EV-8214', 'E-198', 'Eng', 'ChatGPT', 'CLEAN', 'NIST GV.4', 'Explain the difference between SQL joins…'],
+  ['13:40', 'EV-8213', 'H-011', 'HR', 'Gemini', 'MASKED', 'EU AI Act 4', 'Draft letter to [MASKED-NAME], [MASKED-PHONE]…'],
+  ['13:32', 'EV-8212', 'M-083', 'Mkt', 'ChatGPT', 'CLEAN', 'AIGE 3.1', 'Create campaign options for product launch…'],
+  ['13:18', 'EV-8211', 'O-031', 'Ops', 'Gemini', 'MASKED', 'PDPA P7', 'Compare delivery notes for [MASKED-ACCOUNT]…'],
+]
+
+const cols = 'grid grid-cols-[56px_78px_64px_56px_106px_112px_104px_1fr_28px] items-center gap-1'
 
 export default function AuditLog() {
   return (
-    <>
-      <div className="flex justify-between items-start">
+    <div>
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-navy">Audit Log</h1>
-          <p className="text-gray-500 text-sm">Full history of prompts checked by the Smart Gateway.</p>
+          <h1 className="text-[28px] font-bold text-[#17213a]">Audit Log</h1>
+          <p className="text-[#667085] text-sm mt-1.5">Trace every protected prompt, policy decision and approval action.</p>
         </div>
-        <button className="border-2 border-dashed border-gold-dark rounded-xl p-1.5">
-          <span className="block bg-gold text-navy font-bold text-sm px-5 py-2 rounded-lg">Export CSV</span>
+        <button className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-8 h-11 rounded-full cursor-pointer">
+          One-click audit report
         </button>
       </div>
 
-      <div className="flex gap-3 mt-5">
-        <input placeholder="Search by user, tool, department…" className="bg-card border-2 border-[#d8cfae] rounded-lg px-4 py-2 text-sm outline-none flex-1" />
-        <select className="bg-card border-2 border-[#d8cfae] rounded-lg px-4 py-2 text-sm outline-none">
-          <option>All actions</option>
-          <option>Masked</option>
-          <option>Alert</option>
-          <option>Redirected</option>
-          <option>Clean</option>
-        </select>
+      {/* Audit assurance strip */}
+      <div className="bg-navy-header rounded-[12px] px-6 py-3.5 mt-6 grid grid-cols-4 gap-4">
+        {assurance.map(([title, sub]) => (
+          <div key={title}>
+            <p className="text-gold-brand font-semibold text-[11px]">{title}</p>
+            <p className="text-white text-[11px] mt-1">{sub}</p>
+          </div>
+        ))}
       </div>
 
-      <div className="bg-card border-2 border-[#d8cfae] rounded-2xl p-6 mt-5">
-        <div className="flex justify-between mb-3">
-          <p className="font-bold text-navy text-sm">All events</p>
-          <p className="text-xs text-emerald-700">● live</p>
+      {/* Audit events table */}
+      <div className="bg-white border border-[#d8d0b4] rounded-[14px] p-5 pt-4 mt-5">
+        <div className="flex justify-between items-start">
+          <div>
+            <p className="text-[#17213a] font-bold text-lg">Audit events</p>
+            <p className="text-[#667085] text-xs mt-0.5">1,248 events · refreshed just now</p>
+          </div>
+          <div className="flex gap-2.5">
+            <div className="bg-[#fffcef] border border-[#d8d0b4] rounded-[9px] h-10 w-[280px] flex items-center px-2.5 gap-2">
+              <span className="text-[#667085] text-[17px]">⌕</span>
+              <input placeholder="Search event ID, user or tool" className="flex-1 bg-transparent outline-none text-xs text-[#17213a] placeholder-[#667085]" />
+            </div>
+            <button className="bg-navy-header text-white font-semibold text-[13px] h-10 px-6 rounded-full cursor-pointer">Today</button>
+            <button className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-10 px-5 rounded-full cursor-pointer hover:bg-chip">All actions</button>
+            <button className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-10 px-5 rounded-full cursor-pointer hover:bg-chip">More filters</button>
+          </div>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-navy text-gold text-[11px] tracking-wider">
-              {['TIME', 'USER', 'DEPT', 'TOOL', 'ACTION', 'MASKED PROMPT (STORED VERSION)'].map(h => (
-                <th key={h} className="text-left px-3 py-2 first:rounded-l-lg last:rounded-r-lg">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {log.map((r, i) => (
-              <tr key={i} className="border-b border-[#eee5cf] last:border-0">
-                <td className="px-3 py-2.5">{r.t}</td>
-                <td className="px-3">{r.u}</td>
-                <td className="px-3">{r.d}</td>
-                <td className="px-3">{r.tool}</td>
-                <td className="px-3"><span className={`text-[11px] font-bold px-3 py-1 rounded-full ${chip[r.s]}`}>{r.s}</span></td>
-                <td className="px-3 font-mono text-xs text-gray-600">{r.text}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+        <div className={`${cols} bg-navy-header rounded-[8px] text-gold-brand font-semibold text-[11px] px-3 h-11 mt-4`}>
+          <p>Time</p><p>Event</p><p>User</p><p>Dept</p><p>Tool</p><p>Action</p><p>Control</p><p>Masked record</p><p />
+        </div>
+        {events.map((e, i) => (
+          <div key={e[1]} className={`${cols} px-3 h-14 border-b border-[#eee6d4] text-xs ${i % 2 === 1 ? 'bg-[#fffcef]' : 'bg-white'}`}>
+            <p className="text-[#475467]">{e[0]}</p>
+            <p className="text-[#475467] font-medium">{e[1]}</p>
+            <p className="text-[#475467]">{e[2]}</p>
+            <p className="text-[#475467]">{e[3]}</p>
+            <p className="text-[#475467]">{e[4]}</p>
+            <p><span className={`inline-block font-semibold text-[10px] rounded-full px-2.5 py-1 ${statusChip[e[5]]}`}>{e[5]}</span></p>
+            <p className="text-[#365fd9] font-medium">{e[6]}</p>
+            <p className="text-[#475467] truncate pr-2">{e[7]}</p>
+            <p className="text-[#667085] text-center">⋯</p>
+          </div>
+        ))}
+
+        <div className="flex items-center justify-between mt-4">
+          <p className="text-[#667085] text-xs">Showing 7 of 1,248 events&nbsp;&nbsp;·&nbsp;&nbsp;Raw personal data is never stored</p>
+          <div className="flex items-center gap-3">
+            <p className="text-[#667085] font-medium text-xs">1 of 179</p>
+            <button className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">‹</button>
+            <button className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">›</button>
+          </div>
+        </div>
       </div>
-    </>
+    </div>
   )
 }

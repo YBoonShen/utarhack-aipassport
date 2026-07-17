@@ -1,124 +1,137 @@
 // 11 Admin · Governance Overview — matches Figma frame "11 Admin • Governance Overview"
-const depts = [
-  { name: 'Engineering', v: 420 }, { name: 'Sales', v: 350 },
-  { name: 'Finance', v: 210, alert: true }, { name: 'Marketing', v: 180 }, { name: 'HR', v: 90 },
+import { Link } from 'react-router-dom'
+
+const departments = [
+  { name: 'Engineering', value: 420, height: 178, color: '#0b2457' },
+  { name: 'Sales', value: 350, height: 148, color: '#173976' },
+  { name: 'Finance', value: 210, height: 90, color: '#d9b32c' },
+  { name: 'Marketing', value: 180, height: 76, color: '#365fd9' },
+  { name: 'HR', value: 90, height: 40, color: '#98a2b3' },
 ]
+
 const alerts = [
-  { level: 'High', color: 'red', title: 'Repeated IC numbers in prompts', sub: 'Finance · user F-102 · 4 events · today', action: 'Assign refresher training →' },
-  { level: 'Medium', color: 'amber', title: 'Unapproved tool detected', sub: 'Sales · "SummarizerX" · redirected to approved', action: 'Review tool request →' },
-  { level: 'Medium', color: 'amber', title: 'AI-assisted decision flagged', sub: 'HR screening · human review requested', action: 'Open review case →' },
+  {
+    severity: 'High', title: 'Repeated identity numbers in prompts', meta: 'Finance · 4 events today',
+    action: 'Assign refresher training', to: '/admin/risk-alerts',
+    card: 'bg-[#fff0f0] border-[rgba(217,45,32,0.8)]', text: 'text-[#d92d20]', dot: 'bg-[#d92d20]',
+  },
+  {
+    severity: 'Medium', title: 'Unapproved tool detected', meta: 'Sales · redirected to approved tool',
+    action: 'Review tool request', to: '/admin/tool-approvals',
+    card: 'bg-[#fff5de] border-[rgba(217,119,6,0.8)]', text: 'text-[#d97706]', dot: 'bg-[#d97706]',
+  },
+  {
+    severity: 'Medium', title: 'AI-assisted decision flagged', meta: 'HR · human review requested',
+    action: 'Open review case', to: '/admin/risk-alerts',
+    card: 'bg-[#fff5de] border-[rgba(217,119,6,0.8)]', text: 'text-[#d97706]', dot: 'bg-[#d97706]',
+  },
 ]
-const log = [
-  { t: '14:02', u: 'E-217', d: 'Eng', tool: 'ChatGPT', s: 'MASKED', text: 'Fix bug for client [MASKED-NAME] in module…' },
-  { t: '13:58', u: 'F-102', d: 'Fin', tool: 'Gemini', s: 'ALERT', text: 'Summarise payment of [MASKED-IC] invoice…' },
-  { t: '13:51', u: 'S-044', d: 'Sales', tool: 'SummarizerX', s: 'REDIRECTED', text: '→ switched to approved tool (ChatGPT)' },
-  { t: '13:47', u: 'E-198', d: 'Eng', tool: 'ChatGPT', s: 'CLEAN', text: 'Explain difference between SQL joins…' },
-  { t: '13:40', u: 'H-011', d: 'HR', tool: 'Gemini', s: 'MASKED', text: 'Draft letter to [MASKED-NAME], [MASKED-PHONE]…' },
+
+const auditRows = [
+  ['14:02', 'E-217', 'Eng', 'ChatGPT', 'MASKED', 'Fix bug for client [MASKED-NAME] in module…'],
+  ['13:58', 'F-102', 'Fin', 'Gemini', 'ALERT', 'Summarise payment for [MASKED-ID] invoice…'],
+  ['13:51', 'S-044', 'Sales', 'AltTool', 'REDIRECTED', 'Switched to approved tool · ChatGPT'],
+  ['13:47', 'E-198', 'Eng', 'ChatGPT', 'CLEAN', 'Explain the difference between SQL joins…'],
+  ['13:40', 'H-011', 'HR', 'Gemini', 'MASKED', 'Draft letter to [MASKED-NAME], [MASKED-PHONE]…'],
 ]
-const chip = {
-  MASKED: 'bg-emerald-100 text-emerald-800', ALERT: 'bg-red-100 text-red-800',
-  REDIRECTED: 'bg-amber-100 text-amber-800', CLEAN: 'bg-indigo-100 text-indigo-800',
-}
+
+const cols = 'grid grid-cols-[72px_90px_100px_110px_112px_1fr]'
 
 export default function AdminOverview() {
   return (
-    <>
-        <div className="flex justify-between items-start">
-          <div>
-            <h1 className="text-2xl font-bold text-navy">Overview</h1>
-            <p className="text-gray-500 text-sm">Company-wide AI usage · updated live</p>
-          </div>
-          <button className="border-2 border-dashed border-gold-dark rounded-xl p-1.5">
-            <span className="block bg-gold text-navy font-bold text-sm px-5 py-2 rounded-lg">One-Click Audit Report (PDF)</span>
-          </button>
+    <div>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-[28px] font-bold text-navy-header">Overview</h1>
+          <p className="text-[#667085] text-xs mt-1">Company-wide AI usage · refreshed live</p>
         </div>
+        <button className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-11 h-[46px] rounded-full cursor-pointer">
+          Export audit report&nbsp;&nbsp;↓
+        </button>
+      </div>
 
-        {/* Stat cards */}
-        <div className="grid grid-cols-4 gap-5 mt-6">
-          <div className="bg-navy rounded-2xl p-5 text-white">
-            <p className="text-gold text-[10px] font-bold tracking-wider">PROMPTS PROTECTED TODAY</p>
-            <p className="text-4xl font-bold mt-2">312 <span className="text-emerald-300 text-sm font-medium">▲ 8%</span></p>
+      {/* KPI cards */}
+      <div className="grid grid-cols-4 gap-3 mt-5">
+        <div className="bg-navy-header rounded-[14px] px-5 py-4">
+          <p className="text-gold-brand font-semibold text-[10px] tracking-[1px]">PROMPTS PROTECTED TODAY</p>
+          <div className="flex items-baseline gap-3 mt-2">
+            <p className="text-white font-bold text-[30px]">312</p>
+            <p className="text-[#a7f3d0] font-medium text-[11px]">▲ 8%</p>
           </div>
-          <Stat label="ITEMS MASKED TODAY" value="58" />
-          <div className="bg-card border-2 border-red-600 rounded-2xl p-5">
-            <p className="text-red-700 text-[10px] font-bold tracking-wider">ACTIVE RISK ALERTS</p>
-            <p className="text-4xl font-bold text-red-700 mt-2">3 <span className="text-sm font-medium">needs review</span></p>
-          </div>
-          <Stat label="AVG LICENSE LEVEL" value="2.1" extra="▲ from 1.6" />
         </div>
-
-        <div className="grid grid-cols-[1fr_400px] gap-5 mt-5">
-          {/* Bar chart */}
-          <div className="bg-card border-2 border-[#d8cfae] rounded-2xl p-6">
-            <p className="font-bold text-navy text-sm mb-6">AI usage by department (prompts this week)</p>
-            <div className="flex items-end gap-8 h-56 border-b-2 border-[#d8cfae] px-4">
-              {depts.map(d => (
-                <div key={d.name} className="flex flex-col items-center gap-1 flex-1">
-                  <p className="text-xs font-bold" style={{ color: d.alert ? '#b8912a' : '#12275a' }}>{d.v}</p>
-                  <div className="w-full rounded-t-md" style={{ height: `${d.v / 2}px`, background: d.alert ? '#b8912a' : '#12275a' }} />
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-8 px-4 mt-2">
-              {depts.map(d => (
-                <div key={d.name} className="flex-1 text-center">
-                  <p className="text-xs text-gray-500">{d.name}</p>
-                  {d.alert && <p className="text-[10px] text-red-700">2 alerts</p>}
-                </div>
-              ))}
-            </div>
+        <div className="bg-white rounded-[14px] px-5 py-4">
+          <p className="text-[#8a7d56] font-semibold text-[10px] tracking-[1px]">ITEMS MASKED TODAY</p>
+          <div className="flex items-baseline gap-3 mt-2">
+            <p className="text-navy-header font-bold text-[30px]">58</p>
+            <p className="text-[#667085] font-medium text-[11px]">12 fewer than yesterday</p>
           </div>
+        </div>
+        <div className="bg-[#fff0f0] border border-[rgba(217,45,32,0.3)] rounded-[14px] px-5 py-4">
+          <p className="text-[#d92d20] font-semibold text-[10px] tracking-[1px]">ACTIVE RISK ALERTS</p>
+          <div className="flex items-baseline gap-3 mt-2">
+            <p className="text-[#d92d20] font-bold text-[30px]">3</p>
+            <p className="text-[#d92d20] font-medium text-[11px]">Needs review</p>
+          </div>
+        </div>
+        <div className="bg-white rounded-[14px] px-5 py-4">
+          <p className="text-[#8a7d56] font-semibold text-[10px] tracking-[1px]">AVG LICENSE LEVEL</p>
+          <div className="flex items-baseline gap-3 mt-2">
+            <p className="text-navy-header font-bold text-[30px]">2.1</p>
+            <p className="text-[#078b6c] font-medium text-[11px]">▲ from 1.6</p>
+          </div>
+        </div>
+      </div>
 
-          {/* Risk alerts */}
-          <div className="bg-card border-2 border-[#d8cfae] rounded-2xl p-6">
-            <p className="font-bold text-navy text-sm mb-4">Risk alerts</p>
-            {alerts.map(a => (
-              <div key={a.title} className={`rounded-xl border px-4 py-3 mb-3 ${a.color === 'red' ? 'bg-red-50 border-red-500' : 'bg-amber-50 border-amber-500'}`}>
-                <p className={`text-sm font-bold ${a.color === 'red' ? 'text-red-800' : 'text-amber-800'}`}>{a.level}: {a.title}</p>
-                <p className="text-xs text-gray-600 mt-0.5">{a.sub}</p>
-                <p className="text-xs text-blue-700 mt-1">{a.action}</p>
+      {/* Usage chart + risk alerts */}
+      <div className="grid grid-cols-[1fr_438px] gap-4 mt-4">
+        <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-5">
+          <p className="text-navy-header font-semibold text-[15px]">AI usage by department · prompts this week</p>
+          <div className="flex items-end justify-around h-[230px] mt-6">
+            {departments.map(d => (
+              <div key={d.name} className="flex flex-col items-center justify-end">
+                <p className="text-navy-header font-semibold text-xs mb-1.5">{d.value}</p>
+                <div className="w-[72px] rounded-[8px]" style={{ height: d.height, backgroundColor: d.color }} />
+                <p className="text-[#667085] font-medium text-[11px] mt-2">{d.name}</p>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Audit log */}
-        <div className="bg-card border-2 border-[#d8cfae] rounded-2xl p-6 mt-5">
-          <div className="flex justify-between mb-3">
-            <p className="font-bold text-navy text-sm">Live audit log</p>
-            <p className="text-xs text-emerald-700">● live</p>
+        <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-4">
+          <div className="flex justify-between items-center px-0.5">
+            <p className="text-navy-header font-semibold text-[15px]">Risk alerts</p>
+            <p className="text-[#d92d20] font-semibold text-[11px]">3 open</p>
           </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-navy text-gold text-[11px] tracking-wider">
-                {['TIME', 'USER', 'DEPT', 'TOOL', 'ACTION', 'MASKED PROMPT (STORED VERSION)'].map(h => (
-                  <th key={h} className="text-left px-3 py-2 first:rounded-l-lg last:rounded-r-lg">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {log.map(r => (
-                <tr key={r.t} className="border-b border-[#eee5cf] last:border-0">
-                  <td className="px-3 py-2.5">{r.t}</td>
-                  <td className="px-3">{r.u}</td>
-                  <td className="px-3">{r.d}</td>
-                  <td className="px-3">{r.tool}</td>
-                  <td className="px-3"><span className={`text-[11px] font-bold px-3 py-1 rounded-full ${chip[r.s]}`}>{r.s}</span></td>
-                  <td className="px-3 font-mono text-xs text-gray-600">{r.text}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="flex flex-col gap-2.5 mt-3.5">
+            {alerts.map(a => (
+              <div key={a.title} className={`border rounded-[11px] px-3 py-2.5 flex gap-2.5 ${a.card}`}>
+                <span className={`w-3 h-3 rounded-full mt-0.5 shrink-0 ${a.dot}`} />
+                <div>
+                  <p className={`font-semibold text-[11px] ${a.text}`}>{a.severity} · {a.title}</p>
+                  <p className="text-[#667085] text-[10px] mt-0.5">{a.meta}</p>
+                  <Link to={a.to} className="text-[#365fd9] font-medium text-[10px] mt-0.5 inline-block">{a.action}&nbsp;&nbsp;→</Link>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-    </>
-  )
-}
+      </div>
 
-function Stat({ label, value, extra }) {
-  return (
-    <div className="bg-card border-2 border-[#d8cfae] rounded-2xl p-5">
-      <p className="text-[#8a7f60] text-[10px] font-bold tracking-wider">{label}</p>
-      <p className="text-4xl font-bold text-navy mt-2">{value} {extra && <span className="text-emerald-700 text-sm font-medium">{extra}</span>}</p>
+      {/* Live audit log */}
+      <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-4 mt-4">
+        <div className="flex justify-between items-center px-0.5">
+          <p className="text-navy-header font-semibold text-[15px]">Live audit log</p>
+          <p className="text-[#078b6c] font-medium text-[10px]">●&nbsp;&nbsp;live</p>
+        </div>
+        <div className={`${cols} bg-navy-header rounded-[9px] text-gold-brand font-semibold text-[10px] tracking-[0.6px] px-3.5 py-2.5 mt-3`}>
+          <p>TIME</p><p>USER</p><p>DEPT</p><p>TOOL</p><p>ACTION</p><p>MASKED PROMPT · STORED VERSION</p>
+        </div>
+        {auditRows.map((row, i) => (
+          <div key={i} className={`${cols} text-[#475467] text-[10px] px-3.5 py-3.5 ${i % 2 === 0 ? 'bg-[#fcfaf3]' : 'bg-white'}`}>
+            {row.map((cell, j) => <p key={j}>{cell}</p>)}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

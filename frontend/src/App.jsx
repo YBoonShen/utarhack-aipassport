@@ -43,7 +43,7 @@ export default function App() {
           <Route path="/transparency" element={<Transparency />} />
 
           {/* Admin console — shared sidebar layout */}
-          <Route path="/admin" element={<EmployeeLayout><AdminLayout /></EmployeeLayout>}>
+          <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<AdminOverview />} />
             <Route path="departments" element={<Departments />} />
             <Route path="risk-alerts" element={<RiskAlerts />} />
