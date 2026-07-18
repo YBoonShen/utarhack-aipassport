@@ -1,7 +1,7 @@
 // In-memory demo state — one shared "world" for the whole prototype so every
 // screen (employee + admin) reads the same numbers. Resets on server restart
 // or via POST /api/reset. Firebase remains the planned persistent store.
-import { maskPrompt } from './detector.js'
+import { maskPromptFull } from './layer2.js'
 
 const LEVEL_TARGET = 2000
 
@@ -91,8 +91,8 @@ function pushEvent(s, text) {
 // Points rules (proposal §5): masking protects but does NOT earn points (so
 // sensitive prompts can't be farmed); clean prompts +2; overriding the
 // checkpoint and sending the original costs -20 and resets the streak.
-export function recordSend(text, override = false) {
-  const { masked, detections } = maskPrompt(text)
+export async function recordSend(text, override = false) {
+  const { masked, detections, layer2 } = await maskPromptFull(text)
   let delta, sentText, status
   if (detections.length === 0) {
     delta = 2
@@ -119,7 +119,7 @@ export function recordSend(text, override = false) {
   }
   const levelUp = applyPoints(delta)
   pushEvent(status, sentText.slice(0, 60) + (sentText.length > 60 ? '…' : ''))
-  return { sentText, status, detections, delta, levelUp, profile: state.profile }
+  return { sentText, status, detections, delta, levelUp, layer2, profile: state.profile }
 }
 
 export function answerQuiz(question, picked, correct) {

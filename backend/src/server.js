@@ -17,7 +17,7 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import { maskPrompt } from './detector.js'
+import { maskPromptFull } from './layer2.js'
 import { logDetection } from './firebase.js'
 import * as demo from './state.js'
 
@@ -34,17 +34,17 @@ app.post('/api/detect', async (req, res) => {
   if (typeof prompt !== 'string' || prompt.length === 0) {
     return res.status(400).json({ error: 'Body must be { "prompt": "..." }' })
   }
-  const result = maskPrompt(prompt)
+  const result = await maskPromptFull(prompt)
   const audit = await logDetection({ detections: result.detections, masked: result.masked })
   res.json({ ...result, audit })
 })
 
-app.post('/api/send', (req, res) => {
+app.post('/api/send', async (req, res) => {
   const { prompt, override } = req.body || {}
   if (typeof prompt !== 'string' || prompt.length === 0) {
     return res.status(400).json({ error: 'Body must be { "prompt": "...", "override": boolean }' })
   }
-  res.json(demo.recordSend(prompt, Boolean(override)))
+  res.json(await demo.recordSend(prompt, Boolean(override)))
 })
 
 app.get('/api/profile', (req, res) => res.json(demo.getState().profile))

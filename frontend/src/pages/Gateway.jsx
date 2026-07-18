@@ -156,7 +156,10 @@ export default function Gateway() {
               </div>
 
               <div className="mt-4 bg-card border border-[#d8cfae] rounded-lg px-4 py-2.5 text-xs text-gray-600">
-                Detected: {checkpoint.detections.map(d => `${d.type} ×${d.count}`).join(' · ')} · logged to audit trail.
+                Detected: {checkpoint.detections.map(d => `${d.type} ×${d.count}`).join(' · ')}
+                {checkpoint.layer2 === 'gemini' && ' · names by Gemini (Layer 2)'}
+                {checkpoint.layer2 === 'heuristic' && ' · names by offline heuristic (Layer 2 fallback)'}
+                {' '}· logged to audit trail.
                 Masking earns no points — clean prompts earn +2; sending the original costs −20 and resets your streak.
               </div>
 
