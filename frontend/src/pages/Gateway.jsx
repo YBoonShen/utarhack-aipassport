@@ -53,6 +53,18 @@ export default function Gateway() {
     }
   }
 
+  // Warn-only mode: sending the original is allowed but penalised (-20, streak reset)
+  async function sendOriginal() {
+    try {
+      await fetch('/api/gateway/override', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: checkedPrompt }),
+      })
+    } catch { /* offline */ }
+    deliver(checkedPrompt)
+  }
+
   function deliver(text) {
     setMessages(m => [
       ...m,
@@ -73,7 +85,10 @@ export default function Gateway() {
       {/* Chat sidebar */}
       <aside className="bg-white border-r border-[#e4e7ec] w-[250px] shrink-0 px-7 py-7 hidden lg:block">
         <p className="text-navy-header font-bold text-[17px]">AI CHAT</p>
-        <button className="bg-[#f2f4f7] hover:bg-[#e4e7ec] rounded-[12px] w-full h-12 mt-5 px-4 text-left text-[#344054] text-sm font-medium cursor-pointer">
+        <button
+          onClick={() => { setMessages([]); setPrompt(''); setResult(null) }}
+          className="bg-[#f2f4f7] hover:bg-[#e4e7ec] rounded-[12px] w-full h-12 mt-5 px-4 text-left text-[#344054] text-sm font-medium cursor-pointer"
+        >
           +&nbsp;&nbsp;New chat
         </button>
         <div className="flex flex-col gap-4 mt-4">
@@ -155,7 +170,11 @@ export default function Gateway() {
               <div className="bg-white border border-[#d8d0b4] rounded-[10px] px-4 h-14 mt-5 flex items-center gap-3">
                 <span className="w-3 h-3 rounded-full bg-[#078b6c] shrink-0" />
                 <p className="text-[#667085] text-xs">
-                  Detected locally: {detectedSummary}&nbsp;&nbsp;·&nbsp;&nbsp;Audit records store only the masked version&nbsp;&nbsp;·&nbsp;&nbsp;+10 safety points
+                  Detected: {detectedSummary}
+                  {result.layer2 && result.layer2 !== 'none' && (
+                    <>&nbsp;&nbsp;·&nbsp;&nbsp;Layer 2: {result.layer2 === 'gemini' ? 'Gemini AI' : 'context heuristic'}</>
+                  )}
+                  &nbsp;&nbsp;·&nbsp;&nbsp;Audit records store only the masked version
                 </p>
               </div>
 
@@ -175,8 +194,8 @@ export default function Gateway() {
                   </button>
                 )}
                 {mode === 'Warn only' && (
-                  <button onClick={() => deliver(checkedPrompt)} className="border border-[#d92d20] text-[#d92d20] font-semibold text-sm px-5 h-12 rounded-full cursor-pointer hover:bg-[#fff0f0]">
-                    Send original anyway
+                  <button onClick={sendOriginal} className="border border-[#d92d20] text-[#d92d20] font-semibold text-sm px-5 h-12 rounded-full cursor-pointer hover:bg-[#fff0f0]">
+                    Send original anyway (-20 pts)
                   </button>
                 )}
                 <button onClick={() => setResult(null)} className="border border-navy-header text-navy-header font-semibold text-sm w-[180px] h-12 rounded-full cursor-pointer hover:bg-white">

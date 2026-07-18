@@ -1,7 +1,24 @@
 // Shared in-memory data store — the single source of truth both the employee
-// and admin UIs read/write through the REST API. Restarting the server resets
-// to the seed state (handy for demos). Swap these functions for Firestore
-// queries once the Firebase project is connected (see firebase.js).
+// and admin UIs read/write through the REST API. Restarting the server (or
+// POST /api/reset) returns to the seed state. Swap these functions for
+// Firestore queries once the Firebase project is connected (see firebase.js).
+//
+// Points rules (proposal §1/§5, ported from Jia Yin's state.js): masking
+// protects but does NOT earn points (so sensitive prompts can't be farmed);
+// clean prompts +2; overriding the checkpoint and sending the original costs
+// -20 and resets the safe streak; quiz questions award +50 on a correct FIRST
+// attempt. Level 3 unlocks at 2,000 points and is sticky once earned.
+
+const LEVEL_TARGET = 2000
+
+const COLLEAGUES = [
+  { name: 'Lim Kai Wen', dept: 'Engineering', points: 1725 },
+  { name: 'Nurul Aisyah', dept: 'Engineering', points: 1610 },
+  { name: 'Priya Kumar', dept: 'Engineering', points: 1445 },
+  { name: 'Daniel Wong', dept: 'Engineering', points: 1320 },
+  { name: 'Mei Xin', dept: 'Engineering', points: 1180 },
+  { name: 'Jason Teh', dept: 'Engineering', points: 950 },
+]
 
 function seed() {
   return {
@@ -15,7 +32,7 @@ function seed() {
       level: 2,
       levelName: 'Navigator',
       points: 1240,
-      target: 2000,
+      target: LEVEL_TARGET,
       streakDays: 21,
       promptsProtected: 47,
       itemsMasked: 12,
@@ -27,7 +44,9 @@ function seed() {
       ],
     },
 
-    counters: { promptsToday: 312, maskedToday: 58, nextEventNo: 8218, nextRequestNo: 493 },
+    counters: { promptsToday: 312, maskedToday: 58, nextEventNo: 8218, nextRequestNo: 493, nextAlertNo: 2052 },
+
+    quiz: {}, // { [questionIndex]: { correct } } — first attempt only
 
     auditEvents: [
       { id: 'EV-8217', time: '14:02', user: 'E-217', dept: 'Eng', tool: 'ChatGPT', action: 'MASKED', control: 'NIST PR.DS', record: 'Fix bug for client [MASKED-NAME] in module…' },
@@ -35,6 +54,45 @@ function seed() {
       { id: 'EV-8215', time: '13:51', user: 'S-044', dept: 'Sales', tool: 'SummarizerX', action: 'REDIRECTED', control: 'AIGE 4.2', record: 'Switched to approved tool · ChatGPT' },
       { id: 'EV-8214', time: '13:47', user: 'E-198', dept: 'Eng', tool: 'ChatGPT', action: 'CLEAN', control: 'NIST GV.4', record: 'Explain the difference between SQL joins…' },
       { id: 'EV-8213', time: '13:40', user: 'H-011', dept: 'HR', tool: 'Gemini', action: 'MASKED', control: 'EU AI Act 4', record: 'Draft letter to [MASKED-NAME], [MASKED-PHONE]…' },
+    ],
+
+    alerts: [
+      {
+        id: 'RA-2048', severity: 'HIGH', status: 'open', title: 'Repeated identifiers in prompts',
+        meta: 'Finance · User F-102 · 4 events today', due: 'Due in 2h 18m',
+        detailMeta: 'Finance · User F-102 · detected today at 13:58',
+        what: 'Four prompts contained the same identifier pattern. The gateway masked every instance before transmission.',
+        evidence: 'Payment reminder for [MASKED-ID] invoice…', evidenceNote: 'Layer 1 pattern match · confidence 99%',
+        timeline: [['13:58', 'Alert created'], ['14:01', 'Employee notified'], ['14:06', 'Manager review pending']],
+        recommend: 'Assign the 5-minute Data Privacy refresher.', primary: 'Assign training',
+      },
+      {
+        id: 'RA-2049', severity: 'MEDIUM', status: 'open', title: 'Unapproved tool detected',
+        meta: 'Sales · SummarizerX · redirected to approved tool', due: 'Due tomorrow',
+        detailMeta: 'Sales · User S-044 · detected today at 13:51',
+        what: 'An employee opened an unapproved AI tool. The gateway redirected them to the approved alternative with one click.',
+        evidence: 'Switched to approved tool · ChatGPT', evidenceNote: 'Redirect accepted · no data sent to unapproved tool',
+        timeline: [['13:51', 'Alert created'], ['13:51', 'Redirect offered'], ['13:52', 'Approved tool opened']],
+        recommend: 'Review the pending SummarizerX visa request.', primary: 'Review tool request',
+      },
+      {
+        id: 'RA-2050', severity: 'MEDIUM', status: 'open', title: 'AI-assisted decision flagged',
+        meta: 'HR screening · human review requested', due: 'Due tomorrow',
+        detailMeta: 'HR · Case REF-2026-041 · flagged today at 11:20',
+        what: 'An affected applicant used the public transparency page to request a human review of an AI-assisted screening decision.',
+        evidence: 'Screening summary for [MASKED-NAME]…', evidenceNote: 'Disclosure record complete · masked only',
+        timeline: [['11:20', 'Review requested'], ['11:24', 'Case assigned'], ['—', 'Human decision pending']],
+        recommend: 'Route the case to an independent human reviewer.', primary: 'Open review case',
+      },
+      {
+        id: 'RA-2051', severity: 'MONITORING', status: 'open', title: 'Masking rate above baseline',
+        meta: 'Operations · 2.1× weekly average', due: 'Observe 24h',
+        detailMeta: 'Operations · department-wide · trend since 15 Jul',
+        what: 'The masking rate in Operations is 2.1× the weekly average. No single user is responsible; the pattern is spread across the team.',
+        evidence: 'Aggregated masking events · no raw text stored', evidenceNote: 'Trend monitor · auto-resolves if rate normalises',
+        timeline: [['15 Jul', 'Trend detected'], ['16 Jul', 'Threshold exceeded'], ['—', 'Observation ends in 24h']],
+        recommend: 'Keep observing. Assign group refresher if the trend continues.', primary: 'Acknowledge',
+      },
     ],
 
     visaRequests: [
@@ -94,7 +152,7 @@ function seed() {
         title: '2 sensitive items were masked',
         body: 'A name and IC number were removed before your prompt was sent to Gemini.',
         what: 'The Smart Gateway detected a personal name and an IC number in your prompt. Both were replaced with masked tokens before the prompt left your browser.',
-        facts: [['Items masked', 'Name, IC number'], ['AI tool', 'Gemini'], ['Stored version', 'Masked only'], ['Action needed', 'None'], ['Reward', '+10 safety miles']],
+        facts: [['Items masked', 'Name, IC number'], ['AI tool', 'Gemini'], ['Stored version', 'Masked only'], ['Action needed', 'None'], ['Reward', 'Protected · no points change']],
         read: false, deleted: false,
       },
     ],
@@ -102,7 +160,7 @@ function seed() {
     settings: {
       mode: 'Mask and continue', // 'Mask and continue' | 'Warn only' | 'Block'
       controls: {
-        personalIdentifiers: true, // IC, passport, phone, email
+        personalIdentifiers: true, // IC, passport, phone, email + Layer 2 names
         customerRecords: true,     // card numbers
         financialFigures: true,    // RM/USD amounts
         sourceCode: false,         // credentials/secrets
@@ -123,7 +181,7 @@ export function resetStore() {
 // ---- helpers used by the API routes ----
 
 const CONTROL_TAGS = {
-  IC: 'PDPA P7', PASSPORT: 'PDPA P7', PHONE: 'PDPA P7', EMAIL: 'PDPA P7',
+  IC: 'PDPA P7', PASSPORT: 'PDPA P7', PHONE: 'PDPA P7', EMAIL: 'PDPA P7', NAME: 'PDPA P7',
   CARD: 'PDPA P7', FINANCIAL: 'NIST PR.DS', CREDENTIAL: 'NIST PR.DS',
 }
 
@@ -131,25 +189,69 @@ function nowTime() {
   return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 }
 
-export function recordPromptEvent({ detections, masked, tool = 'AI Assistant' }) {
-  const total = detections.reduce((n, d) => n + d.count, 0)
+function todayDate() {
+  return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+// Level is sticky once earned — dropping points later doesn't demote mid-demo.
+export function applyPoints(delta) {
+  const p = db.profile
+  p.points = Math.max(0, p.points + delta)
+  const computed = p.points >= LEVEL_TARGET ? 3 : 2
+  const levelUp = computed > p.level
+  if (levelUp) {
+    p.level = computed
+    p.levelName = 'Ambassador'
+    addNotification({
+      category: 'MILESTONE',
+      title: 'Level 3 · Ambassador reached',
+      body: 'You hit 2,000 safety points. New tools and data categories are now unlocked.',
+      what: 'Your consistent safe-AI habits earned Level 3 · Ambassador. GitHub Copilot and additional data categories are now available within your Engineering role.',
+      facts: [
+        ['New level', 'Level 3 · Ambassador'],
+        ['Unlocked', 'GitHub Copilot · source code scope'],
+        ['Points', `${p.points.toLocaleString()} / ${p.target.toLocaleString()}`],
+        ['Role limit', 'Engineering'],
+        ['Next step', 'Visit My Visas to see the new visa'],
+      ],
+    })
+  }
+  return levelUp
+}
+
+function pushAuditEvent({ action, record }) {
   const event = {
     id: `EV-${db.counters.nextEventNo++}`,
     time: nowTime(),
     user: db.profile.id,
     dept: 'Eng',
-    tool,
-    action: total > 0 ? 'MASKED' : 'CLEAN',
-    control: total > 0 ? CONTROL_TAGS[detections[0].type] || 'NIST PR.DS' : 'NIST GV.4',
-    record: masked.length > 60 ? masked.slice(0, 57) + '…' : masked,
+    tool: 'AI Assistant',
+    action,
+    control: 'NIST GV.4',
+    record: record.length > 60 ? record.slice(0, 57) + '…' : record,
   }
   db.auditEvents.unshift(event)
+  db.auditEvents = db.auditEvents.slice(0, 50)
   db.counters.promptsToday += 1
-  if (total > 0) {
+  return event
+}
+
+export function recordPromptEvent({ detections, masked, tool = 'AI Assistant' }) {
+  const total = detections.reduce((n, d) => n + d.count, 0)
+  const clean = total === 0
+  const event = pushAuditEvent({ action: clean ? 'CLEAN' : 'MASKED', record: masked })
+  event.tool = tool
+  event.control = clean ? 'NIST GV.4' : CONTROL_TAGS[detections[0].type] || 'NIST PR.DS'
+
+  let levelUp = false
+  if (clean) {
+    // Clean prompts earn a small reward; masked prompts are protected but earn
+    // nothing, so sensitive prompts can't be farmed for points.
+    if (db.settings.experience.awardPoints) levelUp = applyPoints(2)
+  } else {
     db.counters.maskedToday += total
     db.profile.promptsProtected += 1
     db.profile.itemsMasked += total
-    if (db.settings.experience.awardPoints) db.profile.points = Math.min(db.profile.points + 10, db.profile.target)
     const types = detections.map(d => `${d.type.toLowerCase()} ×${d.count}`).join(', ')
     addNotification({
       category: 'SMART GATEWAY',
@@ -161,11 +263,44 @@ export function recordPromptEvent({ detections, masked, tool = 'AI Assistant' })
         ['AI tool', tool],
         ['Stored version', 'Masked only'],
         ['Action needed', 'None'],
-        ['Reward', db.settings.experience.awardPoints ? '+10 safety miles' : '—'],
+        ['Points', 'Protected · no points change'],
       ],
     })
   }
-  return event
+  return { event, levelUp }
+}
+
+// Overriding the checkpoint (Warn-only mode, "Send original anyway"):
+// -20 points, streak reset, High alert for the admin, ALERT audit event.
+export function recordOverride({ prompt }) {
+  db.profile.streakDays = 0
+  applyPoints(-20)
+  const event = pushAuditEvent({ action: 'ALERT', record: prompt })
+  event.control = 'PDPA P7'
+  db.alerts.unshift({
+    id: `RA-${db.counters.nextAlertNo++}`, severity: 'HIGH', status: 'open',
+    title: 'Protected prompt overridden',
+    meta: 'Engineering · E-217 · just now', due: 'Review today',
+    detailMeta: `Engineering · User E-217 · detected today at ${nowTime()}`,
+    what: 'An employee used Warn-only mode to send the original prompt after the gateway flagged sensitive content. 20 points were deducted and the safe streak was reset.',
+    evidence: event.record, evidenceNote: 'Original sent by employee choice · flagged for review',
+    timeline: [[nowTime(), 'Override recorded'], [nowTime(), 'Points deducted · streak reset'], ['—', 'Manager review pending']],
+    recommend: 'Assign the 5-minute Data Privacy refresher.', primary: 'Assign training',
+  })
+  addNotification({
+    category: 'SMART GATEWAY',
+    title: 'Original prompt sent — points deducted',
+    body: 'You chose to send the original prompt. -20 safety points and your safe streak was reset.',
+    what: 'The gateway flagged sensitive content but Warn-only mode let you send the original. This event was logged for review; sending the protected version instead avoids penalties.',
+    facts: [
+      ['Points', '-20'],
+      ['Safe streak', 'Reset to 0 days'],
+      ['Logged as', 'ALERT · visible to admin'],
+      ['Better option', 'Send the protected version'],
+      ['Policy', 'Warn only'],
+    ],
+  })
+  return { event, profile: db.profile }
 }
 
 export function addNotification({ category, title, body, what, facts }) {
@@ -174,7 +309,7 @@ export function addNotification({ category, title, body, what, facts }) {
     id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     category,
     time: `Today · ${stamp.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`,
-    received: `Received ${stamp.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} · ${stamp.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`,
+    received: `Received ${todayDate()} · ${stamp.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`,
     title, body, what, facts,
     read: false, deleted: false,
   }
@@ -182,33 +317,88 @@ export function addNotification({ category, title, body, what, facts }) {
   return n
 }
 
+// ---- quiz (first attempt only earns points: +50 per correct) ----
+
+export function answerQuiz(question, correct) {
+  if (db.quiz[question] === undefined) {
+    db.quiz[question] = { correct }
+    if (correct) applyPoints(50)
+  }
+  return quizResults()
+}
+
+export function quizResults() {
+  const answers = db.quiz
+  const attempted = Object.keys(answers).length
+  const correct = Object.values(answers).filter(a => a.correct).length
+  return { answers, attempted, correct, total: 3, pointsEarned: correct * 50, profile: db.profile }
+}
+
 export function completeTraining() {
+  const results = quizResults()
   if (!db.profile.trainingCompleted) {
     db.profile.trainingCompleted = true
-    db.profile.points = Math.min(db.profile.points + 150, db.profile.target)
     db.profile.stamps.push({
       title: 'PERSONAL DATA',
-      score: 'PASSED · 100%',
-      date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase(),
+      score: `PASSED · ${Math.round((results.correct / results.total) * 100)}%`,
+      date: todayDate().toUpperCase(),
       shape: 'circle',
       color: '#078b6c',
     })
     addNotification({
       category: 'TRAINING',
       title: 'Training stamp earned',
-      body: 'Spotting Personal Data in Prompts completed with a perfect score. +150 safety miles.',
-      what: 'You passed all three questions in Spotting Personal Data in Prompts. The Personal Data stamp was added to your AI Passport and 150 safety miles were credited.',
+      body: `Spotting Personal Data in Prompts completed · ${results.correct}/${results.total} first-try correct · +${results.pointsEarned} safety miles.`,
+      what: 'You completed Spotting Personal Data in Prompts. Points are earned for first-attempt correct answers, and the Personal Data stamp was added to your AI Passport.',
       facts: [
         ['Module', 'Spotting Personal Data in Prompts'],
-        ['Score', '3/3 · 100%'],
+        ['First-try score', `${results.correct}/${results.total}`],
         ['Stamp', 'Personal Data'],
-        ['Reward', '+150 safety miles'],
+        ['Reward', `+${results.pointsEarned} safety miles`],
         ['Next module', 'Safe AI Tool Selection · 18 Jul'],
       ],
     })
   }
-  return db.profile
+  return { ...results, profile: db.profile }
 }
+
+// ---- risk alerts ----
+
+export function openAlerts() {
+  return db.alerts.filter(a => a.status === 'open')
+}
+
+export function resolveAlert(id) {
+  const a = db.alerts.find(x => x.id === id)
+  if (a) a.status = 'resolved'
+  return db.alerts
+}
+
+export function addReviewRequest(ref) {
+  db.alerts.unshift({
+    id: `RA-${db.counters.nextAlertNo++}`, severity: 'HIGH', status: 'open',
+    title: 'Human review requested',
+    meta: `Public portal · ref ${ref} · just now`, due: 'Respond in 5 days',
+    detailMeta: `Public transparency portal · ref ${ref} · received today at ${nowTime()}`,
+    what: 'A person affected by an AI-assisted decision used the public transparency portal to request a fresh human review. The reviewer must not rely on the original AI recommendation.',
+    evidence: `Decision reference ${ref} · job application screening`, evidenceNote: 'Disclosure record complete · masked only',
+    timeline: [[nowTime(), 'Review requested'], ['—', 'Assign independent reviewer'], ['—', 'Respond within 5 working days']],
+    recommend: 'Route the case to an independent human reviewer.', primary: 'Open review case',
+  })
+  return openAlerts()
+}
+
+// ---- leaderboard (proposal §5.1) ----
+
+export function leaderboard() {
+  const rows = [
+    ...COLLEAGUES,
+    { name: db.profile.name, dept: db.profile.dept, points: db.profile.points, you: true },
+  ].sort((a, b) => b.points - a.points)
+  return rows.map((r, i) => ({ ...r, rank: i + 1 }))
+}
+
+// ---- visas / tool approvals ----
 
 export function applyForVisa({ tool, purpose, scopes }) {
   const request = {
@@ -218,7 +408,7 @@ export function applyForVisa({ tool, purpose, scopes }) {
     dept: db.profile.dept,
     requester: db.profile.id,
     owner: 'A. Rahman',
-    submitted: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+    submitted: todayDate(),
     purpose: purpose || '',
     scopes: scopes && scopes.length ? scopes : ['Internal', 'Text only'],
   }
@@ -231,8 +421,14 @@ export function decideVisa(id, decision, note) {
   if (!request) return null
   const statusMap = { approve: 'APPROVED', decline: 'DECLINED', redirect: 'REDIRECTED' }
   request.status = statusMap[decision] || request.status
-  request.decided = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  request.decided = todayDate()
   if (note) request.decisionNote = note
+
+  // Governance decisions are themselves auditable
+  const event = pushAuditEvent({ action: 'APPROVAL', record: `${request.tool} · ${request.id} · ${request.status} by Admin` })
+  event.tool = request.tool
+  event.control = 'AIGE 4.2'
+  db.counters.promptsToday -= 1 // approvals aren't prompts
 
   const titles = {
     approve: `${request.tool} visa approved`,

@@ -3,6 +3,7 @@
 // updates the employee's My Visas page and sends them a notification.
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api.js'
+import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
 
 const statusChip = {
   'SECURITY REVIEW': 'bg-[#fff5de] text-[#d97706]',
@@ -55,6 +56,7 @@ export default function ToolApprovals() {
   const [requests, setRequests] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [busy, setBusy] = useState(false)
+  const toast = useToast()
 
   useEffect(() => {
     let alive = true
@@ -90,7 +92,7 @@ export default function ToolApprovals() {
           <h1 className="text-[28px] font-bold text-[#17213a]">Tool Approvals</h1>
           <p className="text-[#667085] text-sm mt-1.5">Review new AI tools quickly while keeping data use and vendor risk explicit.</p>
         </div>
-        <button className="border-[1.5px] border-navy-header text-navy-header font-semibold text-xs w-40 h-11 rounded-full cursor-pointer hover:bg-chip">Approval policy</button>
+        <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-xs w-40 h-11 rounded-full cursor-pointer hover:bg-chip">Approval policy</button>
       </div>
 
       {/* KPI cards */}
@@ -135,7 +137,7 @@ export default function ToolApprovals() {
               <p className="text-[#17213a] font-bold text-lg">Requests</p>
               <p className="text-[#667085] text-xs mt-0.5">{pending} pending · sorted by submission time</p>
             </div>
-            <button className="border-[1.5px] border-navy-header text-navy-header font-semibold text-xs w-[130px] h-11 rounded-full cursor-pointer hover:bg-chip">All requests</button>
+            <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-xs w-[130px] h-11 rounded-full cursor-pointer hover:bg-chip">All requests</button>
           </div>
           <div className="flex flex-col gap-3.5 mt-3.5">
             {requests.map(r => (

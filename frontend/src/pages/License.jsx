@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api.js'
+import Leaderboard from '../components/Leaderboard.jsx'
 
 const fallbackProfile = {
   name: 'Tan Jia Yin', dept: 'Engineering', licenseNo: 'AIP-2026-004173', issued: '02 Jan 2026',
@@ -177,6 +178,12 @@ export default function License() {
       <div className="bg-white border border-[#d8d0b4] rounded-[16px] mt-4 px-8 py-8 flex items-center justify-between flex-wrap gap-6">
         {earnedStamps.map(s => <InkStamp key={s.title} s={s} />)}
         {lockedStamps.map(s => <LockedStamp key={s.title[0]} s={s} />)}
+      </div>
+
+      {/* Leaderboard — proposal §5.1 (levels, points and leaderboard) */}
+      <div className="grid grid-cols-2 gap-5 mt-6">
+        <Leaderboard compact />
+        <div />
       </div>
     </div>
   )

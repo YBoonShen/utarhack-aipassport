@@ -47,6 +47,7 @@ function ApprovedVisa({ name, number, machineLine }) {
 export default function Visas() {
   const [modal, setModal] = useState(null) // 'confirm' | 'form' | 'sent'
   const [requests, setRequests] = useState([])
+  const [profile, setProfile] = useState({ level: 2 })
   const [purpose, setPurpose] = useState('Summarise customer meeting notes and produce follow-up actions.')
   const [scopes, setScopes] = useState(['Internal', 'No personal data', 'Text only'])
   const [submitting, setSubmitting] = useState(false)
@@ -55,11 +56,16 @@ export default function Visas() {
 
   useEffect(() => {
     let alive = true
-    const load = () => api.get('/visas').then(r => alive && setRequests(r)).catch(() => {})
+    const load = () => {
+      api.get('/visas').then(r => alive && setRequests(r)).catch(() => {})
+      api.get('/profile').then(p => alive && setProfile(p)).catch(() => {})
+    }
     load()
     const t = setInterval(load, 4000)
     return () => { alive = false; clearInterval(t) }
   }, [])
+
+  const copilotUnlocked = profile.level >= 3 // Level 3 · Ambassador unlocks source-code tools
 
   // My application panel: my newest request if any, otherwise the seeded SummarizerX one
   const myRequest = requests.find(r => r.requester === me) || requests.find(r => r.tool === 'SummarizerX')
@@ -111,20 +117,26 @@ export default function Visas() {
           <ApprovedVisa name="ChatGPT" number="V-0031" machineLine="V<AIP<CHATGPT<<GENERAL<TEXT<CODE<<<<<<<" />
           <ApprovedVisa name="Gemini" number="V-0032" machineLine="V<AIP<GEMINI<<GENERAL<TEXT<IMAGE<<<<<<<<" />
 
-          {/* Locked visa */}
-          <div className="bg-white border border-dashed border-[#98a2b3] rounded-[16px] overflow-hidden">
-            <div className="bg-[#667085] h-12 flex items-center px-4.5">
-              <p className="text-white font-bold text-[11px] tracking-[1.1px]">VISA LOCKED · LEVEL 3 REQUIRED</p>
+          {/* GitHub Copilot — locked until Level 3 · Ambassador really unlocks it */}
+          {copilotUnlocked ? (
+            <ApprovedVisa name="GitHub Copilot" number="V-0034" machineLine="V<AIP<COPILOT<<SOURCE<CODE<INTERNAL<<<<<" />
+          ) : (
+            <div className="bg-white border border-dashed border-[#98a2b3] rounded-[16px] overflow-hidden">
+              <div className="bg-[#667085] h-12 flex items-center px-4.5">
+                <p className="text-white font-bold text-[11px] tracking-[1.1px]">VISA LOCKED · LEVEL 3 REQUIRED</p>
+              </div>
+              <div className="px-5 pb-5">
+                <p className="text-[#667085] font-bold text-xl mt-4.5">GitHub Copilot</p>
+                <p className="text-[#667085] text-xs mt-2.5">Source code · Internal repositories</p>
+                <p className="text-[#98a2b3] font-medium text-[11px] mt-1.5">Unlocks at Level 3 · Ambassador</p>
+                <Link to="/training" className="inline-block border border-gold-brand text-[#b48a00] font-semibold text-xs rounded-full px-10 py-3.5 mt-9 hover:bg-chip">
+                  {(profile.target || 2000) - profile.points > 0
+                    ? `${((profile.target || 2000) - profile.points).toLocaleString()} points to unlock · train now`
+                    : 'Unlocking…'}
+                </Link>
+              </div>
             </div>
-            <div className="px-5 pb-5">
-              <p className="text-[#667085] font-bold text-xl mt-4.5">GitHub Copilot</p>
-              <p className="text-[#667085] text-xs mt-2.5">Source code · Internal repositories</p>
-              <p className="text-[#98a2b3] font-medium text-[11px] mt-1.5">Unlocks at Level 3 · Ambassador</p>
-              <Link to="/training" className="inline-block border border-gold-brand text-[#b48a00] font-semibold text-xs rounded-full px-10 py-3.5 mt-9 hover:bg-chip">
-                760 points to unlock · train now
-              </Link>
-            </div>
-          </div>
+          )}
 
           {/* SummarizerX — request card, or approved visa once the admin approves */}
           {summarizerApproved ? (

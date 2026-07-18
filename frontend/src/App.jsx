@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import EmployeeHeader from './components/EmployeeHeader.jsx'
 import AdminLayout from './components/AdminLayout.jsx'
 import { NotificationsProvider } from './components/notificationsStore.jsx'
+import { ToastProvider } from './components/Toast.jsx'
 import { currentUser } from './lib/api.js'
 import Auth from './pages/Auth.jsx'
 import License from './pages/License.jsx'
@@ -47,6 +48,7 @@ function EmployeePage({ children }) {
 
 export default function App() {
   return (
+    <ToastProvider>
     <NotificationsProvider>
       <BrowserRouter>
         <Routes>
@@ -81,5 +83,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </NotificationsProvider>
+    </ToastProvider>
   )
 }

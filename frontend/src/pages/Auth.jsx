@@ -5,6 +5,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login } from '../lib/api.js'
+import { useToast, DEMO_NOTE } from '../components/Toast.jsx'
 
 const panelCopy = {
   signin: {
@@ -91,6 +92,7 @@ export default function Auth() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [user, setUser] = useState(null)
+  const toast = useToast()
 
   const copy = panelCopy[view]
 
@@ -163,7 +165,7 @@ export default function Auth() {
                 <p className="text-[#5c6b87] font-semibold text-[11px]">OR</p>
                 <div className="h-px bg-[#dee0e5] flex-1" />
               </div>
-              <button className="border-[1.5px] border-[#091e47] text-[#091e47] font-semibold text-[15px] w-full h-[52px] rounded-full mt-6 cursor-pointer hover:bg-chip">
+              <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-[#091e47] text-[#091e47] font-semibold text-[15px] w-full h-[52px] rounded-full mt-6 cursor-pointer hover:bg-chip">
                 Continue with enterprise SSO
               </button>
               <p className="text-[#5c6b87] text-xs text-center mt-5">Your organisation manages access and activity logging.</p>
@@ -200,7 +202,7 @@ export default function Auth() {
                 <p className="text-[#0a1733] text-[13px] text-center">Didn’t receive it? Check spam or wait five (5) minutes before requesting another link.</p>
               </div>
               <GoldButton onClick={() => setView('signin')}>Return to sign in</GoldButton>
-              <button className="text-[#144dc2] font-semibold text-sm w-full text-center mt-4 cursor-pointer">Resend email</button>
+              <button onClick={() => toast('Reset email re-sent — check your inbox')} className="text-[#144dc2] font-semibold text-sm w-full text-center mt-4 cursor-pointer">Resend email</button>
             </>
           )}
 

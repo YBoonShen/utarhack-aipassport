@@ -1,20 +1,31 @@
 // Admin sidebar — matches Figma "Admin sidebar" (brand, navigation with badges, admin identity)
-import { useState } from 'react'
+// Badges are live: they track open alerts and pending approvals (Jia Yin's A4/A5).
+import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import LogoutConfirm from './LogoutConfirm.jsx'
-
-const nav = [
-  { to: '/admin', label: 'Overview', end: true },
-  { to: '/admin/departments', label: 'Departments' },
-  { to: '/admin/risk-alerts', label: 'Risk Alerts', badge: 3, badgeColor: 'bg-[#d92d20] text-white' },
-  { to: '/admin/audit-log', label: 'Audit Log' },
-  { to: '/admin/tool-approvals', label: 'Tool Approvals', badge: 2, badgeColor: 'bg-gold-brand text-navy-header' },
-  { to: '/admin/employees', label: 'Employees' },
-  { to: '/admin/settings', label: 'Settings' },
-]
+import { api } from '../lib/api.js'
 
 export default function AdminSidebar() {
   const [logoutOpen, setLogoutOpen] = useState(false)
+  const [stats, setStats] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    const load = () => api.get('/stats').then(s => alive && setStats(s)).catch(() => {})
+    load()
+    const t = setInterval(load, 4000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
+
+  const nav = [
+    { to: '/admin', label: 'Overview', end: true },
+    { to: '/admin/departments', label: 'Departments' },
+    { to: '/admin/risk-alerts', label: 'Risk Alerts', badge: stats?.openAlerts, badgeColor: 'bg-[#d92d20] text-white' },
+    { to: '/admin/audit-log', label: 'Audit Log' },
+    { to: '/admin/tool-approvals', label: 'Tool Approvals', badge: stats?.pendingApprovals, badgeColor: 'bg-gold-brand text-navy-header' },
+    { to: '/admin/employees', label: 'Employees' },
+    { to: '/admin/settings', label: 'Settings' },
+  ]
 
   return (
     <aside className="w-60 bg-navy-header shrink-0 flex flex-col p-5">
@@ -39,7 +50,7 @@ export default function AdminSidebar() {
             }
           >
             {n.label}
-            {n.badge != null && (
+            {n.badge > 0 && (
               <span className={`text-[11px] font-bold rounded-full w-6 h-6 flex items-center justify-center ${n.badgeColor}`}>{n.badge}</span>
             )}
           </NavLink>

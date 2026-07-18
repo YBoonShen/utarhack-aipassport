@@ -14,29 +14,19 @@ const departments = [
   { name: 'HR', value: 90, height: 40, color: '#98a2b3' },
 ]
 
-const alerts = [
-  {
-    severity: 'High', title: 'Repeated identity numbers in prompts', meta: 'Finance · 4 events today',
-    action: 'Assign refresher training', to: '/admin/risk-alerts',
-    card: 'bg-[#fff0f0] border-[rgba(217,45,32,0.8)]', text: 'text-[#d92d20]', dot: 'bg-[#d92d20]',
-  },
-  {
-    severity: 'Medium', title: 'Unapproved tool detected', meta: 'Sales · redirected to approved tool',
-    action: 'Review tool request', to: '/admin/tool-approvals',
-    card: 'bg-[#fff5de] border-[rgba(217,119,6,0.8)]', text: 'text-[#d97706]', dot: 'bg-[#d97706]',
-  },
-  {
-    severity: 'Medium', title: 'AI-assisted decision flagged', meta: 'HR · human review requested',
-    action: 'Open review case', to: '/admin/risk-alerts',
-    card: 'bg-[#fff5de] border-[rgba(217,119,6,0.8)]', text: 'text-[#d97706]', dot: 'bg-[#d97706]',
-  },
-]
+// Alert card styling by severity — data itself is live from /api/alerts
+const alertStyle = {
+  HIGH: { card: 'bg-[#fff0f0] border-[rgba(217,45,32,0.8)]', text: 'text-[#d92d20]', dot: 'bg-[#d92d20]' },
+  MEDIUM: { card: 'bg-[#fff5de] border-[rgba(217,119,6,0.8)]', text: 'text-[#d97706]', dot: 'bg-[#d97706]' },
+  MONITORING: { card: 'bg-[#eef2ff] border-[#cadafd]', text: 'text-[#365fd9]', dot: 'bg-[#365fd9]' },
+}
 
 const cols = 'grid grid-cols-[72px_90px_100px_110px_112px_1fr]'
 
 export default function AdminOverview() {
   const [stats, setStats] = useState({ promptsToday: 312, maskedToday: 58, openAlerts: 3, avgLicense: 2.1 })
   const [events, setEvents] = useState([])
+  const [alerts, setAlerts] = useState([])
   const [reportOpen, setReportOpen] = useState(false)
 
   useEffect(() => {
@@ -44,6 +34,7 @@ export default function AdminOverview() {
     const load = () => {
       api.get('/stats').then(s => alive && setStats(s)).catch(() => {})
       api.get('/audit').then(a => alive && setEvents(a.events)).catch(() => {})
+      api.get('/alerts').then(a => alive && setAlerts(a.filter(x => x.status === 'open'))).catch(() => {})
     }
     load()
     const t = setInterval(load, 3000)
@@ -112,19 +103,22 @@ export default function AdminOverview() {
         <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-4">
           <div className="flex justify-between items-center px-0.5">
             <p className="text-navy-header font-semibold text-[15px]">Risk alerts</p>
-            <p className="text-[#d92d20] font-semibold text-[11px]">3 open</p>
+            <p className="text-[#d92d20] font-semibold text-[11px]">{stats.openAlerts} open</p>
           </div>
           <div className="flex flex-col gap-2.5 mt-3.5">
-            {alerts.map(a => (
-              <div key={a.title} className={`border rounded-[11px] px-3 py-2.5 flex gap-2.5 ${a.card}`}>
-                <span className={`w-3 h-3 rounded-full mt-0.5 shrink-0 ${a.dot}`} />
-                <div>
-                  <p className={`font-semibold text-[11px] ${a.text}`}>{a.severity} · {a.title}</p>
-                  <p className="text-[#667085] text-[10px] mt-0.5">{a.meta}</p>
-                  <Link to={a.to} className="text-[#365fd9] font-medium text-[10px] mt-0.5 inline-block">{a.action}&nbsp;&nbsp;→</Link>
+            {alerts.slice(0, 3).map(a => {
+              const s = alertStyle[a.severity] || alertStyle.MEDIUM
+              return (
+                <div key={a.id} className={`border rounded-[11px] px-3 py-2.5 flex gap-2.5 ${s.card}`}>
+                  <span className={`w-3 h-3 rounded-full mt-0.5 shrink-0 ${s.dot}`} />
+                  <div>
+                    <p className={`font-semibold text-[11px] ${s.text}`}>{a.severity.charAt(0) + a.severity.slice(1).toLowerCase()} · {a.title}</p>
+                    <p className="text-[#667085] text-[10px] mt-0.5">{a.meta}</p>
+                    <Link to="/admin/risk-alerts" className="text-[#365fd9] font-medium text-[10px] mt-0.5 inline-block">{a.primary}&nbsp;&nbsp;→</Link>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>

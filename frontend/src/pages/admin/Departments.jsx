@@ -1,4 +1,6 @@
 // 12 Admin · Departments — matches Figma frame "12 Admin • Departments"
+import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
+
 const statusStyles = {
   Clear: 'bg-[#e9f8f2] text-[#078b6c]',
   '1 open': 'bg-[#fff5de] text-[#d97706]',
@@ -17,6 +19,7 @@ const rows = [
 const cols = 'grid grid-cols-[210px_100px_180px_130px_130px_140px_1fr_28px] items-center'
 
 export default function Departments() {
+  const toast = useToast()
   return (
     <div>
       <div className="flex items-start justify-between">
@@ -24,7 +27,7 @@ export default function Departments() {
           <h1 className="text-[28px] font-bold text-[#17213a]">Departments</h1>
           <p className="text-[#667085] text-sm mt-1.5">Compare AI adoption, license readiness and risk across the organisation.</p>
         </div>
-        <button className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] w-[200px] h-11 rounded-full cursor-pointer">
+        <button onClick={() => toast(DEMO_NOTE)} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] w-[200px] h-11 rounded-full cursor-pointer">
           Export department view
         </button>
       </div>
@@ -72,8 +75,8 @@ export default function Departments() {
             <input placeholder="Search departments" className="flex-1 bg-transparent outline-none text-[13px] text-[#17213a] placeholder-[#667085]" />
           </div>
           <div className="flex gap-3">
-            <button className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] w-[120px] h-11 rounded-full cursor-pointer hover:bg-chip">Filters · 2</button>
-            <button className="bg-navy-header text-white font-semibold text-[13px] w-[130px] h-11 rounded-full cursor-pointer hover:bg-navy">Compare</button>
+            <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] w-[120px] h-11 rounded-full cursor-pointer hover:bg-chip">Filters · 2</button>
+            <button onClick={() => toast(DEMO_NOTE)} className="bg-navy-header text-white font-semibold text-[13px] w-[130px] h-11 rounded-full cursor-pointer hover:bg-navy">Compare</button>
           </div>
         </div>
 
@@ -102,8 +105,8 @@ export default function Departments() {
           <p className="text-[#667085] text-xs">Showing 6 departments</p>
           <div className="flex items-center gap-3">
             <p className="text-[#667085] font-medium text-xs">1 of 1</p>
-            <button className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">‹</button>
-            <button className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">›</button>
+            <button onClick={() => toast(DEMO_NOTE)} className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">‹</button>
+            <button onClick={() => toast(DEMO_NOTE)} className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">›</button>
           </div>
         </div>
       </div>

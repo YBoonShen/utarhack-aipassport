@@ -60,18 +60,20 @@ function heuristicDetectNames(text) {
 }
 
 /**
- * Full two-layer scan: Layer 1 regex, then Layer 2 names.
- * @returns {{ masked: string, detections: {type,count}[], layer2: 'gemini'|'heuristic'|'none' }}
+ * Layer 2 only: detect person names in the original text.
+ * @returns {{ names: string[], source: 'gemini'|'heuristic' }}
  */
-export async function maskPromptFull(text) {
-  const layer1 = maskPrompt(text)
-  let masked = layer1.masked
-  const detections = [...layer1.detections]
+export async function detectNames(text) {
+  const gemini = await geminiDetectNames(text)
+  if (gemini) return { names: gemini, source: 'gemini' }
+  return { names: heuristicDetectNames(text), source: 'heuristic' }
+}
 
-  let names = await geminiDetectNames(text)
-  const layer2 = names ? 'gemini' : 'heuristic'
-  if (!names) names = heuristicDetectNames(text)
-
+/**
+ * Mask a list of names inside already Layer-1-masked text.
+ * @returns {{ masked: string, count: number }}
+ */
+export function maskNames(masked, names) {
   let count = 0
   for (const name of names) {
     const pattern = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g')
@@ -81,7 +83,20 @@ export async function maskPromptFull(text) {
       masked = masked.replace(pattern, '[MASKED-NAME]')
     }
   }
+  return { masked, count }
+}
+
+/**
+ * Full two-layer scan: Layer 1 regex, then Layer 2 names.
+ * @returns {{ masked: string, detections: {type,count}[], layer2: 'gemini'|'heuristic'|'none' }}
+ */
+export async function maskPromptFull(text) {
+  const layer1 = maskPrompt(text)
+  const detections = [...layer1.detections]
+
+  const { names, source } = await detectNames(text)
+  const { masked, count } = maskNames(layer1.masked, names)
   if (count > 0) detections.push({ type: 'NAME', count })
 
-  return { masked, detections, layer2: count > 0 ? layer2 : 'none' }
+  return { masked, detections, layer2: count > 0 ? source : 'none' }
 }

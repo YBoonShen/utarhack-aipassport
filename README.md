@@ -59,17 +59,22 @@ npm test
 | Method | Endpoint                   | Description |
 |--------|----------------------------|-------------|
 | GET    | /api/health                | Service check |
-| POST   | /api/detect                | `{ prompt }` → `{ masked, detections, layer2 }` (preview only) |
-| POST   | /api/send                  | `{ prompt, override? }` → really "send"; applies points rules (clean +2, masked +0, override −20 + streak reset) |
-| GET    | /api/profile               | Employee E-217 license: points, level, streak, counters |
-| GET    | /api/stats                 | Admin KPIs — single source of truth for all screens |
-| GET    | /api/alerts                | Open risk alerts (`POST /api/alerts/:id/resolve` to resolve) |
-| GET    | /api/approvals             | Pending tool visas (`POST /api/approvals/:id/decide`) |
-| GET    | /api/events                | Live audit log |
-| GET    | /api/quiz                  | Quiz results (`POST /api/quiz/answer` — first attempt only counts) |
+| POST   | /api/auth/login            | `{ role }` → demo session (email decides role in the UI) |
+| POST   | /api/detect                | `{ prompt }` → `{ masked, detections, layer2, mode }` — two-layer scan; logs audit + applies points rules (clean +2, masked +0) |
+| POST   | /api/gateway/override      | Warn-only mode "send original": −20 points, streak reset, High alert |
+| GET    | /api/profile               | Employee E-217 license: points, level, streak, stamps, counters |
 | GET    | /api/leaderboard           | Department safety-points ranking |
+| POST   | /api/quiz/answer           | `{ question, correct }` — first attempt only, +50 per correct |
+| GET    | /api/quiz/results          | First-attempt quiz score |
+| POST   | /api/training/complete     | Adds the training stamp + notification |
+| GET    | /api/notifications         | Employee notifications (`/:id/read`, `/:id/delete`, `/:id/restore`) |
+| GET    | /api/visas                 | Tool requests (`POST /api/visas/apply`, `POST /api/visas/:id/decision`) |
+| GET    | /api/alerts                | Risk alerts (`POST /api/alerts/:id/resolve` to resolve) |
 | POST   | /api/review-request        | Public transparency portal → creates an admin risk alert |
-| POST   | /api/reset                 | Reset demo data (optional body overrides, e.g. `{ "points": 1950 }`) |
+| GET    | /api/audit                 | Live audit log (masked records only) |
+| GET    | /api/stats                 | Admin KPIs — single source of truth for all screens |
+| GET/PUT| /api/settings              | Gateway policy — Mask / Warn only / Block really applies |
+| POST   | /api/reset                 | Reset demo data |
 
 Demo state is **in-memory**: it resets on server restart or `POST /api/reset`.
 Admin → Settings has hidden "Demo tools" links (reset / jump to 1,950 pts) for demo prep.

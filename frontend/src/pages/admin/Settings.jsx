@@ -3,6 +3,7 @@
 // Gateway immediately masks/warns/blocks according to what is set here.
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api.js'
+import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
 
 const categories = [
   { title: 'Gateway policy', sub: 'Protection mode and data types', active: true },
@@ -76,6 +77,7 @@ export default function Settings() {
   const [saved, setSaved] = useState(defaultSettings)
   const [modal, setModal] = useState(null) // 'confirmSave' | 'saved' | 'confirmDiscard' | 'discarded'
   const [busy, setBusy] = useState(false)
+  const toast = useToast()
 
   useEffect(() => {
     api.get('/settings').then(s => { setDraft(s); setSaved(s) }).catch(() => {})
@@ -132,7 +134,11 @@ export default function Settings() {
           <p className="text-[#667085] font-semibold text-[11px] px-2">ADMIN SETTINGS</p>
           <div className="flex flex-col gap-3 mt-3">
             {categories.map(c => (
-              <button key={c.title} className={`text-left rounded-[10px] px-4 py-2.5 relative cursor-pointer ${c.active ? 'bg-[#eef2ff]' : 'hover:bg-chip'}`}>
+              <button
+                key={c.title}
+                onClick={() => !c.active && toast(DEMO_NOTE)}
+                className={`text-left rounded-[10px] px-4 py-2.5 relative cursor-pointer ${c.active ? 'bg-[#eef2ff]' : 'hover:bg-chip'}`}
+              >
                 {c.active && <span className="absolute left-0 top-2.5 bottom-2.5 w-1 rounded-[2px] bg-[#365fd9]" />}
                 <p className={`font-semibold text-[13px] ${c.active ? 'text-[#365fd9]' : 'text-[#17213a]'}`}>{c.title}</p>
                 <p className="text-[#667085] text-[10px] mt-0.5">{c.sub}</p>

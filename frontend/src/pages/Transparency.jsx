@@ -1,5 +1,7 @@
 // 03 Public · Check / Transparency Use — matches Figma frame "03 Public • Check / Transparency Use"
+// Live: requesting a human review creates a High alert in the admin console (O5 loop).
 import { useState } from 'react'
+import { api } from '../lib/api.js'
 
 const commitments = ['✓ No covert monitoring', '✓ Masked-data audit trail', '✓ Human review available']
 
@@ -82,7 +84,7 @@ export default function Transparency() {
             </p>
             <div className="flex items-center gap-4 mt-4">
               <button
-                onClick={() => setReviewRequested(true)}
+                onClick={() => { setReviewRequested(true); api.post('/review-request', { ref: reference }).catch(() => {}) }}
                 disabled={reviewRequested}
                 className="bg-navy-header hover:bg-navy text-white font-semibold text-[13px] w-[246px] h-12 rounded-full cursor-pointer disabled:opacity-80"
               >

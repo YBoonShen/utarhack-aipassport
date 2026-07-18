@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api.js'
 import ComplianceReport from '../../components/ComplianceReport.jsx'
+import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
 
 const statusChip = {
   MASKED: 'bg-[#e9f8f2] text-[#078b6c]',
@@ -23,6 +24,7 @@ const cols = 'grid grid-cols-[56px_78px_64px_56px_106px_112px_104px_1fr_28px] it
 export default function AuditLog() {
   const [events, setEvents] = useState([])
   const [reportOpen, setReportOpen] = useState(false)
+  const toast = useToast()
 
   useEffect(() => {
     let alive = true
@@ -69,8 +71,8 @@ export default function AuditLog() {
               <input placeholder="Search event ID, user or tool" className="flex-1 bg-transparent outline-none text-xs text-[#17213a] placeholder-[#667085]" />
             </div>
             <button className="bg-navy-header text-white font-semibold text-[13px] h-10 px-6 rounded-full cursor-pointer">Today</button>
-            <button className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-10 px-5 rounded-full cursor-pointer hover:bg-chip">All actions</button>
-            <button className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-10 px-5 rounded-full cursor-pointer hover:bg-chip">More filters</button>
+            <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-10 px-5 rounded-full cursor-pointer hover:bg-chip">All actions</button>
+            <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-10 px-5 rounded-full cursor-pointer hover:bg-chip">More filters</button>
           </div>
         </div>
 
@@ -95,8 +97,8 @@ export default function AuditLog() {
           <p className="text-[#667085] text-xs">Showing {events.length} of {total.toLocaleString()} events&nbsp;&nbsp;·&nbsp;&nbsp;Raw personal data is never stored</p>
           <div className="flex items-center gap-3">
             <p className="text-[#667085] font-medium text-xs">1 of 179</p>
-            <button className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">‹</button>
-            <button className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">›</button>
+            <button onClick={() => toast(DEMO_NOTE)} className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">‹</button>
+            <button onClick={() => toast(DEMO_NOTE)} className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">›</button>
           </div>
         </div>
       </div>

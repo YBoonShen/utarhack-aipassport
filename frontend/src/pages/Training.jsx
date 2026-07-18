@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api.js'
+import Leaderboard from '../components/Leaderboard.jsx'
 
 const upcoming = [
   {
@@ -108,6 +109,11 @@ export default function Training() {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-5 mt-6">
+        <Leaderboard />
+        <div />
       </div>
 
       <p className="text-slate2 text-[13px] mt-6">

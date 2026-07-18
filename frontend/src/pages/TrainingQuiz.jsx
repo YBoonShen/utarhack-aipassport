@@ -70,10 +70,21 @@ export default function TrainingQuiz() {
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
   const [selected, setSelected] = useState(null)
+  const [firstTried, setFirstTried] = useState({}) // question index -> already reported
   const q = questions[step]
   const answered = selected !== null
   const isCorrect = answered && selected === q.correct
   const isLast = step === questions.length - 1
+
+  // First attempt per question is what earns points (+50 when correct)
+  function pick(i) {
+    if (answered) return
+    setSelected(i)
+    if (!firstTried[step]) {
+      setFirstTried(t => ({ ...t, [step]: true }))
+      api.post('/quiz/answer', { question: step, correct: i === q.correct }).catch(() => {})
+    }
+  }
 
   async function next() {
     if (!isCorrect) return
@@ -135,7 +146,7 @@ export default function TrainingQuiz() {
               return (
                 <button
                   key={i}
-                  onClick={() => !answered && setSelected(i)}
+                  onClick={() => pick(i)}
                   disabled={answered}
                   className={`flex items-center gap-4 text-left rounded-[12px] px-4 h-[60px] cursor-pointer ${cls}`}
                 >

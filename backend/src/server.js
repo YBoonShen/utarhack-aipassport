@@ -7,8 +7,13 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import { RULES } from './detector.js'
+import { detectNames, maskNames } from './layer2.js'
 import { logDetection } from './firebase.js'
-import { db, resetStore, recordPromptEvent, addNotification, completeTraining, applyForVisa, decideVisa } from './store.js'
+import {
+  db, resetStore, recordPromptEvent, recordOverride, addNotification,
+  answerQuiz, quizResults, completeTraining, applyForVisa, decideVisa,
+  openAlerts, resolveAlert, addReviewRequest, leaderboard,
+} from './store.js'
 
 const app = express()
 app.use(cors())
@@ -45,6 +50,7 @@ app.post('/api/detect', async (req, res) => {
     ...(c.financialFigures ? ['FINANCIAL'] : []),
     ...(c.sourceCode ? ['CREDENTIAL'] : []),
   ])
+  // Layer 1 — rule-based regex, filtered by the admin's controls
   const detections = []
   let masked = prompt
   for (const rule of RULES) {
@@ -55,15 +61,47 @@ app.post('/api/detect', async (req, res) => {
       masked = masked.replace(rule.regex, rule.token)
     }
   }
-  const result = { masked, detections }
 
-  const event = recordPromptEvent({ detections, masked, tool: tool || 'AI Assistant' })
+  // Layer 2 — person names via Gemini (heuristic fallback when offline)
+  let layer2 = 'none'
+  if (c.personalIdentifiers) {
+    const { names, source } = await detectNames(prompt)
+    const result2 = maskNames(masked, names)
+    if (result2.count > 0) {
+      masked = result2.masked
+      detections.push({ type: 'NAME', count: result2.count })
+      layer2 = source
+    }
+  }
+
+  const { event, levelUp } = recordPromptEvent({ detections, masked, tool: tool || 'AI Assistant' })
   const audit = await logDetection({ detections, masked })
-  res.json({ ...result, mode: db.settings.mode, explain: db.settings.experience, event: event.id, audit })
+  res.json({
+    masked, detections, layer2, levelUp,
+    mode: db.settings.mode, explain: db.settings.experience, event: event.id, audit,
+  })
+})
+
+// Warn-only mode: employee insists on sending the original — penalised + logged
+app.post('/api/gateway/override', (req, res) => {
+  const { prompt } = req.body || {}
+  if (typeof prompt !== 'string' || prompt.length === 0) {
+    return res.status(400).json({ error: 'Body must be { "prompt": "..." }' })
+  }
+  res.json(recordOverride({ prompt }))
 })
 
 // ---- employee data ---------------------------------------------------------
 app.get('/api/profile', (req, res) => res.json(db.profile))
+
+app.get('/api/leaderboard', (req, res) => res.json(leaderboard()))
+
+// Quiz: first attempt per question earns +50 when correct
+app.post('/api/quiz/answer', (req, res) => {
+  const { question, correct } = req.body || {}
+  res.json(answerQuiz(Number(question), Boolean(correct)))
+})
+app.get('/api/quiz/results', (req, res) => res.json(quizResults()))
 
 app.post('/api/training/complete', (req, res) => res.json(completeTraining()))
 
@@ -103,10 +141,20 @@ app.get('/api/stats', (req, res) => {
   res.json({
     promptsToday: db.counters.promptsToday,
     maskedToday: db.counters.maskedToday,
-    openAlerts: 3,
-    avgLicense: 2.1,
+    openAlerts: openAlerts().length,
+    avgLicense: db.profile.level >= 3 ? 2.2 : 2.1,
     pendingApprovals: db.visaRequests.filter(r => ['SECURITY REVIEW', 'COMPLIANCE'].includes(r.status)).length,
   })
+})
+
+// ---- risk alerts ----
+app.get('/api/alerts', (req, res) => res.json(db.alerts))
+app.post('/api/alerts/:id/resolve', (req, res) => res.json(resolveAlert(req.params.id)))
+
+// Public transparency portal: affected person requests a human review
+app.post('/api/review-request', (req, res) => {
+  const { ref } = req.body || {}
+  res.json(addReviewRequest(ref || 'REF-DEMO-2026-041'))
 })
 
 app.get('/api/settings', (req, res) => res.json(db.settings))

@@ -1,4 +1,6 @@
 // 16 Admin · Employees — matches Figma frame "16 Admin • Employees"
+import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
+
 const statusChip = {
   'On track': 'bg-[#e9f8f2] text-[#078b6c]',
   Refresher: 'bg-[#fff5de] text-[#d97706]',
@@ -33,6 +35,7 @@ const distribution = [
 const cols = 'grid grid-cols-[150px_82px_70px_150px_86px_64px_1fr] items-center gap-1'
 
 export default function Employees() {
+  const toast = useToast()
   return (
     <div>
       <div className="flex items-start justify-between">
@@ -41,8 +44,8 @@ export default function Employees() {
           <p className="text-[#667085] text-sm mt-1.5">Support AI literacy and safe use with role-appropriate training and controls.</p>
         </div>
         <div className="flex gap-3">
-          <button className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] px-6 h-11 rounded-full cursor-pointer hover:bg-chip">Sync directory</button>
-          <button className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-6 h-11 rounded-full cursor-pointer">Assign training</button>
+          <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] px-6 h-11 rounded-full cursor-pointer hover:bg-chip">Sync directory</button>
+          <button onClick={() => toast('Training assignment sent to the selected cohort')} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-6 h-11 rounded-full cursor-pointer">Assign training</button>
         </div>
       </div>
 
@@ -64,9 +67,9 @@ export default function Employees() {
           <input placeholder="Search employee ID or department" className="flex-1 bg-transparent outline-none text-xs text-[#17213a] placeholder-[#667085]" />
         </div>
         <button className="bg-navy-header text-white font-semibold text-[13px] h-11 px-5 rounded-full cursor-pointer">All departments</button>
-        <button className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-11 px-5 rounded-full cursor-pointer hover:bg-chip">License level</button>
+        <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-11 px-5 rounded-full cursor-pointer hover:bg-chip">License level</button>
         <div className="flex-1" />
-        <button className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-11 px-6 rounded-full cursor-pointer hover:bg-chip">More filters</button>
+        <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-11 px-6 rounded-full cursor-pointer hover:bg-chip">More filters</button>
       </div>
 
       <div className="grid grid-cols-[1fr_360px] gap-5 mt-5 items-start">
@@ -102,8 +105,8 @@ export default function Employees() {
             <p className="text-[#667085] text-xs">Showing 7 of 303 employees</p>
             <div className="flex items-center gap-3">
               <p className="text-[#667085] font-medium text-xs">1 of 44</p>
-              <button className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">‹</button>
-              <button className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">›</button>
+              <button onClick={() => toast(DEMO_NOTE)} className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">‹</button>
+              <button onClick={() => toast(DEMO_NOTE)} className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">›</button>
             </div>
           </div>
         </div>
@@ -130,7 +133,7 @@ export default function Employees() {
             <p className="text-gold font-semibold text-[10px]">NEXT TRAINING COHORT</p>
             <p className="text-[#17213a] font-semibold text-sm mt-1.5">Spotting Personal Data in Prompts</p>
             <p className="text-[#667085] text-xs mt-1">24 employees · due 23 Jul</p>
-            <button className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs w-full h-10 rounded-full mt-3.5 cursor-pointer">Assign cohort</button>
+            <button onClick={() => toast('Cohort assigned — 24 employees will be notified')} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs w-full h-10 rounded-full mt-3.5 cursor-pointer">Assign cohort</button>
           </div>
 
           <div className="bg-[#eef2ff] rounded-[14px] p-5">

@@ -4,24 +4,21 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api.js'
 
-const questionResults = [
-  { n: 1, label: 'Recognising direct identifiers', highlight: true },
-  { n: 2, label: 'Choosing the safest prompt', highlight: false },
-  { n: 3, label: 'Protecting customer data', highlight: true },
-]
+const questionLabels = ['Recognising direct identifiers', 'Choosing the safest prompt', 'Protecting customer data']
 
-function ScoreRing() {
+function ScoreRing({ correct, total }) {
   const r = 78
   const c = 2 * Math.PI * r
+  const pct = Math.round((correct / total) * 100)
   return (
     <div className="relative w-[178px] h-[178px] shrink-0">
       <svg width="178" height="178" viewBox="0 0 178 178" className="-rotate-90">
         <circle cx="89" cy="89" r={r} fill="none" stroke="#f5f2e5" strokeWidth="14" />
-        <circle cx="89" cy="89" r={r} fill="none" stroke="#d5a71f" strokeWidth="14" strokeLinecap="round" strokeDasharray={c} strokeDashoffset="0" />
+        <circle cx="89" cy="89" r={r} fill="none" stroke="#d5a71f" strokeWidth="14" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - correct / total)} />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <p className="text-navy font-bold text-[42px] leading-none">3/3</p>
-        <p className="text-green font-semibold text-base mt-1.5">100%</p>
+        <p className="text-navy font-bold text-[42px] leading-none">{correct}/{total}</p>
+        <p className={`font-semibold text-base mt-1.5 ${pct === 100 ? 'text-green' : 'text-[#d97706]'}`}>{pct}%</p>
       </div>
     </div>
   )
@@ -43,13 +40,16 @@ function Stamp() {
 
 export default function TrainingResults() {
   const [profile, setProfile] = useState({ points: 1390, target: 2000 })
+  const [results, setResults] = useState({ correct: 3, total: 3, pointsEarned: 150, answers: {} })
 
   useEffect(() => {
     api.get('/profile').then(setProfile).catch(() => {})
+    api.get('/quiz/results').then(r => { if (r.attempted > 0) setResults(r) }).catch(() => {})
   }, [])
 
   const toGo = profile.target - profile.points
   const pct = Math.round((profile.points / profile.target) * 100)
+  const allCorrect = results.correct === results.total
   const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 
   return (
@@ -59,7 +59,9 @@ export default function TrainingResults() {
           <h1 className="text-[32px] font-bold text-navy">Training complete</h1>
           <p className="text-slate2 text-base mt-1">Your results are ready. Review your score, rewards and progress toward the next license level.</p>
         </div>
-        <span className="bg-green-soft text-green text-xs font-semibold px-6 py-2 rounded-full mt-1.5">✓ PASSED</span>
+        <span className="bg-green-soft text-green text-xs font-semibold px-6 py-2 rounded-full mt-1.5">
+          {allCorrect ? '✓ PASSED' : '✓ COMPLETED'}
+        </span>
       </div>
 
       <div className="grid grid-cols-[1fr_416px] gap-6 mt-6 items-stretch">
@@ -70,32 +72,41 @@ export default function TrainingResults() {
           <p className="text-slate2 text-sm mt-1.5">Completed {today}</p>
 
           <div className="flex items-center gap-8 mt-6">
-            <ScoreRing />
+            <ScoreRing correct={results.correct} total={results.total} />
             <div>
-              <p className="text-navy font-bold text-[22px]">Excellent work</p>
+              <p className="text-navy font-bold text-[22px]">{allCorrect ? 'Excellent work' : 'Module complete'}</p>
               <p className="text-ink text-base mt-2 max-w-[450px]">
-                You answered every question correctly and demonstrated safe handling of personal and customer data.
+                {allCorrect
+                  ? 'You answered every question correctly and demonstrated safe handling of personal and customer data.'
+                  : `You got ${results.correct} of ${results.total} right on the first try. Points are earned for first-attempt answers — retry lessons any time to sharpen your instincts.`}
               </p>
             </div>
           </div>
 
-          <p className="text-slate2 text-xs font-semibold mt-8">QUESTION PROGRESS</p>
+          <p className="text-slate2 text-xs font-semibold mt-8">QUESTION PROGRESS · FIRST ATTEMPT</p>
           <div className="flex flex-col gap-2.5 mt-3">
-            {questionResults.map(qr => (
-              <div key={qr.n} className={`flex items-center gap-3.5 rounded-[10px] px-2.5 h-[42px] ${qr.highlight ? 'bg-[#edf2ff]' : 'bg-card'}`}>
-                <span className="w-[30px] h-[30px] rounded-full bg-navy text-white text-xs font-semibold flex items-center justify-center shrink-0">{qr.n}</span>
-                <p className="text-navy text-sm font-medium">{qr.label}</p>
-                <p className="ml-auto text-green text-[13px] font-semibold pr-2">✓ Correct</p>
-              </div>
-            ))}
+            {questionLabels.map((label, i) => {
+              const ok = results.answers?.[i]?.correct !== false
+              return (
+                <div key={label} className={`flex items-center gap-3.5 rounded-[10px] px-2.5 h-[42px] ${i % 2 === 0 ? 'bg-[#edf2ff]' : 'bg-card'}`}>
+                  <span className="w-[30px] h-[30px] rounded-full bg-navy text-white text-xs font-semibold flex items-center justify-center shrink-0">{i + 1}</span>
+                  <p className="text-navy text-sm font-medium">{label}</p>
+                  {ok ? (
+                    <p className="ml-auto text-green text-[13px] font-semibold pr-2">✓ Correct</p>
+                  ) : (
+                    <p className="ml-auto text-[#d92d20] text-[13px] font-semibold pr-2">✕ First try missed</p>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
 
         {/* Rewards card */}
         <div className="bg-navy rounded-[18px] p-6">
           <p className="text-gold text-xs font-semibold">REWARDS &amp; LICENSE PROGRESS</p>
-          <p className="text-white font-bold text-[42px] mt-2 leading-none">+150</p>
-          <p className="text-white text-[15px] mt-2">safety miles earned</p>
+          <p className="text-white font-bold text-[42px] mt-2 leading-none">+{results.pointsEarned}</p>
+          <p className="text-white text-[15px] mt-2">safety miles earned · first-attempt answers</p>
 
           <div className="bg-[#132e66] rounded-[14px] p-5 mt-4 flex items-center gap-4">
             <Stamp />
