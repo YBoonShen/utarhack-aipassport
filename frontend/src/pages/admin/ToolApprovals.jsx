@@ -1,20 +1,36 @@
 // 15 Admin · Tool Approvals — matches Figma frames "15 / 15A / 15B Admin • Tool Approvals"
-import { useState } from 'react'
-
-const requests = [
-  { id: 1, tool: 'SummarizerX', dept: 'Sales', requester: 'S-044 · Wei Ling', purpose: 'Summarise long customer call transcripts into follow-up notes.', days: '2.4 days avg', vendor: 'Reviewed', dataAccess: 'Reviewed' },
-  { id: 2, tool: 'Claude for Sheets', dept: 'Finance', requester: 'F-102 · Ahmad Rizal', purpose: 'Draft formulas and clean up monthly reconciliation sheets.', days: '2.4 days avg', vendor: 'Pending', dataAccess: 'Pending' },
-]
+// Live: requests from /api/approvals; deciding really removes them and the
+// sidebar badge (from /api/stats pendingApprovals) drops with it (A5).
+import { useEffect, useState } from 'react'
+import { apiGet, apiPost } from '../../api.js'
+import { useToast } from '../../components/Toast.jsx'
 
 export default function ToolApprovals() {
+  const [requests, setRequests] = useState([])
   const [modal, setModal] = useState(null) // { type: 'approve' | 'reject', req }
+  const toast = useToast()
+
+  useEffect(() => {
+    apiGet('/approvals').then(setRequests).catch(() => {})
+  }, [])
+
+  async function decide() {
+    const remaining = await apiPost(`/approvals/${modal.req.id}/decide`, { decision: modal.type })
+    setRequests(remaining)
+    toast(modal.type === 'approve'
+      ? `${modal.req.tool} approved — the requester has been notified.`
+      : `${modal.req.tool} rejected — the requester has been notified.`)
+    setModal(null)
+  }
 
   return (
     <>
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-2xl font-bold text-navy">Tool Approvals</h1>
-          <p className="text-gray-500 text-sm">2 requests waiting · 2.4 days average turnaround</p>
+          <p className="text-gray-500 text-sm">
+            {requests.length} request{requests.length !== 1 && 's'} waiting · 2.4 days average turnaround
+          </p>
         </div>
       </div>
 
@@ -43,6 +59,11 @@ export default function ToolApprovals() {
             </div>
           </div>
         ))}
+        {requests.length === 0 && (
+          <div className="bg-card border-2 border-[#d8cfae] rounded-2xl p-10 text-center text-gray-500 text-sm">
+            ✓ All caught up — no pending tool requests.
+          </div>
+        )}
       </div>
 
       {/* 15A / 15B — confirmation modals */}
@@ -73,7 +94,7 @@ export default function ToolApprovals() {
                   Cancel
                 </button>
                 <button
-                  onClick={() => setModal(null)}
+                  onClick={decide}
                   className={`px-6 py-2.5 rounded-full text-sm font-bold flex-1 ${modal.type === 'approve' ? 'bg-gold hover:bg-gold-dark text-navy' : 'bg-red-700 hover:bg-red-800 text-white'}`}
                 >
                   {modal.type === 'approve' ? 'Yes, approve' : 'Yes, reject'}

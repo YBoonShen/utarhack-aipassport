@@ -1,20 +1,42 @@
 // 14 Admin · Audit Log — matches Figma frame "14 Admin • Audit Log"
-const log = [
-  { t: '14:02', u: 'E-217', d: 'Eng', tool: 'ChatGPT', s: 'MASKED', text: 'Fix bug for client [MASKED-NAME] in module…' },
-  { t: '13:58', u: 'F-102', d: 'Fin', tool: 'Gemini', s: 'ALERT', text: 'Summarise payment of [MASKED-IC] invoice…' },
-  { t: '13:51', u: 'S-044', d: 'Sales', tool: 'SummarizerX', s: 'REDIRECTED', text: '→ switched to approved tool (ChatGPT)' },
-  { t: '13:47', u: 'E-198', d: 'Eng', tool: 'ChatGPT', s: 'CLEAN', text: 'Explain difference between SQL joins…' },
-  { t: '13:40', u: 'H-011', d: 'HR', tool: 'Gemini', s: 'MASKED', text: 'Draft letter to [MASKED-NAME], [MASKED-PHONE]…' },
-  { t: '13:22', u: 'M-019', d: 'Mktg', tool: 'ChatGPT', s: 'CLEAN', text: 'Suggest 5 taglines for Q3 campaign…' },
-  { t: '13:15', u: 'F-102', d: 'Fin', tool: 'Gemini', s: 'MASKED', text: 'Reconcile invoice for [MASKED-NAME]…' },
-  { t: '12:58', u: 'E-084', d: 'Eng', tool: 'ChatGPT', s: 'CLEAN', text: 'Write unit test for masking util…' },
-]
+// Live: events from /api/events (Gateway sends appear at the top);
+// search + action filter work client-side; Export CSV downloads a real file.
+import { useEffect, useMemo, useState } from 'react'
+import { apiGet } from '../../api.js'
+
 const chip = {
   MASKED: 'bg-emerald-100 text-emerald-800', ALERT: 'bg-red-100 text-red-800',
   REDIRECTED: 'bg-amber-100 text-amber-800', CLEAN: 'bg-indigo-100 text-indigo-800',
 }
 
 export default function AuditLog() {
+  const [events, setEvents] = useState([])
+  const [search, setSearch] = useState('')
+  const [action, setAction] = useState('All')
+
+  useEffect(() => {
+    apiGet('/events').then(setEvents).catch(() => {})
+  }, [])
+
+  const shown = useMemo(() => {
+    const q = search.toLowerCase()
+    return events.filter(r =>
+      (action === 'All' || r.s === action) &&
+      (!q || [r.u, r.d, r.tool, r.text].join(' ').toLowerCase().includes(q))
+    )
+  }, [events, search, action])
+
+  function exportCsv() {
+    const header = 'time,user,dept,tool,action,masked_prompt'
+    const rows = shown.map(r => [r.t, r.u, r.d, r.tool, r.s, `"${r.text.replace(/"/g, '""')}"`].join(','))
+    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'aipassport-audit-log.csv'
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
   return (
     <>
       <div className="flex justify-between items-start">
@@ -22,25 +44,32 @@ export default function AuditLog() {
           <h1 className="text-2xl font-bold text-navy">Audit Log</h1>
           <p className="text-gray-500 text-sm">Full history of prompts checked by the Smart Gateway.</p>
         </div>
-        <button className="border-2 border-dashed border-gold-dark rounded-xl p-1.5">
+        <button onClick={exportCsv} className="border-2 border-dashed border-gold-dark rounded-xl p-1.5">
           <span className="block bg-gold text-navy font-bold text-sm px-5 py-2 rounded-lg">Export CSV</span>
         </button>
       </div>
 
       <div className="flex gap-3 mt-5">
-        <input placeholder="Search by user, tool, department…" className="bg-card border-2 border-[#d8cfae] rounded-lg px-4 py-2 text-sm outline-none flex-1" />
-        <select className="bg-card border-2 border-[#d8cfae] rounded-lg px-4 py-2 text-sm outline-none">
-          <option>All actions</option>
-          <option>Masked</option>
-          <option>Alert</option>
-          <option>Redirected</option>
-          <option>Clean</option>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by user, tool, department…"
+          className="bg-card border-2 border-[#d8cfae] rounded-lg px-4 py-2 text-sm outline-none flex-1"
+        />
+        <select
+          value={action}
+          onChange={e => setAction(e.target.value)}
+          className="bg-card border-2 border-[#d8cfae] rounded-lg px-4 py-2 text-sm outline-none"
+        >
+          {['All', 'MASKED', 'ALERT', 'REDIRECTED', 'CLEAN'].map(o => (
+            <option key={o} value={o}>{o === 'All' ? 'All actions' : o.charAt(0) + o.slice(1).toLowerCase()}</option>
+          ))}
         </select>
       </div>
 
       <div className="bg-card border-2 border-[#d8cfae] rounded-2xl p-6 mt-5">
         <div className="flex justify-between mb-3">
-          <p className="font-bold text-navy text-sm">All events</p>
+          <p className="font-bold text-navy text-sm">{shown.length} event{shown.length !== 1 && 's'}</p>
           <p className="text-xs text-emerald-700">● live</p>
         </div>
         <table className="w-full text-sm">
@@ -52,7 +81,7 @@ export default function AuditLog() {
             </tr>
           </thead>
           <tbody>
-            {log.map((r, i) => (
+            {shown.map((r, i) => (
               <tr key={i} className="border-b border-[#eee5cf] last:border-0">
                 <td className="px-3 py-2.5">{r.t}</td>
                 <td className="px-3">{r.u}</td>

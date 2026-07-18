@@ -1,5 +1,9 @@
 // 17 Admin · Settings — matches Figma frames "17 / 17A-D Admin • Settings"
+// B7: hidden demo tools at the bottom reset the in-memory backend state
+// (or jump points near the Level-3 threshold for the demo climax).
 import { useState } from 'react'
+import { apiPost } from '../../api.js'
+import { useToast } from '../../components/Toast.jsx'
 
 const initialToggles = [
   { key: 'maskNames', label: 'Mask personal names in prompts', desc: 'Replace full names with [MASKED-NAME] before a prompt leaves the device.', on: true },
@@ -13,10 +17,21 @@ export default function Settings() {
   const [toggles, setToggles] = useState(initialToggles)
   const [dirty, setDirty] = useState(false)
   const [modal, setModal] = useState(null) // 'save' | 'saved' | 'discard' | 'discarded'
+  const toast = useToast()
 
   function flip(key) {
     setToggles(t => t.map(x => x.key === key ? { ...x, on: !x.on } : x))
     setDirty(true)
+  }
+
+  async function resetDemo(overrides, msg) {
+    try {
+      await apiPost('/reset', overrides)
+      localStorage.removeItem('aipassport-chat')
+      toast(msg)
+    } catch {
+      toast('Backend not running — start it with: cd backend && npm run dev')
+    }
   }
 
   return (
@@ -56,6 +71,23 @@ export default function Settings() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* B7 — demo prep tools (kept subtle; for presenters, not the audience) */}
+      <div className="mt-8 flex items-center gap-4 text-xs text-gray-400">
+        <span>Demo tools:</span>
+        <button
+          onClick={() => resetDemo({}, 'Demo data reset — fresh state for the next run.')}
+          className="underline underline-offset-2 hover:text-navy"
+        >
+          Reset demo data
+        </button>
+        <button
+          onClick={() => resetDemo({ points: 1950 }, 'Points set to 1,950 — one clean prompt + quiz tips Level 3.')}
+          className="underline underline-offset-2 hover:text-navy"
+        >
+          Jump to 1,950 pts (near level-up)
+        </button>
       </div>
 
       {/* 17A — confirm save */}

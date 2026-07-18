@@ -1,5 +1,7 @@
 // 08 Employee · My Visas — matches Figma frames "08 / 08A / 08B Employee • My Visas"
-import { useState } from 'react'
+// Live: Copilot visa unlocks (turns green) when /api/profile says Level 3 (A2).
+import { useEffect, useState } from 'react'
+import { apiGet } from '../api.js'
 
 const approved = [
   { name: 'ChatGPT', status: 'APPROVED AT LVL 1', color: 'emerald', note: 'Internal non-personal data only' },
@@ -9,6 +11,7 @@ const other = [
   { name: 'GitHub Copilot', status: 'NOT APPROVED AT LVL 2', color: 'red', note: 'Requires Level 3 · Engineering only', requestable: true },
   { name: 'SummarizerX', status: 'REQUESTED · UNDER REVIEW', color: 'amber', note: 'Submitted 2 days ago', requestable: false },
 ]
+const copilotUnlocked = { name: 'GitHub Copilot', status: 'APPROVED AT LVL 3', color: 'emerald', note: '🎉 Unlocked by your Level 3 · Ambassador license', requestable: false }
 const howItWorks = [
   'Locate the tool you want and check its required license level.',
   'Apply and describe the specific task the tool will support.',
@@ -35,6 +38,15 @@ function ToolCard({ tool, onApply }) {
 export default function Visas() {
   const [modal, setModal] = useState(null) // 'confirm' | 'sent'
   const [target, setTarget] = useState(null)
+  const [level, setLevel] = useState(2)
+
+  useEffect(() => {
+    apiGet('/profile').then(p => setLevel(p.level)).catch(() => {})
+  }, [])
+
+  const cards = level >= 3
+    ? [...approved, copilotUnlocked, other[1]]
+    : [...approved, ...other]
 
   function apply(tool) {
     setTarget(tool)
@@ -49,8 +61,7 @@ export default function Visas() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
         <div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {approved.map(t => <ToolCard key={t.name} tool={t} />)}
-            {other.map(t => <ToolCard key={t.name} tool={t} onApply={() => apply(t)} />)}
+            {cards.map(t => <ToolCard key={t.name} tool={t} onApply={() => apply(t)} />)}
           </div>
 
           <div className="mt-8">

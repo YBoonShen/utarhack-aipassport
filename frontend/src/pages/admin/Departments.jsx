@@ -1,6 +1,10 @@
 // 12 Admin · Departments — matches Figma frame "12 Admin • Departments"
-const depts = [
-  { name: 'Engineering', employees: 84, avgLevel: 2.4, prompts: 1420, masked: 210, alerts: 0 },
+// Live: Engineering's prompt count tracks /api/stats; other rows are demo data.
+import { useEffect, useState } from 'react'
+import { apiGet } from '../../api.js'
+import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
+
+const staticDepts = [
   { name: 'Sales', employees: 61, avgLevel: 1.9, prompts: 1180, masked: 340, alerts: 1 },
   { name: 'Finance', employees: 22, avgLevel: 1.6, prompts: 640, masked: 480, alerts: 2 },
   { name: 'Marketing', employees: 33, avgLevel: 2.1, prompts: 520, masked: 90, alerts: 0 },
@@ -8,6 +12,19 @@ const depts = [
 ]
 
 export default function Departments() {
+  const [stats, setStats] = useState(null)
+  const [search, setSearch] = useState('')
+  const toast = useToast()
+
+  useEffect(() => {
+    apiGet('/stats').then(setStats).catch(() => {})
+  }, [])
+
+  const depts = [
+    { name: 'Engineering', employees: 84, avgLevel: stats?.avgLevel ?? 2.4, prompts: stats?.engineeringPrompts ?? 1420, masked: stats?.maskedToday ?? 210, alerts: 0, live: true },
+    ...staticDepts,
+  ].filter(d => d.name.toLowerCase().includes(search.toLowerCase()))
+
   return (
     <>
       <div className="flex justify-between items-start">
@@ -16,6 +33,8 @@ export default function Departments() {
           <p className="text-gray-500 text-sm">AI usage and safety posture broken down by department.</p>
         </div>
         <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
           placeholder="Search departments…"
           className="bg-card border-2 border-[#d8cfae] rounded-lg px-4 py-2 text-sm outline-none"
         />
@@ -33,7 +52,10 @@ export default function Departments() {
           <tbody>
             {depts.map(d => (
               <tr key={d.name} className="border-b border-[#eee5cf] last:border-0">
-                <td className="px-4 py-3 font-bold text-navy">{d.name}</td>
+                <td className="px-4 py-3 font-bold text-navy">
+                  {d.name}
+                  {d.live && <span className="ml-2 text-[10px] text-emerald-700 font-normal">● live</span>}
+                </td>
                 <td className="px-4">{d.employees}</td>
                 <td className="px-4">{d.avgLevel}</td>
                 <td className="px-4">{d.prompts.toLocaleString()}</td>
@@ -45,7 +67,9 @@ export default function Departments() {
                     <span className="text-emerald-700 text-xs">— none</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-right"><a href="#" className="text-navy text-xs font-medium">View →</a></td>
+                <td className="px-4 py-3 text-right">
+                  <button onClick={() => toast(DEMO_NOTE)} className="text-navy text-xs font-medium">View →</button>
+                </td>
               </tr>
             ))}
           </tbody>

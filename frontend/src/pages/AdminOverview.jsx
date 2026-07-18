@@ -1,26 +1,37 @@
 // 11 Admin · Governance Overview — matches Figma frame "11 Admin • Governance Overview"
-const depts = [
-  { name: 'Engineering', v: 420 }, { name: 'Sales', v: 350 },
-  { name: 'Finance', v: 210, alert: true }, { name: 'Marketing', v: 180 }, { name: 'HR', v: 90 },
-]
-const alerts = [
-  { level: 'High', color: 'red', title: 'Repeated IC numbers in prompts', sub: 'Finance · user F-102 · 4 events · today', action: 'Assign refresher training →' },
-  { level: 'Medium', color: 'amber', title: 'Unapproved tool detected', sub: 'Sales · "SummarizerX" · redirected to approved', action: 'Review tool request →' },
-  { level: 'Medium', color: 'amber', title: 'AI-assisted decision flagged', sub: 'HR screening · human review requested', action: 'Open review case →' },
-]
-const log = [
-  { t: '14:02', u: 'E-217', d: 'Eng', tool: 'ChatGPT', s: 'MASKED', text: 'Fix bug for client [MASKED-NAME] in module…' },
-  { t: '13:58', u: 'F-102', d: 'Fin', tool: 'Gemini', s: 'ALERT', text: 'Summarise payment of [MASKED-IC] invoice…' },
-  { t: '13:51', u: 'S-044', d: 'Sales', tool: 'SummarizerX', s: 'REDIRECTED', text: '→ switched to approved tool (ChatGPT)' },
-  { t: '13:47', u: 'E-198', d: 'Eng', tool: 'ChatGPT', s: 'CLEAN', text: 'Explain difference between SQL joins…' },
-  { t: '13:40', u: 'H-011', d: 'HR', tool: 'Gemini', s: 'MASKED', text: 'Draft letter to [MASKED-NAME], [MASKED-PHONE]…' },
-]
+// Live: KPI cards (/api/stats), risk alerts + audit log share the same backend
+// source as the other admin pages, so every number agrees (A4/B6).
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { apiGet } from '../api.js'
+import { useToast, DEMO_NOTE } from '../components/Toast.jsx'
+
 const chip = {
   MASKED: 'bg-emerald-100 text-emerald-800', ALERT: 'bg-red-100 text-red-800',
   REDIRECTED: 'bg-amber-100 text-amber-800', CLEAN: 'bg-indigo-100 text-indigo-800',
 }
+const alertStyle = { red: 'bg-red-50 border-red-500 text-red-800', amber: 'bg-amber-50 border-amber-500 text-amber-800', slate: 'bg-slate-100 border-slate-400 text-slate-700' }
+
+// Bar chart: demo data except Engineering, which tracks the live counter.
+const staticDepts = [
+  { name: 'Sales', v: 350 }, { name: 'Finance', v: 210, alert: true }, { name: 'Marketing', v: 180 }, { name: 'HR', v: 90 },
+]
 
 export default function AdminOverview() {
+  const [stats, setStats] = useState(null)
+  const [alerts, setAlerts] = useState([])
+  const [events, setEvents] = useState([])
+  const toast = useToast()
+
+  useEffect(() => {
+    apiGet('/stats').then(setStats).catch(() => {})
+    apiGet('/alerts').then(setAlerts).catch(() => {})
+    apiGet('/events').then(setEvents).catch(() => {})
+  }, [])
+
+  const depts = [{ name: 'Engineering', v: stats?.engineeringPrompts ?? 420 }, ...staticDepts]
+  const maxV = Math.max(...depts.map(d => d.v))
+
   return (
     <>
         <div className="flex justify-between items-start">
@@ -28,7 +39,7 @@ export default function AdminOverview() {
             <h1 className="text-2xl font-bold text-navy">Overview</h1>
             <p className="text-gray-500 text-sm">Company-wide AI usage · updated live</p>
           </div>
-          <button className="border-2 border-dashed border-gold-dark rounded-xl p-1.5">
+          <button onClick={() => toast(DEMO_NOTE)} className="border-2 border-dashed border-gold-dark rounded-xl p-1.5">
             <span className="block bg-gold text-navy font-bold text-sm px-5 py-2 rounded-lg">One-Click Audit Report (PDF)</span>
           </button>
         </div>
@@ -37,14 +48,14 @@ export default function AdminOverview() {
         <div className="grid grid-cols-4 gap-5 mt-6">
           <div className="bg-navy rounded-2xl p-5 text-white">
             <p className="text-gold text-[10px] font-bold tracking-wider">PROMPTS PROTECTED TODAY</p>
-            <p className="text-4xl font-bold mt-2">312 <span className="text-emerald-300 text-sm font-medium">▲ 8%</span></p>
+            <p className="text-4xl font-bold mt-2">{stats?.promptsToday ?? '—'} <span className="text-emerald-300 text-sm font-medium">▲ 8%</span></p>
           </div>
-          <Stat label="ITEMS MASKED TODAY" value="58" />
+          <Stat label="ITEMS MASKED TODAY" value={stats?.maskedToday ?? '—'} />
           <div className="bg-card border-2 border-red-600 rounded-2xl p-5">
             <p className="text-red-700 text-[10px] font-bold tracking-wider">ACTIVE RISK ALERTS</p>
-            <p className="text-4xl font-bold text-red-700 mt-2">3 <span className="text-sm font-medium">needs review</span></p>
+            <p className="text-4xl font-bold text-red-700 mt-2">{stats?.activeAlerts ?? '—'} <span className="text-sm font-medium">needs review</span></p>
           </div>
-          <Stat label="AVG LICENSE LEVEL" value="2.1" extra="▲ from 1.6" />
+          <Stat label="AVG LICENSE LEVEL" value={stats?.avgLevel ?? '—'} extra="▲ from 1.6" />
         </div>
 
         <div className="grid grid-cols-[1fr_400px] gap-5 mt-5">
@@ -53,9 +64,9 @@ export default function AdminOverview() {
             <p className="font-bold text-navy text-sm mb-6">AI usage by department (prompts this week)</p>
             <div className="flex items-end gap-8 h-56 border-b-2 border-[#d8cfae] px-4">
               {depts.map(d => (
-                <div key={d.name} className="flex flex-col items-center gap-1 flex-1">
+                <div key={d.name} className="flex flex-col items-center gap-1 flex-1 justify-end h-full">
                   <p className="text-xs font-bold" style={{ color: d.alert ? '#b8912a' : '#12275a' }}>{d.v}</p>
-                  <div className="w-full rounded-t-md" style={{ height: `${d.v / 2}px`, background: d.alert ? '#b8912a' : '#12275a' }} />
+                  <div className="w-full rounded-t-md" style={{ height: `${(d.v / maxV) * 85}%`, background: d.alert ? '#b8912a' : '#12275a' }} />
                 </div>
               ))}
             </div>
@@ -69,20 +80,23 @@ export default function AdminOverview() {
             </div>
           </div>
 
-          {/* Risk alerts */}
+          {/* Risk alerts — same source as the Risk Alerts page */}
           <div className="bg-card border-2 border-[#d8cfae] rounded-2xl p-6">
-            <p className="font-bold text-navy text-sm mb-4">Risk alerts</p>
-            {alerts.map(a => (
-              <div key={a.title} className={`rounded-xl border px-4 py-3 mb-3 ${a.color === 'red' ? 'bg-red-50 border-red-500' : 'bg-amber-50 border-amber-500'}`}>
-                <p className={`text-sm font-bold ${a.color === 'red' ? 'text-red-800' : 'text-amber-800'}`}>{a.level}: {a.title}</p>
+            <div className="flex justify-between mb-4">
+              <p className="font-bold text-navy text-sm">Risk alerts</p>
+              <Link to="/admin/risk-alerts" className="text-xs text-navy font-medium">View all →</Link>
+            </div>
+            {alerts.slice(0, 3).map(a => (
+              <div key={a.id} className={`rounded-xl border px-4 py-3 mb-3 ${alertStyle[a.color]}`}>
+                <p className="text-sm font-bold">{a.level}: {a.title}</p>
                 <p className="text-xs text-gray-600 mt-0.5">{a.sub}</p>
-                <p className="text-xs text-blue-700 mt-1">{a.action}</p>
+                <Link to="/admin/risk-alerts" className="text-xs text-blue-700 mt-1 inline-block">{a.action}</Link>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Audit log */}
+        {/* Audit log — live from /api/events */}
         <div className="bg-card border-2 border-[#d8cfae] rounded-2xl p-6 mt-5">
           <div className="flex justify-between mb-3">
             <p className="font-bold text-navy text-sm">Live audit log</p>
@@ -97,8 +111,8 @@ export default function AdminOverview() {
               </tr>
             </thead>
             <tbody>
-              {log.map(r => (
-                <tr key={r.t} className="border-b border-[#eee5cf] last:border-0">
+              {events.slice(0, 6).map((r, i) => (
+                <tr key={i} className="border-b border-[#eee5cf] last:border-0">
                   <td className="px-3 py-2.5">{r.t}</td>
                   <td className="px-3">{r.u}</td>
                   <td className="px-3">{r.d}</td>

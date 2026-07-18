@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { ToastProvider } from './components/Toast.jsx'
 import EmployeeHeader from './components/EmployeeHeader.jsx'
 import AdminLayout from './components/AdminLayout.jsx'
 import License from './pages/License.jsx'
@@ -26,6 +27,7 @@ function EmployeeLayout({ children }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <ToastProvider>
       <Routes>
         <Route path="/" element={<Navigate to="/license" replace />} />
         <Route path="/license" element={<EmployeeLayout><License /></EmployeeLayout>} />
@@ -47,6 +49,7 @@ export default function App() {
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
+      </ToastProvider>
     </BrowserRouter>
   )
 }

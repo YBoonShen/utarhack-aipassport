@@ -1,6 +1,10 @@
 // 03 Public · Decision Transparency — matches Figma frame "03 Public • Decision Transparency"
 // Public-facing page: no employee nav, reachable without login.
+// A3: "Request human review" POSTs to the backend and surfaces as a live
+// alert in Admin → Risk Alerts (closing the O5 loop).
 import { useState } from 'react'
+import { apiPost } from '../api.js'
+import { useToast, DEMO_NOTE } from '../components/Toast.jsx'
 
 const sampleCase = {
   ref: 'JOB-42093-JAN',
@@ -13,9 +17,23 @@ const sampleCase = {
 export default function Transparency() {
   const [ref, setRef] = useState('')
   const [result, setResult] = useState(null)
+  const [reviewSent, setReviewSent] = useState(false)
+  const toast = useToast()
 
   function check() {
-    if (ref.trim()) setResult(sampleCase)
+    if (ref.trim()) {
+      setResult(sampleCase)
+      setReviewSent(false)
+    }
+  }
+
+  async function requestReview() {
+    try {
+      await apiPost('/review-request', { ref: result.ref })
+      setReviewSent(true)
+    } catch {
+      toast('Backend not running — start it with: cd backend && npm run dev')
+    }
   }
 
   return (
@@ -69,20 +87,32 @@ export default function Transparency() {
             <p className="text-sm text-gray-700 mt-5">
               If you believe a human should review this case, or you’d like to contest the outcome, you can request that below.
             </p>
-            <div className="flex gap-3 mt-4">
-              <button className="bg-navy hover:bg-navy-dark text-white font-bold px-5 py-2.5 rounded-full text-sm">Request human review</button>
-              <button className="border-2 border-navy text-navy px-5 py-2.5 rounded-full text-sm">Download this decision</button>
-            </div>
+            {reviewSent ? (
+              <div className="mt-4 bg-emerald-50 border-2 border-emerald-600 rounded-xl p-4 text-sm text-emerald-900">
+                <p className="font-bold">✓ Human review requested</p>
+                <p className="mt-1">The company’s AI governance team has been notified and will respond within 3 working days. Your reference: {result.ref}</p>
+              </div>
+            ) : (
+              <div className="flex gap-3 mt-4">
+                <button onClick={requestReview} className="bg-navy hover:bg-navy-dark text-white font-bold px-5 py-2.5 rounded-full text-sm">
+                  Request human review
+                </button>
+                <button onClick={() => toast(DEMO_NOTE)} className="border-2 border-navy text-navy px-5 py-2.5 rounded-full text-sm">
+                  Download this decision
+                </button>
+              </div>
+            )}
           </div>
         )}
       </main>
 
       <footer className="text-center text-xs text-gray-500 py-6 border-t border-[#d8cfae]">
-        <a href="#" className="hover:text-navy">How masking works</a>
-        <span className="mx-2">·</span>
-        <a href="#" className="hover:text-navy">Report a concern</a>
-        <span className="mx-2">·</span>
-        <a href="#" className="hover:text-navy">About this portal</a>
+        {['How masking works', 'Report a concern', 'About this portal'].map((label, i) => (
+          <span key={label}>
+            {i > 0 && <span className="mx-2">·</span>}
+            <button onClick={() => toast(DEMO_NOTE)} className="hover:text-navy">{label}</button>
+          </span>
+        ))}
       </footer>
     </div>
   )
