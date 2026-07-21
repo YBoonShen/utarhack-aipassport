@@ -47,12 +47,16 @@ const kpiBase = [
   { label: 'APPROVED TOOLS', value: '8', note: 'Across 6 categories', noteColor: 'text-[#365fd9]' },
 ]
 
-const stages = [
-  { n: '✓', label: 'Submitted', active: true, done: true },
-  { n: '2', label: 'Security', active: true, done: false },
-  { n: '3', label: 'Compliance', active: false, done: false },
-  { n: '4', label: 'Decision', active: false, done: false },
-]
+// Where each request status sits on the Submitted → Security → Compliance →
+// Decision track (0-indexed). Drives the "Standard review" stage tracker.
+const stageOfStatus = {
+  'SECURITY REVIEW': 1,
+  COMPLIANCE: 2,
+  APPROVED: 3,
+  REDIRECTED: 3,
+  DECLINED: 3,
+}
+const stageLabels = ['Submitted', 'Security', 'Compliance', 'Decision']
 
 export default function ToolApprovals() {
   const [requests, setRequests] = useState([])
@@ -77,6 +81,16 @@ export default function ToolApprovals() {
   const sel = visible.find(r => r.id === selectedId)
   const pending = visible.filter(r => ['SECURITY REVIEW', 'COMPLIANCE'].includes(r.status)).length
   const isPending = sel && ['SECURITY REVIEW', 'COMPLIANCE'].includes(sel.status)
+
+  // Stage tracker follows the selected request: done stages up to its current
+  // step, the current step highlighted, later steps still pending. A decided
+  // request (approved/redirected/declined) completes every stage.
+  const currentStage = sel ? (stageOfStatus[sel.status] ?? 1) : 1
+  const decided = sel && ['APPROVED', 'REDIRECTED', 'DECLINED'].includes(sel.status)
+  const stages = stageLabels.map((label, i) => {
+    const done = i < currentStage || (decided && i === currentStage)
+    return { label, n: done ? '✓' : String(i + 1), done, active: i === currentStage && !decided }
+  })
 
   // Approve / decline a pending request — updates the employee's My Visas and
   // sends them a notification through the backend.
