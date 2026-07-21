@@ -5,13 +5,17 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api.js'
 
-const departments = [
-  { name: 'Engineering', value: 420, height: 178, color: '#0b2457' },
-  { name: 'Sales', value: 350, height: 148, color: '#173976' },
-  { name: 'Finance', value: 210, height: 90, color: '#d9b32c' },
-  { name: 'Marketing', value: 180, height: 76, color: '#365fd9' },
-  { name: 'HR', value: 90, height: 40, color: '#98a2b3' },
+// Department chart: a plausible weekly baseline plus live prompts from the
+// audit log (each masked prompt for a department grows its bar). `abbr`
+// matches the dept code used in audit events (Eng / Fin / Sales / Mkt / HR).
+const deptConfig = [
+  { name: 'Engineering', abbr: 'Eng', base: 420, color: '#0b2457' },
+  { name: 'Sales', abbr: 'Sales', base: 350, color: '#173976' },
+  { name: 'Finance', abbr: 'Fin', base: 210, color: '#d9b32c' },
+  { name: 'Marketing', abbr: 'Mkt', base: 180, color: '#365fd9' },
+  { name: 'HR', abbr: 'HR', base: 90, color: '#98a2b3' },
 ]
+const MAX_BAR = 178 // px height of the tallest bar
 
 // Alert card styling by severity — data itself is live from /api/alerts
 const alertStyle = {
@@ -38,6 +42,10 @@ export default function AdminOverview() {
     const t = setInterval(load, 3000)
     return () => { alive = false; clearInterval(t) }
   }, [])
+
+  // Live department totals = weekly baseline + this session's audit events
+  const deptData = deptConfig.map(d => ({ ...d, value: d.base + events.filter(e => e.dept === d.abbr).length }))
+  const maxVal = Math.max(...deptData.map(d => d.value))
 
   return (
     <div>
@@ -88,10 +96,10 @@ export default function AdminOverview() {
         <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-5">
           <p className="text-navy-header font-semibold text-[15px]">AI usage by department · prompts this week</p>
           <div className="flex items-end justify-around h-[230px] mt-6">
-            {departments.map(d => (
+            {deptData.map(d => (
               <div key={d.name} className="flex flex-col items-center justify-end">
                 <p className="text-navy-header font-semibold text-xs mb-1.5">{d.value}</p>
-                <div className="w-[72px] rounded-[8px]" style={{ height: d.height, backgroundColor: d.color }} />
+                <div className="w-[72px] rounded-[8px] transition-all duration-500" style={{ height: `${Math.round((d.value / maxVal) * MAX_BAR)}px`, backgroundColor: d.color }} />
                 <p className="text-[#667085] font-medium text-[11px] mt-2">{d.name}</p>
               </div>
             ))}
