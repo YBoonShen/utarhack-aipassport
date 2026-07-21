@@ -21,7 +21,7 @@ const sectionMeta = {
   tools: { title: 'Approved tools', subtitle: 'Set default visa rules and the data each approved AI tool may receive.', badge: 'CONFIGURED' },
   notifications: { title: 'Notifications', subtitle: 'Decide how critical events are delivered and escalated.', badge: 'ACTIVE' },
   roles: { title: 'Roles & access', subtitle: 'Control who can change policy and how access is protected.', badge: 'ENFORCED' },
-  integrations: { title: 'Integrations', subtitle: 'Connect directory, audit and security systems.', badge: 'HEALTHY' },
+  integrations: { title: 'Integrations', subtitle: 'Connect trusted enterprise systems while keeping sync health and ownership visible.', badge: 'HEALTHY' },
 }
 
 const modes = [
@@ -156,7 +156,9 @@ export default function Settings() {
   const [approvalPolicy, setApprovalPolicy] = useState('Visa required')
   const [safeguards, setSafeguards] = useState({ vendorReview: true, dataUse: true, inactiveReview: true })
   const [channels, setChannels] = useState({ 'Admin Console': true, Email: true, Teams: true })
+  const [alertEvents, setAlertEvents] = useState({ highRisk: true, unapproved: true, overdue: true, milestone: true })
   const [access, setAccess] = useState({ mfa: true, quarterly: true })
+  const [integrations, setIntegrations] = useState({ audit: true, siem: true, learning: true, identity: true })
 
   useEffect(() => {
     api.get('/settings').then(s => { setDraft(s); setSaved(s) }).catch(() => {})
@@ -375,10 +377,10 @@ export default function Settings() {
 
               <div className="grid grid-cols-2 gap-5 mt-5">
                 <Card title="Alert events">
-                  <InfoRow i={0} title="High-risk prompt" sub="Immediate escalation" />
-                  <InfoRow i={1} title="Unapproved tool" sub="Create review request" />
-                  <InfoRow i={2} title="Training overdue" sub="Weekly reminder" />
-                  <InfoRow i={3} title="Safe-use milestone" sub="Employee celebration" />
+                  <ToggleRow i={0} title="High-risk prompt" sub="Immediate escalation" on={alertEvents.highRisk} onToggle={() => setAlertEvents(a => ({ ...a, highRisk: !a.highRisk }))} />
+                  <ToggleRow i={1} title="Unapproved tool" sub="Create review request" on={alertEvents.unapproved} onToggle={() => setAlertEvents(a => ({ ...a, unapproved: !a.unapproved }))} />
+                  <ToggleRow i={2} title="Training overdue" sub="Weekly reminder" on={alertEvents.overdue} onToggle={() => setAlertEvents(a => ({ ...a, overdue: !a.overdue }))} />
+                  <ToggleRow i={3} title="Safe-use milestone" sub="Employee celebration" on={alertEvents.milestone} onToggle={() => setAlertEvents(a => ({ ...a, milestone: !a.milestone }))} />
                 </Card>
                 <Card title="Escalation service level">
                   <p className="text-gold-brand font-semibold text-[10px] mt-3">HIGH-RISK ACKNOWLEDGEMENT</p>
@@ -421,34 +423,36 @@ export default function Settings() {
 
           {section === 'integrations' && (
             <>
-              <Card title="Organisation directory">
-                <div className="flex items-start justify-between mt-1">
+              <Card>
+                <div className="flex items-start justify-between">
                   <div>
-                    <p className="text-[#667085] text-[11px]">Microsoft Entra ID · employees, departments and access groups</p>
-                    <p className="text-[#078b6c] font-medium text-[11px] mt-1.5">● Sync healthy</p>
-                    <p className="text-[#667085] text-[11px] mt-1">Last sync · 17 Jul 2026, 10:31 · 1,248 records</p>
+                    <p className="text-[#17213a] font-bold text-base">Organisation directory</p>
+                    <p className="text-[#667085] text-[11px] mt-1">Microsoft Entra ID · employees, departments and access groups</p>
                   </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <button className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[12px] h-9 px-4 rounded-full cursor-pointer hover:bg-chip">Sync now</button>
-                    <span className="bg-[#e9f8f2] text-[#078b6c] font-semibold text-[10px] rounded-full px-3 py-1.5">CONNECTED</span>
-                  </div>
+                  <span className="bg-[#d7f0e4] text-[#088c66] font-semibold text-[11px] rounded-full px-4 py-1.5 shrink-0">● Sync healthy</span>
+                </div>
+                <div className="flex items-center justify-between mt-5">
+                  <p className="text-[#667085] text-[11px]">Last sync · 17 Jul 2026, 10:31 · 1,248 records</p>
+                  <button className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[12px] h-10 px-6 rounded-full cursor-pointer hover:bg-chip">Sync now</button>
                 </div>
               </Card>
 
               <div className="grid grid-cols-2 gap-5 mt-5">
                 {[
-                  ['Audit export', 'Encrypted S3 archive', 'Daily · 02:15 MYT'],
-                  ['SIEM webhook', 'Security event forwarding', 'Delivery 99.98%'],
-                  ['Learning system', 'Training completion sync', 'Every 30 minutes'],
-                  ['Identity alerts', 'Joiner, mover, leaver events', 'Near real-time'],
-                ].map(([title, sub, meta2], idx) => (
-                  <div key={title} className="bg-[#fffcef] border border-[#d8d0b4] rounded-[14px] p-4 flex items-start justify-between">
-                    <div>
-                      <p className="text-[#17213a] font-bold text-[14px]">{title}</p>
-                      <p className="text-[#667085] text-[11px] mt-1">{sub}</p>
-                      <p className="text-[#667085] text-[11px] mt-1.5">{meta2}</p>
+                  ['audit', 'Audit export', 'Encrypted S3 archive', 'Daily · 02:15 MYT'],
+                  ['siem', 'SIEM webhook', 'Security event forwarding', 'Delivery 99.98%'],
+                  ['learning', 'Learning system', 'Training completion sync', 'Every 30 minutes'],
+                  ['identity', 'Identity alerts', 'Joiner, mover, leaver events', 'Near real-time'],
+                ].map(([key, title, sub, meta2]) => (
+                  <div key={key} className="bg-[#fffcef] border border-[#d8d0b4] rounded-[14px] p-4">
+                    <p className="text-[#088c66] font-bold text-[10px]">CONNECTED</p>
+                    <p className="text-[#17213a] font-bold text-[15px] mt-2">{title}</p>
+                    <p className="text-[#667085] text-[11px] mt-1">{sub}</p>
+                    <div className="h-px bg-[#e6dcbf] my-3" />
+                    <div className="flex items-center justify-between">
+                      <p className="text-[#17213a] font-semibold text-[13px]">{meta2}</p>
+                      <Toggle on={integrations[key]} onClick={() => setIntegrations(s => ({ ...s, [key]: !s[key] }))} />
                     </div>
-                    <span className={`font-semibold text-[10px] rounded-full px-3 py-1.5 shrink-0 ${idx === 3 ? 'bg-[#eef2ff] text-[#365fd9]' : 'bg-[#e9f8f2] text-[#078b6c]'}`}>{idx === 3 ? 'LIVE' : 'CONNECTED'}</span>
                   </div>
                 ))}
               </div>
