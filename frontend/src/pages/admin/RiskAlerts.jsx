@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../lib/api.js'
-import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
+import { useToast } from '../../components/Toast.jsx'
 
 const severityChip = {
   HIGH: 'bg-[#fef0f0] text-[#d92d20]',
@@ -50,6 +50,9 @@ export default function RiskAlerts() {
   const [selectedId, setSelectedId] = useState(null)
   const [filter, setFilter] = useState('All')
   const [resolvedOpen, setResolvedOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [includeResolved, setIncludeResolved] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const toast = useToast()
 
   useEffect(() => {
@@ -66,7 +69,10 @@ export default function RiskAlerts() {
 
   const open = alerts.filter(a => a.status === 'open')
   const count = sev => open.filter(a => a.severity === sev).length
-  const queue = open.filter(a => filter === 'All' || a.severity === filter)
+  const queue = (includeResolved ? alerts : open).filter(a =>
+    (filter === 'All' || a.severity === filter) &&
+    (search.trim() === '' || `${a.title} ${a.meta}`.toLowerCase().includes(search.trim().toLowerCase()))
+  )
   const sel = alerts.find(a => a.id === selectedId)
 
   const kpis = [
@@ -112,7 +118,13 @@ export default function RiskAlerts() {
       <div className="bg-white border border-[#d8d0b4] rounded-[12px] px-4 py-2 mt-5 flex items-center gap-2.5">
         <div className="bg-[#fffcef] border border-[#d8d0b4] rounded-[9px] h-10 w-[326px] flex items-center px-2.5 gap-2">
           <span className="text-[#667085] text-[17px]">⌕</span>
-          <input placeholder="Search alert, user or department" className="flex-1 bg-transparent outline-none text-xs text-[#17213a] placeholder-[#667085]" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search alert, user or department"
+            className="flex-1 bg-transparent outline-none text-xs text-[#17213a] placeholder-[#667085]"
+          />
+          {search && <button onClick={() => setSearch('')} className="text-[#667085] text-sm cursor-pointer px-1">×</button>}
         </div>
         {[['All', open.length], ['HIGH', count('HIGH')], ['MEDIUM', count('MEDIUM')], ['MONITORING', count('MONITORING')]].map(([f, n]) => (
           <button
@@ -124,7 +136,20 @@ export default function RiskAlerts() {
           </button>
         ))}
         <div className="flex-1" />
-        <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-11 px-8 rounded-full cursor-pointer hover:bg-chip">More filters</button>
+        <div className="relative">
+          <button onClick={() => setMoreOpen(o => !o)} className={`border-[1.5px] border-navy-header font-semibold text-[13px] h-11 px-8 rounded-full cursor-pointer ${includeResolved ? 'bg-navy-header text-white' : 'text-navy-header hover:bg-chip'}`}>More filters</button>
+          {moreOpen && (
+            <div className="absolute right-0 top-12 z-20 bg-white border border-[#d8d0b4] rounded-[10px] shadow-[0px_8px_20px_rgba(0,0,0,0.12)] py-2 w-56">
+              <label className="flex items-center gap-3 px-4 py-2 cursor-pointer hover:bg-chip">
+                <input type="checkbox" checked={includeResolved} onChange={e => setIncludeResolved(e.target.checked)} className="w-4 h-4 accent-navy-header" />
+                <span className="text-[13px] text-[#17213a]">Include resolved alerts</span>
+              </label>
+              <button onClick={() => { setFilter('All'); setSearch(''); setIncludeResolved(false); setMoreOpen(false) }} className="block w-full text-left px-4 py-2 text-[13px] text-[#365fd9] font-semibold cursor-pointer hover:bg-chip">
+                Reset all filters
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Workspace: queue + detail */}
