@@ -39,6 +39,7 @@ const cols = 'grid grid-cols-[150px_82px_70px_150px_86px_64px_1fr] items-center 
 
 const departments = [...new Set(employees.map(e => e.dept))]
 const levels = ['L1', 'L2', 'L3']
+const PAGE_SIZE = 8
 
 export default function Employees() {
   const toast = useToast()
@@ -49,11 +50,16 @@ export default function Employees() {
   const [level, setLevel] = useState('All')
   const [menu, setMenu] = useState(null) // 'dept' | 'level' | null
 
+  const [page, setPage] = useState(0)
+
   const filtered = employees.filter(e =>
     (dept === 'All' || e.dept === dept) &&
     (level === 'All' || e.level === level) &&
     (search.trim() === '' || `${e.id} ${e.dept}`.toLowerCase().includes(search.trim().toLowerCase()))
   )
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const current = Math.min(page, totalPages - 1)
+  const slice = filtered.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE)
 
   function assign(target) {
     const count = target === 'everyone' ? 303 : target === 'department' ? 84 : 12
@@ -140,7 +146,7 @@ export default function Employees() {
           <div className={`${cols} bg-navy-header rounded-[8px] text-gold-brand font-semibold text-[11px] px-3 h-11 mt-3.5`}>
             <p>Employee</p><p>Dept</p><p>License</p><p>Training</p><p>Protected</p><p>Alerts</p><p>Status</p>
           </div>
-          {filtered.map((e, i) => (
+          {slice.map((e, i) => (
             <div key={e.id} className={`${cols} px-3 h-16 border-b border-[#eee6d4] ${i % 2 === 1 ? 'bg-[#fffcef]' : 'bg-white'}`}>
               <div className="flex items-center gap-2.5">
                 <span className="w-8 h-8 rounded-full bg-[#edf2ff] text-navy font-bold text-[10px] flex items-center justify-center shrink-0">{e.avatar}</span>
@@ -164,12 +170,14 @@ export default function Employees() {
           )}
 
           <div className="flex items-center justify-between mt-4">
-            <p className="text-[#667085] text-xs">Showing {filtered.length} of 303 employees</p>
-            <div className="flex items-center gap-3">
-              <p className="text-[#667085] font-medium text-xs">1 of 44</p>
-              <button onClick={() => toast(DEMO_NOTE)} className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">‹</button>
-              <button onClick={() => toast(DEMO_NOTE)} className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">›</button>
-            </div>
+            <p className="text-[#667085] text-xs">Showing {slice.length} of {filtered.length} employees</p>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-3">
+                <p className="text-[#667085] font-medium text-xs">{current + 1} of {totalPages}</p>
+                <button onClick={() => setPage(current - 1)} disabled={current === 0} className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer disabled:opacity-40 disabled:cursor-default">‹</button>
+                <button onClick={() => setPage(current + 1)} disabled={current >= totalPages - 1} className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer disabled:opacity-40 disabled:cursor-default">›</button>
+              </div>
+            )}
           </div>
         </div>
 
