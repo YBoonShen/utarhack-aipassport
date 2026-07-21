@@ -58,6 +58,7 @@ export default function ToolApprovals() {
   const [requests, setRequests] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [archived, setArchived] = useState(() => new Set())
+  const [busy, setBusy] = useState(false)
   const toast = useToast()
 
   useEffect(() => {
@@ -75,6 +76,20 @@ export default function ToolApprovals() {
   const visible = requests.filter(r => !archived.has(r.id))
   const sel = visible.find(r => r.id === selectedId)
   const pending = visible.filter(r => ['SECURITY REVIEW', 'COMPLIANCE'].includes(r.status)).length
+  const isPending = sel && ['SECURITY REVIEW', 'COMPLIANCE'].includes(sel.status)
+
+  // Approve / decline a pending request — updates the employee's My Visas and
+  // sends them a notification through the backend.
+  async function decide(decision) {
+    if (!sel || busy) return
+    setBusy(true)
+    try {
+      await api.post(`/visas/${sel.id}/decision`, { decision })
+      setRequests(await api.get('/visas'))
+    } catch { /* offline */ } finally {
+      setBusy(false)
+    }
+  }
 
   // Archive removes the selected request from the queue this session,
   // matching Figma's "Selection=Archive" workspace state.
@@ -219,15 +234,28 @@ export default function ToolApprovals() {
             </div>
 
             <div className="flex items-center gap-3 mt-5">
-              <button
-                onClick={() => toast(`${sel.tool} · ${sel.id} · view the recorded review and decision`)}
-                className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs px-7 h-11 rounded-full cursor-pointer"
-              >
-                View approval
-              </button>
-              <button onClick={archive} className="text-[#d92d20] font-semibold text-xs px-4 h-11 cursor-pointer ml-auto">
-                Archive
-              </button>
+              {isPending ? (
+                <>
+                  <button onClick={() => decide('approve')} disabled={busy} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs px-7 h-11 rounded-full cursor-pointer disabled:opacity-60">
+                    {busy ? 'Saving…' : 'Approve 30-day pilot'}
+                  </button>
+                  <button onClick={() => decide('decline')} disabled={busy} className="text-[#d92d20] font-semibold text-xs px-4 h-11 cursor-pointer ml-auto disabled:opacity-60">
+                    Decline
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => toast(`${sel.tool} · ${sel.id} · view the recorded review and decision`)}
+                    className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs px-7 h-11 rounded-full cursor-pointer"
+                  >
+                    View approval
+                  </button>
+                  <button onClick={archive} className="text-[#d92d20] font-semibold text-xs px-4 h-11 cursor-pointer ml-auto">
+                    Archive
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ) : (
