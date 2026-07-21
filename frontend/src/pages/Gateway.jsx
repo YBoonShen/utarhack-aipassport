@@ -62,14 +62,21 @@ export default function Gateway() {
         body: JSON.stringify({ prompt: checkedPrompt }),
       })
     } catch { /* offline */ }
-    deliver(checkedPrompt)
+    deliver(checkedPrompt, 0)
   }
 
-  function deliver(text) {
+  // Matches Figma "02·0 AI Assistant (replied)" — masked bubbles carry a small
+  // "N sensitive items masked" pill, and the assistant answers with a draft.
+  function deliver(text, maskedCount = itemCount) {
     setMessages(m => [
       ...m,
-      { role: 'user', text },
-      { role: 'ai', text: 'Sure — here is a draft you can review and adjust before sending.' },
+      { role: 'user', text, maskedCount },
+      {
+        role: 'ai',
+        title: 'Draft ready',
+        subject: 'Subject: Friendly reminder — outstanding invoice',
+        text: 'Hello, I hope you’re well. This is a friendly reminder regarding the item discussed above — let me know if you’d like any changes.',
+      },
     ])
     setPrompt('')
     setResult(null)
@@ -108,11 +115,25 @@ export default function Gateway() {
           {messages.length === 0 && (
             <p className="text-[#667085] text-base text-center mt-40">Start a conversation with your approved AI tool.</p>
           )}
-          {messages.map((m, i) => (
-            <div key={i} className={`max-w-[70%] rounded-2xl px-5 py-3.5 ${m.role === 'user' ? 'self-end bg-navy-header text-white' : 'self-start bg-white border border-[#e4e7ec] text-[#344054]'}`}>
-              {m.role === 'user' ? <ProtectedText text={m.text} /> : <p className="text-sm">{m.text}</p>}
-            </div>
-          ))}
+          {messages.map((m, i) =>
+            m.role === 'user' ? (
+              <div key={i} className="max-w-[70%] self-end bg-[#eaf0ff] border border-[#94adff] text-[#111d35] rounded-2xl px-5 py-3.5">
+                <ProtectedText text={m.text} />
+                {m.maskedCount > 0 && (
+                  <span className="inline-flex items-center gap-1.5 bg-[#e6faf2] rounded-full px-3 py-1 mt-2.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#05946e]" />
+                    <span className="text-[#05946e] font-semibold text-[11px]">{m.maskedCount} sensitive item{m.maskedCount === 1 ? '' : 's'} masked</span>
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div key={i} className="max-w-[70%] self-start bg-white border border-[#e4e7ec] text-[#344054] rounded-2xl px-5 py-3.5">
+                <p className="font-semibold text-sm">{m.title}</p>
+                {m.subject && <p className="text-sm mt-2">{m.subject}</p>}
+                <p className="text-sm mt-2">{m.text}</p>
+              </div>
+            )
+          )}
           {error && <p className="text-red-alert text-sm text-center">{error}</p>}
         </div>
 

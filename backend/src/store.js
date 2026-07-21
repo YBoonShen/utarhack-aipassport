@@ -36,17 +36,18 @@ function seed() {
       streakDays: 21,
       promptsProtected: 47,
       itemsMasked: 12,
-      trainingCompleted: false,
+      trainingCompleted: false, // module 1 done — kept for back-compat with existing UI checks
+      completedModules: [],
       stamps: [
-        { title: 'AI BASICS', score: 'PASSED · 92%', date: '04 JAN 2026', shape: 'circle', color: '#078b6c' },
+        { title: 'AI BASICS', score: 'PASSED · 100%', date: '04 JAN 2026', shape: 'circle', color: '#078b6c' },
         { title: 'DATA PRIVACY', score: 'PASSED · 100%', date: '11 JAN 2026', shape: 'square', color: '#d92d20' },
-        { title: 'SAFE PROMPTS', score: 'PASSED · 87%', date: '25 JAN 2026', shape: 'circle', color: '#365fd9' },
+        { title: 'SAFE PROMPTS', score: 'PASSED · 92%', date: '25 JAN 2026', shape: 'circle', color: '#365fd9' },
       ],
     },
 
     counters: { promptsToday: 312, maskedToday: 58, nextEventNo: 8218, nextRequestNo: 493, nextAlertNo: 2052 },
 
-    quiz: {}, // { [questionIndex]: { correct } } — first attempt only
+    quiz: { 1: {}, 2: {}, 3: {} }, // moduleId -> { [questionIndex]: { correct } } — first attempt only
 
     auditEvents: [
       { id: 'EV-8217', time: '14:02', user: 'E-217', dept: 'Eng', tool: 'ChatGPT', action: 'MASKED', control: 'NIST PR.DS', record: 'Fix bug for client [MASKED-NAME] in module…' },
@@ -73,7 +74,7 @@ function seed() {
         what: 'An employee opened an unapproved AI tool. The gateway redirected them to the approved alternative with one click.',
         evidence: 'Switched to approved tool · ChatGPT', evidenceNote: 'Redirect accepted · no data sent to unapproved tool',
         timeline: [['13:51', 'Alert created'], ['13:51', 'Redirect offered'], ['13:52', 'Approved tool opened']],
-        recommend: 'Review the pending SummarizerX visa request.', primary: 'Review tool request',
+        recommend: 'Review the pending SummarizerX visa request.', primary: 'Assign training',
       },
       {
         id: 'RA-2050', severity: 'MEDIUM', status: 'open', title: 'AI-assisted decision flagged',
@@ -317,45 +318,54 @@ export function addNotification({ category, title, body, what, facts }) {
   return n
 }
 
-// ---- quiz (first attempt only earns points: +50 per correct) ----
+// ---- quiz (first attempt only earns points: +50 per correct) — per module ----
 
-export function answerQuiz(question, correct) {
-  if (db.quiz[question] === undefined) {
-    db.quiz[question] = { correct }
-    if (correct) applyPoints(50)
-  }
-  return quizResults()
+const MODULE_META = {
+  1: { title: 'Spotting Personal Data in Prompts', stamp: 'PERSONAL DATA', stampColor: '#078b6c', stampShape: 'circle', next: 'Safe AI Tool Selection · 18 Jul' },
+  2: { title: 'Safe AI Tool Selection', stamp: 'TOOL SELECTION', stampColor: '#078b6c', stampShape: 'square', next: 'Human Review in AI Decisions · 25 Jul' },
+  3: { title: 'Human Review in AI Decisions', stamp: 'HUMAN REVIEW', stampColor: '#d92d20', stampShape: 'circle', next: 'More modules coming soon' },
 }
 
-export function quizResults() {
-  const answers = db.quiz
+export function answerQuiz(moduleId, question, correct) {
+  const bucket = (db.quiz[moduleId] ??= {})
+  if (bucket[question] === undefined) {
+    bucket[question] = { correct }
+    if (correct) applyPoints(50)
+  }
+  return quizResults(moduleId)
+}
+
+export function quizResults(moduleId) {
+  const answers = db.quiz[moduleId] || {}
   const attempted = Object.keys(answers).length
   const correct = Object.values(answers).filter(a => a.correct).length
   return { answers, attempted, correct, total: 3, pointsEarned: correct * 50, profile: db.profile }
 }
 
-export function completeTraining() {
-  const results = quizResults()
-  if (!db.profile.trainingCompleted) {
-    db.profile.trainingCompleted = true
+export function completeTraining(moduleId) {
+  const meta = MODULE_META[moduleId] || MODULE_META[1]
+  const results = quizResults(moduleId)
+  if (!db.profile.completedModules.includes(moduleId)) {
+    db.profile.completedModules.push(moduleId)
+    if (moduleId === 1) db.profile.trainingCompleted = true
     db.profile.stamps.push({
-      title: 'PERSONAL DATA',
+      title: meta.stamp,
       score: `PASSED · ${Math.round((results.correct / results.total) * 100)}%`,
       date: todayDate().toUpperCase(),
-      shape: 'circle',
-      color: '#078b6c',
+      shape: meta.stampShape,
+      color: meta.stampColor,
     })
     addNotification({
       category: 'TRAINING',
       title: 'Training stamp earned',
-      body: `Spotting Personal Data in Prompts completed · ${results.correct}/${results.total} first-try correct · +${results.pointsEarned} safety miles.`,
-      what: 'You completed Spotting Personal Data in Prompts. Points are earned for first-attempt correct answers, and the Personal Data stamp was added to your AI Passport.',
+      body: `${meta.title} completed · ${results.correct}/${results.total} first-try correct · +${results.pointsEarned} safety miles.`,
+      what: `You completed ${meta.title}. Points are earned for first-attempt correct answers, and the ${meta.stamp} stamp was added to your AI Passport.`,
       facts: [
-        ['Module', 'Spotting Personal Data in Prompts'],
+        ['Module', meta.title],
         ['First-try score', `${results.correct}/${results.total}`],
-        ['Stamp', 'Personal Data'],
+        ['Stamp', meta.stamp],
         ['Reward', `+${results.pointsEarned} safety miles`],
-        ['Next module', 'Safe AI Tool Selection · 18 Jul'],
+        ['Next module', meta.next],
       ],
     })
   }

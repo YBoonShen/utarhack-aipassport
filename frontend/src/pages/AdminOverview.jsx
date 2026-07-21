@@ -4,7 +4,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api.js'
-import ComplianceReport from '../components/ComplianceReport.jsx'
 
 const departments = [
   { name: 'Engineering', value: 420, height: 178, color: '#0b2457' },
@@ -27,7 +26,6 @@ export default function AdminOverview() {
   const [stats, setStats] = useState({ promptsToday: 312, maskedToday: 58, openAlerts: 3, avgLicense: 2.1 })
   const [events, setEvents] = useState([])
   const [alerts, setAlerts] = useState([])
-  const [reportOpen, setReportOpen] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -48,9 +46,9 @@ export default function AdminOverview() {
           <h1 className="text-[28px] font-bold text-navy-header">Overview</h1>
           <p className="text-[#667085] text-xs mt-1">Company-wide AI usage · refreshed live</p>
         </div>
-        <button onClick={() => setReportOpen(true)} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-11 h-[46px] rounded-full cursor-pointer">
+        <Link to="/admin/audit-report" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-11 h-[46px] rounded-full flex items-center cursor-pointer">
           Export audit report&nbsp;&nbsp;↓
-        </button>
+        </Link>
       </div>
 
       {/* KPI cards */}
@@ -138,8 +136,6 @@ export default function AdminOverview() {
           </div>
         ))}
       </div>
-
-      {reportOpen && <ComplianceReport onClose={() => setReportOpen(false)} />}
     </div>
   )
 }

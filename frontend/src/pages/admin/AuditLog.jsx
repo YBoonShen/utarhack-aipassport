@@ -1,8 +1,8 @@
 // 14 Admin · Audit Log — matches Figma frame "14 Admin • Audit Log"
 // Live data: events poll the backend, so employee gateway activity streams in.
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../../lib/api.js'
-import ComplianceReport from '../../components/ComplianceReport.jsx'
 import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
 
 const statusChip = {
@@ -23,7 +23,6 @@ const cols = 'grid grid-cols-[56px_78px_64px_56px_106px_112px_104px_1fr_28px] it
 
 export default function AuditLog() {
   const [events, setEvents] = useState([])
-  const [reportOpen, setReportOpen] = useState(false)
   const toast = useToast()
 
   useEffect(() => {
@@ -43,9 +42,9 @@ export default function AuditLog() {
           <h1 className="text-[28px] font-bold text-[#17213a]">Audit Log</h1>
           <p className="text-[#667085] text-sm mt-1.5">Trace every protected prompt, policy decision and approval action.</p>
         </div>
-        <button onClick={() => setReportOpen(true)} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-8 h-11 rounded-full cursor-pointer">
-          One-click audit report
-        </button>
+        <Link to="/admin/audit-report" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-8 h-11 rounded-full flex items-center cursor-pointer">
+          Generate audit report
+        </Link>
       </div>
 
       {/* Audit assurance strip */}
@@ -102,8 +101,6 @@ export default function AuditLog() {
           </div>
         </div>
       </div>
-
-      {reportOpen && <ComplianceReport onClose={() => setReportOpen(false)} />}
     </div>
   )
 }

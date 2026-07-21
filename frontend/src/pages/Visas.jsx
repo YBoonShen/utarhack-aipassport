@@ -1,58 +1,55 @@
-// 08 Employee · My Visas — matches Figma frames "08 / 08A / 08B Employee • My Visas"
-// Live data: the SummarizerX application is created through the backend and its
-// status (including admin decisions) is polled from /api/visas.
+// 08 Employee · My Visas — matches Figma frame "08 Employee • My Visas"
+// (table layout) plus "Modal / Request new tool" and "Modal / Request
+// submitted". Live data: SummarizerX status and the license level come from
+// the backend; "Request a new AI tool" posts a real request to admin.
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { api, currentUser } from '../lib/api.js'
+import { api } from '../lib/api.js'
 
-const principles = [
-  ['License grants baseline access', 'Your license level automatically unlocks approved tools and permitted data categories.'],
-  ['Apply once for another tool', 'IT and compliance review the vendor, data use, and business need together.'],
-  ['Guidance, not punishment', 'When an unapproved tool is detected, an approved alternative is offered immediately.'],
-  ['Gateway enforces each visa', 'The Smart Gateway masks prohibited data before a prompt reaches the AI provider.'],
+// Data-scope chips shown in the request modal (Figma: Internal + Meeting notes
+// selected by default).
+const scopeOptions = ['Internal', 'Meeting notes', 'No customer data', 'No audio']
+
+// Status → chip + left status-bar colours, matching Figma.
+const statusStyle = {
+  active: { chip: 'bg-[#e7f4ee] text-[#078b6c]', label: '● Active', bar: 'bg-[#078b6c]' },
+  locked: { chip: 'bg-[#ededf2] text-[#667085]', label: '● Locked', bar: 'bg-[#80858f]' },
+  review: { chip: 'bg-[#fcf0d4] text-[#b27a0d]', label: '● Under review', bar: 'bg-[#d9991a]' },
+  suspended: { chip: 'bg-[#fae5e5] text-[#c72929]', label: '● Suspended', bar: 'bg-[#c72929]' },
+  declined: { chip: 'bg-[#fae5e5] text-[#c72929]', label: '● Declined', bar: 'bg-[#c72929]' },
+}
+
+const levels = [
+  { n: 1, name: 'Trainee', desc: 'Everyone starts here. Basic approved AI for everyday, non-sensitive tasks.', badge: 'LEVEL 1' },
+  { n: 2, name: 'Navigator', desc: 'Unlocked by finishing the 3 core AI-safety modules. Can request standard tools like ChatGPT and Gemini.', badge: 'LEVEL 2' },
+  { n: 3, name: 'Ambassador', desc: 'Needs the Advanced AI-safety path — modules coming soon.', badge: 'COMING SOON' },
+  { n: 4, name: 'Guardian', desc: 'By nomination. Mentors others and helps review AI requests.', badge: 'BY NOMINATION' },
 ]
 
-const scopeOptions = ['Internal', 'No personal data', 'Text only', 'Customer context', 'Financial data']
+const cols = 'grid grid-cols-[minmax(180px,1.6fr)_minmax(150px,1.4fr)_minmax(150px,1.4fr)_minmax(150px,1fr)]'
 
-function ApprovedVisa({ name, number, machineLine }) {
+// A light-blue prefilled field in the request modal.
+function ReqField({ label, value, onChange }) {
   return (
-    <div className="bg-white border border-[#078b6c] rounded-[16px] overflow-hidden flex flex-col">
-      <div className="bg-[#078b6c] h-12 flex items-center justify-between px-4.5">
-        <p className="text-white font-bold text-[11px] tracking-[1.1px]">VISA · APPROVED AI TOOL</p>
-        <p className="text-[#d1fae5] font-semibold text-[10px]">NO. {number}</p>
-      </div>
-      <div className="px-5 flex-1">
-        <div className="flex items-center justify-between mt-6">
-          <p className="text-navy-header font-bold text-xl">{name}</p>
-          <span className="border-2 border-[#078b6c] text-[#078b6c] font-bold text-[9px] rounded-full px-2.5 py-3">✓ GRANTED</span>
-        </div>
-        <div className="flex gap-14 mt-5 mb-4">
-          <div>
-            <p className="text-[#8a7d56] font-semibold text-[9px] tracking-[0.72px]">PERMITTED DATA</p>
-            <p className="text-[#475467] text-[11px] mt-1">General · Internal (non-personal)</p>
-          </div>
-          <div>
-            <p className="text-[#8a7d56] font-semibold text-[9px] tracking-[0.72px]">VALID FOR</p>
-            <p className="text-[#475467] text-[11px] mt-1">Level 2 and above</p>
-          </div>
-        </div>
-      </div>
-      <div className="bg-[#e9f8f2] h-10 flex items-center px-4.5">
-        <p className="text-[#475467] font-medium text-[10px] tracking-wide">{machineLine}</p>
-      </div>
+    <div className="bg-[#edf2ff] rounded-[12px] px-4 py-2.5">
+      <p className="text-[#8a7d56] font-semibold text-[11px]">{label}</p>
+      <input value={value} onChange={e => onChange(e.target.value)} className="w-full bg-transparent outline-none text-[15px] text-[#0a204f] mt-1" />
     </div>
   )
 }
 
 export default function Visas() {
-  const [modal, setModal] = useState(null) // 'confirm' | 'form' | 'sent'
+  const [modal, setModal] = useState(null) // 'request' | 'sent'
   const [requests, setRequests] = useState([])
   const [profile, setProfile] = useState({ level: 2 })
-  const [purpose, setPurpose] = useState('Summarise customer meeting notes and produce follow-up actions.')
-  const [scopes, setScopes] = useState(['Internal', 'No personal data', 'Text only'])
   const [submitting, setSubmitting] = useState(false)
 
-  const me = currentUser()?.id
+  // Request-form fields (prefilled with the Figma example)
+  const [toolName, setToolName] = useState('MeetingMind')
+  const [model, setModel] = useState('MeetingMind Pro v2')
+  const [vendor, setVendor] = useState('meetingmind.ai')
+  const [category, setCategory] = useState('Meeting summariser')
+  const [purpose, setPurpose] = useState('Summarise internal team meeting notes into action items.')
+  const [scopes, setScopes] = useState(['Internal', 'Meeting notes'])
 
   useEffect(() => {
     let alive = true
@@ -65,19 +62,28 @@ export default function Visas() {
     return () => { alive = false; clearInterval(t) }
   }, [])
 
-  const copilotUnlocked = profile.level >= 3 // Level 3 · Ambassador unlocks source-code tools
-
-  // My application panel: my newest request if any, otherwise the seeded SummarizerX one
-  const myRequest = requests.find(r => r.requester === me) || requests.find(r => r.tool === 'SummarizerX')
+  const level = profile.level || 2
+  const copilotUnlocked = level >= 3 // Level 3 · Ambassador unlocks source-code tools
   const summarizerApproved = requests.some(r => r.tool === 'SummarizerX' && r.status === 'APPROVED')
-  const alreadyApplied = requests.some(r => r.requester === me && r.tool === 'SummarizerX')
+  const summarizerDeclined = requests.some(r => r.tool === 'SummarizerX' && ['DECLINED', 'REDIRECTED'].includes(r.status))
+  const summarizerStatus = summarizerApproved ? 'active' : summarizerDeclined ? 'declined' : 'review'
 
-  async function submitApplication() {
+  const tools = [
+    { name: 'ChatGPT', number: 'V-0031', model: 'GPT-5.1', data: 'Internal · non-personal', status: 'active', sub: 'Renews in 45 days' },
+    { name: 'Gemini', number: 'V-0032', model: 'Gemini 3 Flash', data: 'Internal · non-personal', status: 'active', sub: 'Renews in 78 days' },
+    { name: 'GitHub Copilot', number: copilotUnlocked ? 'V-0034' : '—', model: 'GPT-5.1-Codex', data: 'Source code · repos', status: copilotUnlocked ? 'active' : 'locked', sub: copilotUnlocked ? 'Renews in 90 days' : 'Needs Level 3' },
+    { name: 'SummarizerX', number: summarizerApproved ? 'V-0033' : 'A-0492', model: summarizerApproved ? 'Vendor model' : 'Vendor model (in review)', data: 'Meeting notes', status: summarizerStatus, sub: summarizerApproved ? 'Renews in 90 days' : summarizerDeclined ? 'Alternative suggested' : 'Decision in ~3 days' },
+    { name: 'Fable 5', number: 'V-0028', model: 'Claude Fable 5', data: 'General', status: 'suspended', sub: 'Paused — can’t run' },
+  ]
+
+  const count = s => tools.filter(t => t.status === s).length
+
+  async function submitRequest() {
+    if (!toolName.trim() || submitting) return
     setSubmitting(true)
     try {
-      await api.post('/visas/apply', { tool: 'SummarizerX', purpose, scopes })
-      const fresh = await api.get('/visas')
-      setRequests(fresh)
+      await api.post('/visas/apply', { tool: toolName, purpose, scopes })
+      setRequests(await api.get('/visas'))
       setModal('sent')
     } catch {
       setModal(null)
@@ -90,235 +96,155 @@ export default function Visas() {
     setScopes(list => (list.includes(s) ? list.filter(x => x !== s) : [...list, s]))
   }
 
-  const statusSteps = (status) => {
-    const underReview = ['SECURITY REVIEW', 'COMPLIANCE'].includes(status)
-    return [
-      { label: 'Submitted', sub: 'Form complete · data categories declared', state: 'done' },
-      {
-        label: 'Under review',
-        sub: status === 'COMPLIANCE' ? 'Compliance checking vendor terms' : 'IT and compliance checking vendor terms',
-        state: underReview ? 'current' : 'done',
-      },
-      {
-        label: status === 'DECLINED' ? 'Declined' : status === 'REDIRECTED' ? 'Redirected' : 'Visa issued',
-        sub: status === 'APPROVED' ? 'Added to your passport' : status === 'DECLINED' ? 'Approved alternative suggested' : 'Added to your passport when approved',
-        state: underReview ? 'pending' : status === 'APPROVED' ? 'done' : 'decided',
-      },
-    ]
-  }
-
   return (
     <div className="max-w-[1440px] mx-auto px-10 py-8">
-      <h1 className="text-[30px] font-bold text-navy-header">My Visas — Approved AI Tools</h1>
-      <p className="text-[#667085] text-sm mt-1.5 mb-6">Your Level 2 license grants these tool visas. Higher levels unlock more data categories.</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-[30px] font-bold text-navy-header">My Visas — Approved AI Tools</h1>
+          <p className="text-[#667085] text-sm mt-1.5 max-w-[720px]">Your visas show which AI tools you can use and with what data. Higher license levels unlock more.</p>
+        </div>
+        <button
+          onClick={() => setModal('request')}
+          className="border-[1.5px] border-navy-header text-navy-header font-semibold text-sm h-12 px-6 rounded-full cursor-pointer hover:bg-chip shrink-0"
+        >
+          +&nbsp;&nbsp;Request a new AI tool
+        </button>
+      </div>
 
-      <div className="grid grid-cols-[1fr_436px] gap-6">
-        <div className="grid grid-cols-2 gap-4 content-start">
-          <ApprovedVisa name="ChatGPT" number="V-0031" machineLine="V<AIP<CHATGPT<<GENERAL<TEXT<CODE<<<<<<<" />
-          <ApprovedVisa name="Gemini" number="V-0032" machineLine="V<AIP<GEMINI<<GENERAL<TEXT<IMAGE<<<<<<<<" />
+      {/* Visa dashboard */}
+      <div className="mt-6">
+        {/* Summary strip */}
+        <div className="bg-[#fafafc] border border-[#e0e0e5] rounded-[10px] h-11 flex items-center px-5 gap-5 flex-wrap">
+          <p className="text-[#0a204f] font-bold text-sm">{tools.length} AI tools</p>
+          <span className="flex items-center gap-2"><span className="text-[#078b6c] text-xs">●</span><span className="text-[#0a204f] font-semibold text-[13px]">{count('active')} active</span></span>
+          <span className="flex items-center gap-2"><span className="text-[#b27a0d] text-xs">●</span><span className="text-[#0a204f] font-semibold text-[13px]">{count('review')} under review</span></span>
+          <span className="flex items-center gap-2"><span className="text-[#c72929] text-xs">■</span><span className="text-[#0a204f] font-semibold text-[13px]">{count('suspended')} suspended</span></span>
+          <span className="flex items-center gap-2"><span className="text-[#667085] text-xs">🔒</span><span className="text-[#0a204f] font-semibold text-[13px]">{count('locked')} needs Level 3</span></span>
+        </div>
 
-          {/* GitHub Copilot — locked until Level 3 · Ambassador really unlocks it */}
-          {copilotUnlocked ? (
-            <ApprovedVisa name="GitHub Copilot" number="V-0034" machineLine="V<AIP<COPILOT<<SOURCE<CODE<INTERNAL<<<<<" />
-          ) : (
-            <div className="bg-white border border-dashed border-[#98a2b3] rounded-[16px] overflow-hidden">
-              <div className="bg-[#667085] h-12 flex items-center px-4.5">
-                <p className="text-white font-bold text-[11px] tracking-[1.1px]">VISA LOCKED · LEVEL 3 REQUIRED</p>
-              </div>
-              <div className="px-5 pb-5">
-                <p className="text-[#667085] font-bold text-xl mt-4.5">GitHub Copilot</p>
-                <p className="text-[#667085] text-xs mt-2.5">Source code · Internal repositories</p>
-                <p className="text-[#98a2b3] font-medium text-[11px] mt-1.5">Unlocks at Level 3 · Ambassador</p>
-                <Link to="/training" className="inline-block border border-gold-brand text-[#b48a00] font-semibold text-xs rounded-full px-10 py-3.5 mt-9 hover:bg-chip">
-                  {(profile.target || 2000) - profile.points > 0
-                    ? `${((profile.target || 2000) - profile.points).toLocaleString()} points to unlock · train now`
-                    : 'Unlocking…'}
-                </Link>
-              </div>
-            </div>
-          )}
+        {/* Table header */}
+        <div className={`${cols} px-6 mt-6 pb-2 border-b border-[#d9d9e0]`}>
+          <p className="text-[#8a7d56] font-semibold text-[11px]">AI TOOL</p>
+          <p className="text-[#8a7d56] font-semibold text-[11px]">MODEL</p>
+          <p className="text-[#8a7d56] font-semibold text-[11px]">PERMITTED DATA</p>
+          <p className="text-[#8a7d56] font-semibold text-[11px]">STATUS</p>
+        </div>
 
-          {/* SummarizerX — request card, or approved visa once the admin approves */}
-          {summarizerApproved ? (
-            <ApprovedVisa name="SummarizerX" number="V-0033" machineLine="V<AIP<SUMMARIZERX<<INTERNAL<TEXT<<<<<<<<" />
-          ) : (
-            <div className="bg-white border border-dashed border-[#d97706] rounded-[16px] overflow-hidden">
-              <div className="bg-[#d97706] h-12 flex items-center px-4.5">
-                <p className="text-white font-bold text-[11px] tracking-[1.1px]">VISA REQUIRED · NOT YET APPROVED</p>
-              </div>
-              <div className="px-5 pb-5">
-                <p className="text-navy-header font-bold text-xl mt-4.5">SummarizerX</p>
-                <p className="text-[#667085] text-[11px] mt-2">Detected in your browsing · 12 colleagues also use it</p>
-                <p className="text-[#078b6c] font-medium text-[11px] mt-1.5">Approved alternative: ChatGPT (summarise)</p>
-                <div className="flex gap-2.5 mt-11">
-                  {alreadyApplied ? (
-                    <span className="bg-[#fff5de] text-[#d97706] font-semibold text-xs rounded-full px-6 h-11 flex items-center">
-                      ⏳ Application under review
-                    </span>
-                  ) : (
-                    <button onClick={() => setModal('confirm')} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs rounded-full w-[178px] h-11 cursor-pointer">
-                      Apply for visa&nbsp;&nbsp;→
-                    </button>
-                  )}
-                  <Link to="/gateway" className="border border-navy-header text-navy-header font-semibold text-xs rounded-full w-[172px] h-11 flex items-center justify-center hover:bg-chip">
-                    Use alternative
-                  </Link>
+        {/* Rows */}
+        <div className="mt-3 flex flex-col gap-2">
+          {tools.map((t, i) => {
+            const st = statusStyle[t.status]
+            return (
+              <div key={t.name} className={`relative rounded-[8px] overflow-hidden ${i % 2 ? 'bg-[#fbfbfc]' : 'bg-white'}`}>
+                <div className={`absolute left-0 top-0 h-full w-[5px] rounded-[3px] ${st.bar}`} />
+                <div className={`${cols} items-center pl-7 pr-5 min-h-[88px] py-4`}>
+                  <div>
+                    <p className="text-[#0a204f] font-bold text-base">{t.name}</p>
+                    <p className="text-[#667085] text-[11px] mt-1">No. {t.number}</p>
+                  </div>
+                  <p className="text-[#0a204f] font-semibold text-sm">{t.model}</p>
+                  <p className="text-[#667085] text-sm">{t.data}</p>
+                  <div>
+                    <span className={`inline-flex items-center font-semibold text-[13px] rounded-full px-3 h-[30px] ${st.chip}`}>{st.label}</span>
+                    <p className="text-[#667085] text-xs mt-2">{t.sub}</p>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-
-        {/* My application status */}
-        <div className="bg-navy-header rounded-[16px] p-7 h-fit">
-          <p className="text-gold-brand font-bold text-[11px] tracking-[1.32px]">MY APPLICATION</p>
-          {myRequest ? (
-            <>
-              <p className="text-white font-bold text-[22px] mt-2">{myRequest.tool}</p>
-              <p className="text-[#a9b8d0] text-[11px] mt-2.5">Submitted {myRequest.submitted}&nbsp;&nbsp;·&nbsp;&nbsp;Ref {myRequest.id}</p>
-
-              <div className="flex flex-col gap-6 mt-7">
-                {statusSteps(myRequest.status).map(step => (
-                  <div key={step.label} className="flex gap-3">
-                    {step.state === 'done' ? (
-                      <span className="w-8 h-8 rounded-full bg-gold-brand border-2 border-gold-brand text-navy-header font-bold text-sm flex items-center justify-center shrink-0">✓</span>
-                    ) : step.state === 'current' ? (
-                      <span className="w-8 h-8 rounded-full border-2 border-gold-brand text-gold-brand font-bold text-sm flex items-center justify-center shrink-0">•</span>
-                    ) : step.state === 'decided' ? (
-                      <span className="w-8 h-8 rounded-full border-2 border-[#d97706] text-[#d97706] font-bold text-sm flex items-center justify-center shrink-0">!</span>
-                    ) : (
-                      <span className="w-8 h-8 rounded-full border-2 border-[#365d9d] text-[#365d9d] font-bold text-sm flex items-center justify-center shrink-0">○</span>
-                    )}
-                    <div>
-                      <p className={`font-semibold text-sm ${step.state === 'current' ? 'text-gold-brand' : step.state === 'pending' ? 'text-[#5e7daf]' : 'text-white'}`}>{step.label}</p>
-                      <p className={`text-[11px] mt-0.5 ${step.state === 'pending' ? 'text-[#5e7daf]' : 'text-[#a9b8d0]'}`}>{step.sub}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="text-[#a9b8d0] text-sm mt-3">No active application. Apply for a tool to track it here.</p>
-          )}
-
-          <div className="bg-[#173976] rounded-[10px] px-4 py-4 mt-8">
-            <p className="text-[#a7f3d0] font-medium text-xs">Average approval time: 3 working days</p>
-          </div>
-          <p className="text-gold-brand font-medium text-[11px] mt-5">Tip: complete “PDPA &amp; Compliance” training while you wait&nbsp;&nbsp;→</p>
+            )
+          })}
         </div>
       </div>
 
-      {/* How visas work */}
-      <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-7 pt-5 mt-6">
-        <p className="text-navy-header font-semibold text-[17px]">How visas work</p>
-        <div className="grid grid-cols-2 gap-x-13 gap-y-4 mt-4">
-          {principles.map(([title, desc], i) => (
-            <div key={title} className="flex gap-3">
-              <span className="w-7 h-7 rounded-full bg-[#eef2ff] text-[#365fd9] font-semibold text-[11px] flex items-center justify-center shrink-0">{i + 1}</span>
-              <div>
-                <p className="text-navy-header font-semibold text-xs">{title}</p>
-                <p className="text-[#667085] text-[11px] mt-0.5">{desc}</p>
+      {/* AI literacy levels */}
+      <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-7 mt-6">
+        <p className="text-[#0a204f] font-bold text-base">AI literacy levels — what each level means</p>
+        <p className="text-[#667085] text-[13px] mt-2 max-w-[1000px]">
+          Finish the 3 core AI-safety modules to reach Level 2. Higher levels need advanced training (coming soon). Access to sensitive data always still depends on your job role and admin approval.
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
+          {levels.map(l => {
+            const done = l.n < level
+            const cur = l.n === level
+            return (
+              <div key={l.n} className={`rounded-[12px] border p-4 h-[120px] ${cur ? 'bg-[#0a204f] border-2 border-[#d9b32c]' : done ? 'bg-white border-[#e0e0e5]' : 'bg-[#f2f2f5] border-[#e0e0e5]'}`}>
+                <div className="flex justify-between items-start">
+                  <p className={`font-semibold text-[10px] ${cur ? 'text-[#d9b32c]' : done ? 'text-[#667085]' : 'text-[#999ea8]'}`}>LEVEL {l.n}</p>
+                  <span className={`font-bold text-[9px] rounded-full px-2 py-1 ${cur ? 'bg-[#d9b32c] text-[#0a204f]' : done ? 'bg-[#e5f4ed] text-[#328768]' : 'bg-[#e5e5eb] text-[#999ea8]'}`}>
+                    {cur ? 'YOU ARE HERE' : done ? '✓ DONE' : l.badge}
+                  </span>
+                </div>
+                <p className={`font-bold text-lg mt-1 ${cur ? 'text-white' : done ? 'text-[#0a204f]' : 'text-[#737882]'}`}>{l.name}</p>
+                <p className={`text-[12.5px] mt-2 leading-snug ${cur ? 'text-[#cbd5e1]' : done ? 'text-[#667085]' : 'text-[#999ea8]'}`}>{l.desc}</p>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
-      {/* 08A — Confirm visa application */}
-      {modal === 'confirm' && (
+      {/* Request a new AI tool — matches Figma "Modal / Request new tool" */}
+      {modal === 'request' && (
         <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-6 z-50" onClick={() => setModal(null)}>
-          <div className="bg-card border border-navy rounded-[20px] w-full max-w-[600px] p-8 pt-6" onClick={e => e.stopPropagation()}>
-            <p className="text-gold font-semibold text-[13px]">VISA APPLICATION</p>
-            <p className="text-navy font-bold text-[28px] mt-1.5">Apply for a SummarizerX Visa?</p>
-            <p className="text-ink text-base mt-3">
-              IT and Compliance will review the vendor, business purpose and declared data scope. Your approved tools remain available while the request is reviewed.
-            </p>
-            <div className="bg-[#edf2ff] rounded-[12px] px-4.5 py-3.5 mt-5">
-              <p className="text-navy font-semibold text-[15px]">What happens next</p>
-              <div className="text-slate2 text-sm mt-1.5 space-y-0.5">
-                <p>• Complete one business-purpose form</p>
-                <p>• Confirm which data categories the tool may receive</p>
-                <p>• Typical review time: 3 working days</p>
-              </div>
+          <div className="bg-[#fffefa] border-[1.5px] border-[#0a204f] rounded-[20px] shadow-[0px_10px_30px_0px_rgba(0,0,0,0.22)] w-full max-w-[600px] p-[30px] max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <p className="text-[#d9b32c] font-semibold text-[11px]">NEW TOOL REQUEST · SENT TO ADMIN</p>
+            <p className="text-[#0a204f] font-bold text-[26px] mt-1.5">Request a new AI tool</p>
+            <p className="text-[#667085] text-sm mt-2.5">Tell IT what tool and model you want and why. They review the vendor and data scope before approving.</p>
+
+            <div className="grid grid-cols-2 gap-3 mt-5">
+              <ReqField label="TOOL NAME" value={toolName} onChange={setToolName} />
+              <ReqField label="MODEL / VERSION" value={model} onChange={setModel} />
+              <ReqField label="VENDOR / WEBSITE" value={vendor} onChange={setVendor} />
+              <ReqField label="CATEGORY" value={category} onChange={setCategory} />
             </div>
-            <div className="flex gap-4 mt-7">
-              <button onClick={() => setModal(null)} className="border border-navy text-navy font-semibold text-[15px] w-[176px] h-12 rounded-full cursor-pointer hover:bg-chip">
-                Not now
-              </button>
-              <button onClick={() => setModal('form')} className="bg-gold hover:bg-gold-dark text-navy font-semibold text-[15px] flex-1 h-12 rounded-full cursor-pointer">
-                Yes, apply
-              </button>
+            <div className="bg-[#edf2ff] rounded-[12px] px-4 py-2.5 mt-3">
+              <p className="text-[#8a7d56] font-semibold text-[11px]">BUSINESS PURPOSE</p>
+              <textarea value={purpose} onChange={e => setPurpose(e.target.value)} rows={2} className="w-full bg-transparent outline-none text-[15px] text-[#0a204f] resize-none mt-1" />
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* Business-purpose form */}
-      {modal === 'form' && (
-        <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-6 z-50" onClick={() => setModal(null)}>
-          <div className="bg-card border border-navy rounded-[20px] w-full max-w-[600px] p-8 pt-6" onClick={e => e.stopPropagation()}>
-            <p className="text-gold font-semibold text-[13px]">BUSINESS-PURPOSE FORM</p>
-            <p className="text-navy font-bold text-[28px] mt-1.5">Tell reviewers what SummarizerX is for</p>
-
-            <p className="text-slate2 font-semibold text-xs mt-5">HOW WILL THIS TOOL SUPPORT YOUR ROLE?</p>
-            <textarea
-              value={purpose}
-              onChange={e => setPurpose(e.target.value)}
-              rows={3}
-              className="w-full border border-[#98a2b3] rounded-[10px] p-3 mt-2 text-sm text-ink outline-none focus:border-navy resize-none"
-            />
-
-            <p className="text-slate2 font-semibold text-xs mt-4">SELECT ONLY THE DATA CATEGORIES IT NEEDS</p>
-            <div className="flex flex-wrap gap-2 mt-2">
+            <p className="text-[#8a7d56] font-semibold text-[11px] mt-4">DECLARED DATA SCOPE · select what the tool may receive</p>
+            <div className="flex flex-wrap gap-2 mt-2.5">
               {scopeOptions.map(s => {
                 const on = scopes.includes(s)
                 return (
                   <button
                     key={s}
                     onClick={() => toggleScope(s)}
-                    className={`text-xs font-semibold rounded-full px-4 py-2 cursor-pointer ${on ? 'bg-navy text-white' : 'bg-chip text-slate2 hover:bg-sand/50'}`}
+                    className={`font-semibold text-[12.5px] rounded-[16px] px-3 py-2 cursor-pointer border ${on ? 'bg-[#e7f1ec] border-[#328768] text-[#19533e]' : 'bg-[#f2f2f5] border-[#ccccd1] text-[#667085]'}`}
                   >
-                    {on ? '✓ ' : ''}{s}
+                    {on ? '✓ ' : '✗ '}{s}
                   </button>
                 )
               })}
             </div>
 
-            <div className="flex gap-4 mt-7">
-              <button onClick={() => setModal('confirm')} className="border border-navy text-navy font-semibold text-[15px] w-[176px] h-12 rounded-full cursor-pointer hover:bg-chip">
-                ← Back
+            <p className="text-[#667085] font-medium text-[12.5px] mt-4">Typical review time: 3 working days. You will get a notification when a decision is made.</p>
+
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setModal(null)} className="border-[1.5px] border-[#0a204f] text-[#0a204f] font-semibold text-sm w-[176px] h-12 rounded-full cursor-pointer hover:bg-chip">
+                Cancel
               </button>
-              <button
-                onClick={submitApplication}
-                disabled={submitting || !purpose.trim() || scopes.length === 0}
-                className="bg-gold hover:bg-gold-dark text-navy font-semibold text-[15px] flex-1 h-12 rounded-full cursor-pointer disabled:opacity-60"
-              >
-                {submitting ? 'Submitting…' : 'Submit for review →'}
+              <button onClick={submitRequest} disabled={submitting || !toolName.trim()} className="bg-[#d9b32c] hover:bg-gold-dark text-[#0a204f] font-semibold text-sm flex-1 h-12 rounded-full cursor-pointer disabled:opacity-60">
+                {submitting ? 'Sending…' : 'Send request to admin  →'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 08B — Application started */}
+      {/* Request submitted — matches Figma "Modal / Request submitted" */}
       {modal === 'sent' && (
         <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-6 z-50" onClick={() => setModal(null)}>
-          <div className="bg-card border border-navy rounded-[20px] w-full max-w-[600px] p-8 pt-6" onClick={e => e.stopPropagation()}>
-            <span className="inline-block bg-green-soft text-green font-semibold text-xs rounded-full px-3 py-2">✓ APPLICATION SUBMITTED</span>
-            <p className="text-navy font-bold text-[28px] mt-4">Application Request Sent</p>
-            <p className="text-ink text-base mt-2.5">
-              Your request is now in the IT and Compliance review queue. Track its progress in the panel on this page — you will be notified at each stage.
-            </p>
-            <div className="bg-[#edf2ff] rounded-[12px] px-4.5 py-3.5 mt-5">
-              <p className="text-gold font-semibold text-[13px]">WHAT WAS SUBMITTED</p>
-              <p className="text-navy font-semibold text-lg mt-1.5">SummarizerX · {myRequest?.id}</p>
-              <div className="text-slate2 text-sm mt-2 space-y-0.5">
-                <p>Purpose: {purpose}</p>
-                <p>Data scope: {scopes.join(' · ')}</p>
+          <div className="bg-[#fffefa] border-[1.5px] border-[#328768] rounded-[20px] shadow-[0px_10px_30px_0px_rgba(0,0,0,0.22)] w-full max-w-[520px] p-[30px]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-[32px] bg-[#e7f1ec] border-2 border-[#328768] flex items-center justify-center text-[#19533e] text-[28px] font-bold shrink-0">✓</div>
+              <div>
+                <p className="text-[#19533e] font-semibold text-[11px]">REQUEST SUBMITTED</p>
+                <p className="text-[#0a204f] font-bold text-[22px] mt-0.5">Sent to admin for review</p>
               </div>
             </div>
-            <button onClick={() => setModal(null)} className="bg-gold hover:bg-gold-dark text-navy font-semibold text-[15px] w-full h-12 rounded-full mt-7 cursor-pointer">
-              Got it
+            <p className="text-[#667085] text-sm mt-5">{toolName} ({model}) is now with IT and Compliance. Typical decision: 3 working days.</p>
+            <p className="text-[#667085] text-sm mt-3">You will get a notification when it is approved, and the tool will appear in your visa list.</p>
+            <button onClick={() => setModal(null)} className="bg-[#d9b32c] hover:bg-gold-dark text-[#0a204f] font-semibold text-sm w-full h-12 rounded-full mt-7 cursor-pointer">
+              Back to my visas&nbsp;&nbsp;→
             </button>
           </div>
         </div>

@@ -1,5 +1,8 @@
 // 16 Admin · Employees — matches Figma frame "16 Admin • Employees"
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
+import { AssignModal, InfoToast } from '../../components/admin/TrainingModuleForm.jsx'
 
 const statusChip = {
   'On track': 'bg-[#e9f8f2] text-[#078b6c]',
@@ -36,6 +39,15 @@ const cols = 'grid grid-cols-[150px_82px_70px_150px_86px_64px_1fr] items-center 
 
 export default function Employees() {
   const toast = useToast()
+  const [assignOpen, setAssignOpen] = useState(false)
+  const [toastInfo, setToastInfo] = useState(null)
+
+  function assign(target) {
+    const count = target === 'everyone' ? 303 : target === 'department' ? 84 : 12
+    setAssignOpen(false)
+    setToastInfo({ kicker: 'MODULE ASSIGNED', title: `Assigned to ${count} employees`, body: 'They will see it in their training list and get a notification. Progress appears here as they complete it.' })
+  }
+
   return (
     <div>
       <div className="flex items-start justify-between">
@@ -43,10 +55,7 @@ export default function Employees() {
           <h1 className="text-[28px] font-bold text-[#17213a]">Employees</h1>
           <p className="text-[#667085] text-sm mt-1.5">Support AI literacy and safe use with role-appropriate training and controls.</p>
         </div>
-        <div className="flex gap-3">
-          <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] px-6 h-11 rounded-full cursor-pointer hover:bg-chip">Sync directory</button>
-          <button onClick={() => toast('Training assignment sent to the selected cohort')} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-6 h-11 rounded-full cursor-pointer">Assign training</button>
-        </div>
+        <Link to="/admin/training" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-6 h-11 rounded-full flex items-center cursor-pointer">Assign Training</Link>
       </div>
 
       {/* KPI cards */}
@@ -133,7 +142,7 @@ export default function Employees() {
             <p className="text-gold font-semibold text-[10px]">NEXT TRAINING COHORT</p>
             <p className="text-[#17213a] font-semibold text-sm mt-1.5">Spotting Personal Data in Prompts</p>
             <p className="text-[#667085] text-xs mt-1">24 employees · due 23 Jul</p>
-            <button onClick={() => toast('Cohort assigned — 24 employees will be notified')} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs w-full h-10 rounded-full mt-3.5 cursor-pointer">Assign cohort</button>
+            <button onClick={() => setAssignOpen(true)} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs w-full h-10 rounded-full mt-3.5 cursor-pointer">Assign Training</button>
           </div>
 
           <div className="bg-[#eef2ff] rounded-[14px] p-5">
@@ -145,6 +154,9 @@ export default function Employees() {
           </div>
         </div>
       </div>
+
+      {assignOpen && <AssignModal moduleTitle="Spotting Personal Data in Prompts" onCancel={() => setAssignOpen(false)} onAssigned={assign} />}
+      {toastInfo && <InfoToast {...toastInfo} onClose={() => setToastInfo(null)} />}
     </div>
   )
 }

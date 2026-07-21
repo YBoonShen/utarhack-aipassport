@@ -3,16 +3,19 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api.js'
-import Leaderboard from '../components/Leaderboard.jsx'
+import { MODULE_LIST } from '../lib/trainingModules.js'
+
+// Stamp title -> module id, so the popover's "Redo module" button can deep-link.
+const STAMP_MODULE = Object.fromEntries(MODULE_LIST.map(m => [m.stampTitle, m.id]))
 
 const fallbackProfile = {
   name: 'Tan Jia Yin', dept: 'Engineering', licenseNo: 'AIP-2026-004173', issued: '02 Jan 2026',
   level: 2, levelName: 'Navigator', points: 1240, target: 2000, streakDays: 21,
   promptsProtected: 47, itemsMasked: 12, trainingCompleted: false,
   stamps: [
-    { title: 'AI BASICS', score: 'PASSED · 92%', date: '04 JAN 2026', shape: 'circle', color: '#078b6c' },
+    { title: 'AI BASICS', score: 'PASSED · 100%', date: '04 JAN 2026', shape: 'circle', color: '#078b6c' },
     { title: 'DATA PRIVACY', score: 'PASSED · 100%', date: '11 JAN 2026', shape: 'square', color: '#d92d20' },
-    { title: 'SAFE PROMPTS', score: 'PASSED · 87%', date: '25 JAN 2026', shape: 'circle', color: '#365fd9' },
+    { title: 'SAFE PROMPTS', score: 'PASSED · 92%', date: '25 JAN 2026', shape: 'circle', color: '#365fd9' },
   ],
 }
 
@@ -24,35 +27,86 @@ const lockedStamps = [
   { title: ['ADVANCED', 'AI ETHICS'], shape: 'circle', rotate: '-rotate-3' },
 ]
 
-function InkStamp({ s }) {
-  const round = s.shape === 'circle' ? 'rounded-full' : 'rounded-[8px]'
-  const size = s.shape === 'circle' ? 'w-[154px] h-[154px]' : 'w-[154px] h-[132px]'
+// Passport-style seal — matches Figma "Training Stamp" (double ink ring with
+// TRAINING VERIFIED · title · result · date · AI PASSPORT · OFFICIAL).
+function InkStamp({ s, onClick }) {
+  const round = s.shape === 'circle' ? 'rounded-full' : 'rounded-[12px]'
+  const outer = s.shape === 'circle' ? 'w-[180px] h-[180px]' : 'w-[180px] h-[150px]'
+  const inner = s.shape === 'circle' ? 'w-[154px] h-[154px]' : 'w-[154px] h-[124px]'
   return (
-    <div className={`${s.rotate} ${size} border-[3px] ${round} flex items-center justify-center`} style={{ borderColor: s.color }}>
+    <button
+      onClick={onClick}
+      className={`${s.rotate} ${outer} border-[2.5px] ${round} flex items-center justify-center cursor-pointer hover:scale-105 transition-transform shrink-0`}
+      style={{ borderColor: s.color }}
+    >
       <div
-        className={`${s.shape === 'circle' ? 'w-[134px] h-[134px]' : 'w-[134px] h-[113px]'} border-[1.5px] ${round} flex flex-col items-center justify-center text-center`}
+        className={`${inner} border-[1.5px] ${round} flex flex-col items-center justify-center text-center px-2`}
         style={{ borderColor: s.color, color: s.color }}
       >
-        <p className="font-bold text-xs tracking-[0.96px]">{s.title}</p>
-        <p className="font-medium text-[11px] mt-1.5">{s.score}</p>
-        <p className="font-medium text-[10px] mt-1.5 tracking-[0.4px]">{s.date}</p>
+        <p className="font-semibold text-[8px] tracking-[0.8px]">TRAINING VERIFIED</p>
+        <p className="font-bold text-[16px] tracking-[1px] mt-1.5">{s.title}</p>
+        <p className="font-semibold text-[12px] mt-1.5">{s.score}</p>
+        <p className="font-medium text-[11px] tracking-[0.5px] mt-1">{s.date}</p>
+        <p className="font-semibold text-[8px] tracking-[0.6px] mt-1.5">AI PASSPORT · OFFICIAL</p>
+      </div>
+    </button>
+  )
+}
+
+// Matches Figma "Active Overlay / Stamp detail popover" (2nd/3rd stamp variants)
+function StampPopover({ s, onClose }) {
+  const moduleId = STAMP_MODULE[s.title]
+  return (
+    <div className="fixed inset-0 bg-navy-dark/40 flex items-center justify-center p-6 z-50" onClick={onClose}>
+      <div
+        className="bg-white border-[1.5px] rounded-[20px] shadow-[0px_10px_30px_rgba(0,0,0,0.22)] w-full max-w-[480px] p-7"
+        style={{ borderColor: s.color }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${s.color}1a`, border: `2px solid ${s.color}` }}>
+            <span className="font-bold text-2xl" style={{ color: s.color }}>✓</span>
+          </div>
+          <div>
+            <p className="font-semibold text-[11px]" style={{ color: s.color }}>TRAINING STAMP · COMPLETED</p>
+            <p className="text-navy-header font-bold text-xl mt-0.5">{s.title}</p>
+          </div>
+        </div>
+        <p className="text-[#667085] text-sm mt-4">{s.score.replace('PASSED · ', 'Passed ')}&nbsp;&nbsp;·&nbsp;&nbsp;Completed {s.date}</p>
+        <p className="text-gold-brand font-medium text-sm mt-2">Safety points earned&nbsp;&nbsp;·&nbsp;&nbsp;Added to ongoing safety score</p>
+        <p className="text-[#667085] text-[13.5px] mt-3">You can redo this module any time to refresh your knowledge.</p>
+        <div className="flex gap-3 mt-6">
+          {moduleId ? (
+            <Link to={`/training/quiz/${moduleId}`} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-6 h-12 rounded-full inline-flex items-center justify-center">
+              Redo module →
+            </Link>
+          ) : (
+            <Link to="/training/modules" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-6 h-12 rounded-full inline-flex items-center justify-center">
+              View training →
+            </Link>
+          )}
+          <button onClick={onClose} className="bg-[#fffefa] border-[1.5px] border-navy-header text-navy-header font-semibold text-sm px-6 h-12 rounded-full cursor-pointer">
+            Close
+          </button>
+        </div>
       </div>
     </div>
   )
 }
 
 function LockedStamp({ s }) {
-  const round = s.shape === 'circle' ? 'rounded-full' : 'rounded-[8px]'
-  const size = s.shape === 'circle' ? 'w-[142px] h-[142px]' : 'w-[154px] h-[126px]'
+  const round = s.shape === 'circle' ? 'rounded-full' : 'rounded-[12px]'
+  const size = s.shape === 'circle' ? 'w-[180px] h-[180px]' : 'w-[180px] h-[150px]'
   return (
-    <div className={`${s.rotate} ${size} border-2 border-dashed border-[#d8d0b4] opacity-70 ${round} flex flex-col items-center justify-center text-center`}>
-      {s.title.map(line => <p key={line} className="text-[#d8d0b4] font-medium text-[11px] leading-snug">{line}</p>)}
+    <div className={`${s.rotate} ${size} border-2 border-dashed border-[#d8d0b4] opacity-70 ${round} flex flex-col items-center justify-center text-center shrink-0`}>
+      {s.title.map(line => <p key={line} className="text-[#c2b59a] font-semibold text-[13px] tracking-[0.5px] leading-snug">{line}</p>)}
     </div>
   )
 }
 
 export default function License() {
   const [profile, setProfile] = useState(fallbackProfile)
+  const [openStamp, setOpenStamp] = useState(null)
 
   useEffect(() => {
     let alive = true
@@ -158,7 +212,7 @@ export default function License() {
                 <p className="text-navy-header font-semibold text-[19px] mt-2">Spotting personal data in prompts</p>
                 <p className="text-[#667085] text-[13px] mt-2">5-minute lesson&nbsp;&nbsp;·&nbsp;&nbsp;3-question quiz</p>
                 <div className="flex-1" />
-                <Link to="/training/quiz" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[188px] h-12 rounded-full flex items-center justify-center">
+                <Link to="/training" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[188px] h-12 rounded-full flex items-center justify-center">
                   Start lesson&nbsp;&nbsp;→
                 </Link>
               </>
@@ -176,15 +230,11 @@ export default function License() {
         <Link to="/training" className="text-[#365fd9] font-semibold text-xs">View training&nbsp;&nbsp;→</Link>
       </div>
       <div className="bg-white border border-[#d8d0b4] rounded-[16px] mt-4 px-8 py-8 flex items-center justify-between flex-wrap gap-6">
-        {earnedStamps.map(s => <InkStamp key={s.title} s={s} />)}
+        {earnedStamps.map(s => <InkStamp key={s.title} s={s} onClick={() => setOpenStamp(s)} />)}
         {lockedStamps.map(s => <LockedStamp key={s.title[0]} s={s} />)}
       </div>
 
-      {/* Leaderboard — proposal §5.1 (levels, points and leaderboard) */}
-      <div className="grid grid-cols-2 gap-5 mt-6">
-        <Leaderboard compact />
-        <div />
-      </div>
+      {openStamp && <StampPopover s={openStamp} onClose={() => setOpenStamp(null)} />}
     </div>
   )
 }

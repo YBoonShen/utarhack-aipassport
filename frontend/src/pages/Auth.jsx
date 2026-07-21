@@ -1,11 +1,14 @@
-// 00 Auth series — matches Figma frames "00 / 00A–00E Auth" (sign in, forgot
-// password, reset sent, authenticated, sign up, sign up successful).
+// 00 Auth series — matches Figma frames "00 / 00A–00F Auth" (sign in, forgot
+// password, reset email sent, authenticated, sign up step 1, sign up step 2,
+// sign up successful). Sign-up is a two-step wizard per Figma 00D/00E: step 1
+// collects org identity, step 2 re-shows name/email read-only and collects
+// the employee ID + password.
 // Demo auth: email decides the role — admin@abcd.com enters the Admin Console,
 // anything else signs in as the employee. Firebase Auth later.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login } from '../lib/api.js'
-import { useToast, DEMO_NOTE } from '../components/Toast.jsx'
+import { useToast } from '../components/Toast.jsx'
 
 const panelCopy = {
   signin: {
@@ -33,6 +36,11 @@ const panelCopy = {
     title: 'Start with a secure organisation identity.',
     body: 'Your AI Passport brings training, access permissions and safe-use progress together.',
   },
+  signup2: {
+    kicker: 'CREATE YOUR PASSPORT',
+    title: 'Start with a secure organisation identity.',
+    body: 'Your AI Passport brings training, access permissions and safe-use progress together.',
+  },
   'signup-success': {
     kicker: 'ACCOUNT CREATED',
     title: 'Your AI Passport account is ready to verify.',
@@ -40,18 +48,23 @@ const panelCopy = {
   },
 }
 
-function Field({ label, value, onChange, type = 'text', placeholder, hint, autoFocus }) {
+function Field({ label, value, onChange, type = 'text', placeholder, hint, autoFocus, readOnly }) {
   const [show, setShow] = useState(false)
   return (
     <div className="mt-4">
       <p className="text-[#0a1733] font-semibold text-[13px]">{label}</p>
-      <div className="border-[1.5px] border-[#788cad] rounded-[12px] h-14 mt-1.5 flex items-center px-3.5 focus-within:border-[#091e47]">
+      <div
+        className={`border-[1.5px] rounded-[12px] h-14 mt-1.5 flex items-center px-3.5 ${
+          readOnly ? 'bg-[#eaf0ff] border-[#a9bceb]' : 'border-[#788cad] focus-within:border-[#091e47]'
+        }`}
+      >
         <input
           type={type === 'password' && show ? 'text' : type}
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder={placeholder}
           autoFocus={autoFocus}
+          readOnly={readOnly}
           className="flex-1 outline-none text-[15px] text-[#0a1733] placeholder-[#5c6b87] bg-transparent"
         />
         {type === 'password' && (
@@ -83,11 +96,13 @@ function SuccessMark() {
 
 export default function Auth() {
   const navigate = useNavigate()
-  const [view, setView] = useState('signin') // signin | forgot | reset-sent | success | signup | signup-success
+  const [view, setView] = useState('signin') // signin | forgot | reset-sent | success | signup | signup2 | signup-success
   const [email, setEmail] = useState('jiayin.tan@abcd.com')
   const [password, setPassword] = useState('demo-password')
   const [name, setName] = useState('Tan Jia Yin')
   const [org, setOrg] = useState('ABCD Sdn Bhd')
+  const [dept, setDept] = useState('Engineering')
+  const [empId, setEmpId] = useState('E-217')
   const [consent, setConsent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -112,8 +127,23 @@ export default function Auth() {
     }
   }
 
+  // Enterprise SSO always resolves to the org's admin/IT identity in this demo.
+  async function signInWithSSO() {
+    setBusy(true)
+    setError(null)
+    try {
+      const u = await login('admin')
+      setUser(u)
+      setView('success')
+    } catch {
+      setError('Backend not running — start it with: cd backend && npm run dev')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   function continueToApp() {
-    navigate(user?.role === 'admin' ? '/admin' : '/license', { replace: true })
+    navigate(user?.role === 'admin' ? '/admin' : '/home', { replace: true })
   }
 
   return (
@@ -165,8 +195,8 @@ export default function Auth() {
                 <p className="text-[#5c6b87] font-semibold text-[11px]">OR</p>
                 <div className="h-px bg-[#dee0e5] flex-1" />
               </div>
-              <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-[#091e47] text-[#091e47] font-semibold text-[15px] w-full h-[52px] rounded-full mt-6 cursor-pointer hover:bg-chip">
-                Continue with enterprise SSO
+              <button onClick={signInWithSSO} disabled={busy} className="border-[1.5px] border-[#091e47] text-[#091e47] font-semibold text-[15px] w-full h-[52px] rounded-full mt-6 cursor-pointer hover:bg-chip disabled:opacity-60">
+                {busy ? 'Signing in…' : 'Continue with enterprise SSO'}
               </button>
               <p className="text-[#5c6b87] text-xs text-center mt-5">Your organisation manages access and activity logging.</p>
               <button onClick={() => setView('signup')} className="text-[#144dc2] font-semibold text-sm w-full text-center mt-4 cursor-pointer">
@@ -229,7 +259,24 @@ export default function Auth() {
               <Field label="Full name" value={name} onChange={setName} autoFocus />
               <Field label="Work email" value={email} onChange={setEmail} />
               <Field label="Organisation" value={org} onChange={setOrg} />
-              <Field label="Create password" value={password} onChange={setPassword} type="password" placeholder="At least 12 characters" hint="Use 12+ characters with a number and symbol." />
+              <Field label="Department" value={dept} onChange={setDept} />
+              <GoldButton onClick={() => setView('signup2')}>Next</GoldButton>
+              <button onClick={() => setView('signin')} className="text-[#144dc2] font-semibold text-sm w-full text-center mt-4 cursor-pointer">
+                Already have an account? Sign in
+              </button>
+              <p className="text-[#5c6b87] text-[11px] text-center mt-4">Your administrator may need to verify your organisation membership.</p>
+            </>
+          )}
+
+          {view === 'signup2' && (
+            <>
+              <p className="text-[#e3b214] font-bold text-xs">CREATE ACCOUNT</p>
+              <h2 className="text-[#0a1733] font-bold text-[29px] mt-2">Set up your AI Passport</h2>
+              <p className="text-[#5c6b87] text-sm mt-2">Use details that match your organisation directory.</p>
+              <Field label="Full name" value={name} onChange={setName} readOnly />
+              <Field label="Work email" value={email} onChange={setEmail} readOnly />
+              <Field label="Employee ID" value={empId} onChange={setEmpId} autoFocus />
+              <Field label="Create password" value={password} onChange={setPassword} type="password" placeholder="At least 12 characters" hint="Must include at least a number and a symbol." />
               <label className="flex items-center gap-3 mt-4 cursor-pointer">
                 <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} className="w-[22px] h-[22px] accent-[#091e47]" />
                 <span className="text-[#0a1733] text-xs">I agree to the acceptable-use and privacy policies.</span>

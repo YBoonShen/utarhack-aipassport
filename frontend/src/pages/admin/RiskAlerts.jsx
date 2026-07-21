@@ -2,6 +2,7 @@
 // Live: alerts come from /api/alerts (override and human-review events appear
 // here in real time); Resolve really closes an alert everywhere.
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../../lib/api.js'
 import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
 
@@ -23,10 +24,32 @@ const dueColor = {
   MONITORING: 'text-[#365fd9]',
 }
 
+// Matches Figma "Overlay / Alert resolved" — checkmark, kicker, heading, body, Done.
+function ResolvedConfirm({ onClose }) {
+  return (
+    <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-6 z-50" onClick={onClose}>
+      <div className="bg-white border-[1.5px] border-[#c7b887] rounded-[20px] shadow-[0px_18px_24px_rgba(3,10,31,0.22)] w-full max-w-[560px] p-7" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-[#e9f8f2] border-2 border-[#078b6c] flex items-center justify-center text-[#078b6c] text-2xl shrink-0">✓</div>
+          <div>
+            <p className="text-[#078b6c] font-bold text-xs tracking-wide">ALERT RESOLVED</p>
+            <p className="text-[#17213a] font-bold text-xl mt-0.5">Risk alert marked resolved</p>
+          </div>
+        </div>
+        <p className="text-[#667085] text-sm mt-4">The action and reviewer are recorded in the audit trail. The alert moves to &quot;Resolved&quot;.</p>
+        <button onClick={onClose} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-full h-12 rounded-full mt-6 cursor-pointer">
+          Done
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function RiskAlerts() {
   const [alerts, setAlerts] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [filter, setFilter] = useState('All')
+  const [resolvedOpen, setResolvedOpen] = useState(false)
   const toast = useToast()
 
   useEffect(() => {
@@ -60,7 +83,7 @@ export default function RiskAlerts() {
       setAlerts(fresh)
       const next = fresh.find(a => a.status === 'open')
       setSelectedId(next?.id ?? null)
-      toast(`Alert ${sel.id} resolved — recorded in the audit trail`)
+      setResolvedOpen(true)
     } catch { /* offline */ }
   }
 
@@ -71,10 +94,7 @@ export default function RiskAlerts() {
           <h1 className="text-[28px] font-bold text-[#17213a]">Risk Alerts</h1>
           <p className="text-[#667085] text-sm mt-1.5">Review high-risk AI activity with context, evidence and accountable next steps.</p>
         </div>
-        <div className="flex gap-3.5">
-          <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] w-[136px] h-11 rounded-full cursor-pointer hover:bg-chip">Risk policy</button>
-          <button onClick={() => toast(DEMO_NOTE)} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] w-40 h-11 rounded-full cursor-pointer">Create report</button>
-        </div>
+        <Link to="/admin/audit-report" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] w-40 h-11 rounded-full flex items-center justify-center cursor-pointer">Create Report</Link>
       </div>
 
       {/* KPI cards */}
@@ -183,12 +203,21 @@ export default function RiskAlerts() {
             </div>
 
             <div className="flex gap-3 mt-5">
-              <button
-                onClick={() => toast(`${sel.primary} — action recorded for ${sel.id}`)}
-                className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full cursor-pointer"
-              >
-                {sel.primary}
-              </button>
+              {sel.primary === 'Assign training' ? (
+                <Link
+                  to="/admin/training/assign"
+                  className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full flex items-center justify-center cursor-pointer"
+                >
+                  {sel.primary}
+                </Link>
+              ) : (
+                <button
+                  onClick={() => toast(`${sel.primary} — action recorded for ${sel.id}`)}
+                  className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full cursor-pointer"
+                >
+                  {sel.primary}
+                </button>
+              )}
               <button
                 onClick={resolve}
                 disabled={sel.status !== 'open'}
@@ -204,6 +233,8 @@ export default function RiskAlerts() {
           </div>
         )}
       </div>
+
+      {resolvedOpen && <ResolvedConfirm onClose={() => setResolvedOpen(false)} />}
     </div>
   )
 }

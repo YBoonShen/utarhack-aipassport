@@ -1,0 +1,152 @@
+// Shared module content for Training • Q1–Q3 quiz frames (M1/M2/M3 in Figma).
+// Every module: 2 multiple-choice questions + 1 "write your own" practice
+// question (matches "Training • Q3 • Write-your-own Practice" in Figma —
+// Q3 is never a 4th MCQ).
+export const MODULES = {
+  1: {
+    id: 1,
+    title: 'Spotting Personal Data in Prompts',
+    subtitle: 'Learn to identify and remove personal information before using an AI tool.',
+    minutes: 5, points: 150,
+    steps: ['Identify', 'Protect', 'Rewrite'],
+    stampTitle: 'PERSONAL DATA', stampColor: '#078b6c', stampShape: 'circle',
+    questions: [
+      {
+        type: 'mcq', stepTitle: 'Identify personal data',
+        q: 'Which part of this prompt contains personal data?',
+        helper: 'Select the best answer. You can change it before continuing.',
+        example: '"Summarise the complaint from [CUSTOMER NAME], ID [ID NUMBER], and suggest a reply."',
+        tip: 'Tip: direct identifiers can identify a specific person.',
+        options: [
+          'The customer’s name and identity number',
+          'The instruction to summarise the complaint',
+          'The request to suggest a reply',
+          'Nothing — an internal prompt is always private',
+        ],
+        correct: 0,
+        correctMsg: '✓  Correct — the customer’s name and identity number are personal data.',
+        incorrectMsg: '×  Not quite — both the customer’s name and identity number must be protected.',
+      },
+      {
+        type: 'mcq', stepTitle: 'Protect the prompt',
+        q: 'What should you do before sending a customer case to an AI tool?',
+        helper: 'Choose the action that protects the customer while keeping the prompt useful.',
+        example: 'You need help summarising a complaint that includes a customer name, phone number and order ID.',
+        tip: 'Use only the minimum information required for the task.',
+        options: [
+          'Remove or mask identifiers and keep only the necessary context',
+          'Send the full record because the tool is approved',
+          'Remove the name but keep the phone number and identity number',
+          'Paste the full record, then delete the conversation later',
+        ],
+        correct: 0,
+        correctMsg: '✓  Correct — mask identifiers and keep only the context the task needs.',
+        incorrectMsg: '×  Not quite — an approved tool still requires identifiers to be removed or masked.',
+      },
+      {
+        type: 'practice', stepTitle: 'Rewrite safely',
+        prompt: 'Original task: a customer reports a delayed delivery and needs a neutral reply.',
+        tip: 'A general reply does not require the person’s identity or contact details.',
+        placeholder: 'Draft a neutral, apologetic reply about the delayed delivery. Do not include the customer’s name, phone number, or account number.',
+      },
+    ],
+  },
+  2: {
+    id: 2,
+    title: 'Safe AI Tool Selection',
+    subtitle: 'Learn how to choose and request AI tools safely.',
+    minutes: 6, points: 180,
+    steps: ['Spot', 'Judge', 'Request'],
+    stampTitle: 'TOOL SELECTION', stampColor: '#078b6c', stampShape: 'square',
+    questions: [
+      {
+        type: 'mcq', stepTitle: 'Spot unapproved tools',
+        q: 'A teammate shares an unapproved free AI tool. What do you do first?',
+        helper: 'Choose the safest first step before using any new tool.',
+        example: 'Scenario: a free AI summariser is going around the team chat. It is not on the approved list.',
+        tip: 'Tip: any tool that will see company data needs approval first.',
+        options: [
+          'Request approval through AI Passport before putting any company data in it',
+          'Start using it — free tools are always fine for work',
+          'Use it only for small tasks without telling anyone',
+          'Ask the teammate to send you their login',
+        ],
+        correct: 0,
+        correctMsg: '✓  Correct — request approval before any company data reaches an unapproved tool.',
+        incorrectMsg: '×  Not quite — unapproved tools need a visa before they see company data.',
+      },
+      {
+        type: 'mcq', stepTitle: 'Judge tool safety',
+        q: 'Which factor matters MOST when deciding if an AI tool is safe for a task?',
+        helper: 'Pick the factor that actually determines safety.',
+        example: 'Scenario: two tools can do the job. One is popular, one is unknown.',
+        tip: 'Tip: safety is about data handling, not popularity or price.',
+        options: [
+          'What data it will receive and whether the vendor protects it',
+          'How popular the tool is on social media',
+          'Whether it has a nice interface',
+          'Whether it is free',
+        ],
+        correct: 0,
+        correctMsg: '✓  Correct — vendor data handling determines whether a tool is safe.',
+        incorrectMsg: '×  Not quite — popularity and price don’t determine data safety.',
+      },
+      {
+        type: 'practice', stepTitle: 'Request a tool',
+        prompt: 'Original task: you want SummarizerX approved to summarise customer call notes.',
+        tip: 'A good request states the task and the data the tool will touch.',
+        placeholder: 'Requesting SummarizerX to summarise customer call notes into follow-up actions. Scope: internal notes only, no personal data.',
+      },
+    ],
+  },
+  3: {
+    id: 3,
+    title: 'Human Review in AI Decisions',
+    subtitle: 'Learn when people can question an AI-assisted decision.',
+    minutes: 6, points: 200,
+    steps: ['Know', 'When', 'Explain'],
+    stampTitle: 'HUMAN REVIEW', stampColor: '#d92d20', stampShape: 'circle',
+    questions: [
+      {
+        type: 'mcq', stepTitle: 'Right to know',
+        q: 'A rejected job applicant was ranked by AI. What is their right?',
+        helper: 'Choose the right that responsible AI must protect.',
+        example: 'Scenario: an AI tool helped rank job applicants and one was rejected.',
+        tip: 'Tip: people affected by AI decisions have a right to know and to appeal.',
+        options: [
+          'To be told AI was involved and to request a human review',
+          'No rights — the AI decision is final',
+          'To see other applicants’ personal data',
+          'To re-take the AI test unlimited times',
+        ],
+        correct: 0,
+        correctMsg: '✓  Correct — affected people can be told AI was involved and ask for human review.',
+        incorrectMsg: '×  Not quite — AI-assisted decisions are never unquestionable.',
+      },
+      {
+        type: 'mcq', stepTitle: 'When it matters',
+        q: 'When must a human review an AI-assisted decision before it is final?',
+        helper: 'Choose the situation that requires human review.',
+        example: 'Scenario: AI screens candidates, flags fraud risk, and drafts replies to complaints.',
+        tip: 'Tip: decisions with real consequences for a person need a human check.',
+        options: [
+          'When the decision meaningfully affects a person — e.g. hiring, credit, discipline',
+          'Only when the AI itself asks for review',
+          'Never — review slows the process down',
+          'Only for decisions about company revenue',
+        ],
+        correct: 0,
+        correctMsg: '✓  Correct — decisions with real consequences for a person need human review.',
+        incorrectMsg: '×  Not quite — review is required whenever the outcome meaningfully affects someone.',
+      },
+      {
+        type: 'practice', stepTitle: 'Explain to people',
+        prompt: 'Original task: tell a rejected applicant that AI was involved in screening.',
+        tip: 'A good explanation names the AI’s role and how to ask for a human review.',
+        placeholder: 'Your application was screened with AI assistance against the role requirements. You may request a human review of this decision at any time.',
+      },
+    ],
+  },
+}
+
+export const MODULE_LIST = Object.values(MODULES)

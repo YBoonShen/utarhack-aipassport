@@ -1,7 +1,10 @@
-// 15 Admin · Tool Approvals — matches Figma frames "15 / 15A / 15B Admin • Tool Approvals"
+// 15 Admin · Tool Approvals — matches Figma frame "15 Admin • Tool Approvals"
+// and its "Selection=Archive" workspace variant.
 // Live data: the request queue comes from the backend; approving or declining
 // updates the employee's My Visas page and sends them a notification.
+// Archive is demo-local: it hides a decided request from the queue this session.
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../../lib/api.js'
 import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
 
@@ -32,7 +35,7 @@ const checksByStatus = {
 }
 
 const noteByStatus = {
-  'SECURITY REVIEW': 'Pilot approval can be limited to one department for 30 days.',
+  'SECURITY REVIEW': 'Pilot approval can be limited to Sales for 30 days.',
   COMPLIANCE: 'Compliance check completes after the vendor confirms retention.',
   APPROVED: 'Approved. Next review in 90 days.',
   REDIRECTED: 'No new vendor risk added. Request closed as redirected.',
@@ -42,7 +45,6 @@ const noteByStatus = {
 const kpiBase = [
   { label: 'MEDIAN TURNAROUND', value: '2.4 days', note: 'Target: ≤ 3 days', noteColor: 'text-[#078b6c]' },
   { label: 'APPROVED TOOLS', value: '8', note: 'Across 6 categories', noteColor: 'text-[#365fd9]' },
-  { label: 'SAFE REDIRECTS', value: '12', note: 'This week', noteColor: 'text-[#078b6c]' },
 ]
 
 const stages = [
@@ -55,7 +57,7 @@ const stages = [
 export default function ToolApprovals() {
   const [requests, setRequests] = useState([])
   const [selectedId, setSelectedId] = useState(null)
-  const [busy, setBusy] = useState(false)
+  const [archived, setArchived] = useState(() => new Set())
   const toast = useToast()
 
   useEffect(() => {
@@ -63,36 +65,32 @@ export default function ToolApprovals() {
     const load = () => api.get('/visas').then(r => {
       if (!alive) return
       setRequests(r)
-      setSelectedId(id => id || r[0]?.id)
+      setSelectedId(id => id || r.find(x => !archived.has(x.id))?.id)
     }).catch(() => {})
     load()
     const t = setInterval(load, 4000)
     return () => { alive = false; clearInterval(t) }
-  }, [])
+  }, [archived])
 
-  const sel = requests.find(r => r.id === selectedId)
-  const pending = requests.filter(r => ['SECURITY REVIEW', 'COMPLIANCE'].includes(r.status)).length
-  const isPending = sel && ['SECURITY REVIEW', 'COMPLIANCE'].includes(sel.status)
+  const visible = requests.filter(r => !archived.has(r.id))
+  const sel = visible.find(r => r.id === selectedId)
+  const pending = visible.filter(r => ['SECURITY REVIEW', 'COMPLIANCE'].includes(r.status)).length
 
-  async function decide(decision) {
-    if (!sel || busy) return
-    setBusy(true)
-    try {
-      await api.post(`/visas/${sel.id}/decision`, { decision })
-      setRequests(await api.get('/visas'))
-    } catch { /* offline */ } finally {
-      setBusy(false)
-    }
+  // Archive removes the selected request from the queue this session,
+  // matching Figma's "Selection=Archive" workspace state.
+  function archive() {
+    if (!sel) return
+    const next = visible.find(r => r.id !== sel.id)
+    setArchived(a => new Set(a).add(sel.id))
+    setSelectedId(next?.id ?? null)
+    toast(`${sel.tool} archived — removed from the review queue`)
   }
 
   return (
     <div>
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-[28px] font-bold text-[#17213a]">Tool Approvals</h1>
-          <p className="text-[#667085] text-sm mt-1.5">Review new AI tools quickly while keeping data use and vendor risk explicit.</p>
-        </div>
-        <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-xs w-40 h-11 rounded-full cursor-pointer hover:bg-chip">Approval policy</button>
+      <div>
+        <h1 className="text-[28px] font-bold text-[#17213a]">Tool Approvals</h1>
+        <p className="text-[#667085] text-sm mt-1.5">Review new AI tools quickly while keeping data use and vendor risk explicit.</p>
       </div>
 
       {/* KPI cards */}
@@ -109,6 +107,15 @@ export default function ToolApprovals() {
             <p className={`font-medium text-[11px] mt-0.5 ${k.noteColor}`}>{k.note}</p>
           </div>
         ))}
+        {/* Vendor security alert — replaces "Safe redirects", per Figma */}
+        <div className="rounded-[14px] px-3.5 py-2.5 bg-[#fceded] border-[1.5px] border-[#c72929] flex flex-col">
+          <p className="font-bold text-[11px] text-[#c72929]">⚠&nbsp;&nbsp;VENDOR SECURITY ALERT</p>
+          <p className="font-bold text-[16px] text-[#0a204f] mt-1">Fable 5 · Claude</p>
+          <p className="text-[9px] text-[#804d4d] mt-0.5">Security team flagged a breach</p>
+          <Link to="/visas" className="bg-[#c72929] hover:bg-[#a91f1f] text-white font-semibold text-[12px] rounded-full h-[30px] px-4 mt-1.5 self-end flex items-center justify-center cursor-pointer">
+            Suspend org-wide&nbsp;&nbsp;→
+          </Link>
+        </div>
       </div>
 
       {/* Standard review stages */}
@@ -140,7 +147,7 @@ export default function ToolApprovals() {
             <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-xs w-[130px] h-11 rounded-full cursor-pointer hover:bg-chip">All requests</button>
           </div>
           <div className="flex flex-col gap-3.5 mt-3.5">
-            {requests.map(r => (
+            {visible.map(r => (
               <button
                 key={r.id}
                 onClick={() => setSelectedId(r.id)}
@@ -165,7 +172,7 @@ export default function ToolApprovals() {
         </div>
 
         {/* Request detail */}
-        {sel && (
+        {sel ? (
           <div className="bg-white border border-[#d8d0b4] rounded-[14px] p-5">
             <div className="flex justify-between items-center">
               <p className="text-[#667085] font-semibold text-[10px]">REQUEST {sel.id}</p>
@@ -195,37 +202,37 @@ export default function ToolApprovals() {
               </div>
             </div>
 
+            <p className="text-[#17213a] font-semibold text-xs mt-3.5">
+              AI risk assessment · <span className="text-[#d97706]">MEDIUM (6.2 / 10)</span>
+            </p>
+
             {sel.status !== 'APPROVED' && (
-              <div className="bg-[#eef2ff] rounded-[10px] px-3.5 py-2.5 mt-4">
+              <div className="bg-[#eef2ff] rounded-[10px] px-3.5 py-2.5 mt-3.5">
                 <p className="text-[#365fd9] font-semibold text-[10px]">APPROVED ALTERNATIVE</p>
-                <p className="text-[#17213a] font-semibold text-[13px] mt-1">ChatGPT · closest approved capability</p>
+                <p className="text-[#17213a] font-semibold text-[13px] mt-1">ChatGPT · summarise mode</p>
                 <p className="text-[#365fd9] text-[10px] mt-0.5">Available now with the same declared data scope.</p>
               </div>
             )}
 
-            <div className="bg-[#fff5de] rounded-[10px] px-3.5 py-3.5 mt-4">
+            <div className="bg-[#fff5de] rounded-[10px] px-3.5 py-3.5 mt-3.5">
               <p className="text-[#d97706] font-medium text-[11px]">{noteByStatus[sel.status]}</p>
             </div>
 
             <div className="flex items-center gap-3 mt-5">
-              {isPending ? (
-                <>
-                  <button onClick={() => decide('approve')} disabled={busy} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs px-6 h-11 rounded-full cursor-pointer disabled:opacity-60">
-                    {busy ? 'Saving…' : 'Approve 30-day pilot'}
-                  </button>
-                  <button onClick={() => decide('redirect')} disabled={busy} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-xs px-5 h-11 rounded-full cursor-pointer hover:bg-chip disabled:opacity-60">
-                    Redirect to alternative
-                  </button>
-                  <button onClick={() => decide('decline')} disabled={busy} className="text-[#d92d20] font-semibold text-xs px-4 h-11 cursor-pointer ml-auto disabled:opacity-60">
-                    Decline
-                  </button>
-                </>
-              ) : (
-                <p className="text-[#667085] text-xs py-3">
-                  Decision recorded{sel.decided ? ` on ${sel.decided}` : ''} · the requester was notified automatically.
-                </p>
-              )}
+              <button
+                onClick={() => toast(`${sel.tool} · ${sel.id} · view the recorded review and decision`)}
+                className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs px-7 h-11 rounded-full cursor-pointer"
+              >
+                View approval
+              </button>
+              <button onClick={archive} className="text-[#d92d20] font-semibold text-xs px-4 h-11 cursor-pointer ml-auto">
+                Archive
+              </button>
             </div>
+          </div>
+        ) : (
+          <div className="bg-white border border-[#d8d0b4] rounded-[14px] p-10 text-center">
+            <p className="text-[#667085] text-sm">No request selected. Pick one from the queue, or the queue is all clear. 🎉</p>
           </div>
         )}
       </div>

@@ -1,10 +1,10 @@
 // Training results — matches Figma frame "Training • Results"
-// Live data: license progress reflects the +150 points credited on completion.
+// Live data: license progress reflects the points credited on completion.
+// moduleId comes from the route so M1/M2/M3 all land on this same results page.
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { api } from '../lib/api.js'
-
-const questionLabels = ['Recognising direct identifiers', 'Choosing the safest prompt', 'Protecting customer data']
+import { MODULES } from '../lib/trainingModules.js'
 
 function ScoreRing({ correct, total }) {
   const r = 78
@@ -24,7 +24,15 @@ function ScoreRing({ correct, total }) {
   )
 }
 
-function Stamp() {
+function Stamp({ title }) {
+  const [line1, line2] = title.split(' ').reduce(
+    (lines, word) => {
+      const i = lines[0].length <= lines[1].length ? 0 : 1
+      lines[i] = lines[i] ? `${lines[i]} ${word}` : word
+      return lines
+    },
+    ['', '']
+  )
   return (
     <div className="relative w-[94px] h-[94px] shrink-0">
       <svg width="94" height="94" viewBox="0 0 94 94">
@@ -32,25 +40,31 @@ function Stamp() {
         <circle cx="47" cy="47" r="36" fill="none" stroke="#d5a71f" strokeWidth="1.5" />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-        <p className="text-gold font-bold text-xs leading-tight">SAFE<br />PROMPTS</p>
+        <p className="text-gold font-bold text-xs leading-tight">{line1}<br />{line2}</p>
       </div>
     </div>
   )
 }
 
 export default function TrainingResults() {
+  const { moduleId: moduleIdParam } = useParams()
+  const moduleId = Number(moduleIdParam) || 1
+  const mod = MODULES[moduleId] || MODULES[1]
+  const questionLabels = mod.questions.map(q => q.stepTitle)
+
   const [profile, setProfile] = useState({ points: 1390, target: 2000 })
-  const [results, setResults] = useState({ correct: 3, total: 3, pointsEarned: 150, answers: {} })
+  const [results, setResults] = useState({ correct: 3, total: 3, pointsEarned: mod.points, answers: {} })
 
   useEffect(() => {
     api.get('/profile').then(setProfile).catch(() => {})
-    api.get('/quiz/results').then(r => { if (r.attempted > 0) setResults(r) }).catch(() => {})
-  }, [])
+    api.get(`/quiz/results?module=${moduleId}`).then(r => { if (r.attempted > 0) setResults(r) }).catch(() => {})
+  }, [moduleId])
 
   const toGo = profile.target - profile.points
   const pct = Math.round((profile.points / profile.target) * 100)
   const allCorrect = results.correct === results.total
   const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  const nextModule = MODULES[moduleId + 1]
 
   return (
     <div className="max-w-[1320px] mx-auto px-10 pt-8 pb-10">
@@ -68,7 +82,7 @@ export default function TrainingResults() {
         {/* Score card */}
         <div className="bg-card border border-sand rounded-[18px] p-7 pt-5">
           <p className="text-gold text-xs font-semibold">MODULE RESULT</p>
-          <p className="text-navy font-bold text-2xl mt-2">Spotting Personal Data in Prompts</p>
+          <p className="text-navy font-bold text-2xl mt-2">{mod.title}</p>
           <p className="text-slate2 text-sm mt-1.5">Completed {today}</p>
 
           <div className="flex items-center gap-8 mt-6">
@@ -109,7 +123,7 @@ export default function TrainingResults() {
           <p className="text-white text-[15px] mt-2">safety miles earned · first-attempt answers</p>
 
           <div className="bg-[#132e66] rounded-[14px] p-5 mt-4 flex items-center gap-4">
-            <Stamp />
+            <Stamp title={mod.stampTitle} />
             <div>
               <p className="text-white font-semibold text-base">Training stamp earned</p>
               <p className="text-white text-sm mt-1.5">Added to your AI Passport<br />{today}</p>
@@ -124,15 +138,15 @@ export default function TrainingResults() {
           <p className="text-white text-sm mt-2.5">{toGo.toLocaleString()} miles to Level 3 · Ambassador</p>
 
           <div className="bg-[#132e66] rounded-[12px] px-3.5 py-2 mt-5">
-            <p className="text-gold text-[11px] font-semibold">NEXT: SAFE AI TOOL SELECTION</p>
-            <p className="text-white text-sm mt-0.5">Available 18 Jul 2026</p>
+            <p className="text-gold text-[11px] font-semibold">{nextModule ? `NEXT: ${nextModule.title.toUpperCase()}` : 'MORE MODULES COMING SOON'}</p>
+            {nextModule && <p className="text-white text-sm mt-0.5">{nextModule.minutes}-minute lesson · +{nextModule.points} safety points</p>}
           </div>
         </div>
       </div>
 
       <div className="bg-[#edf2ff] rounded-[14px] px-5 py-3.5 mt-6">
         <p className="text-navy text-sm font-semibold">What you demonstrated</p>
-        <p className="text-slate2 text-sm mt-1">Identify sensitive data · choose a safe prompt · use masking before sending information to an AI tool</p>
+        <p className="text-slate2 text-sm mt-1">{mod.steps.join(' · ')} — the safe-use habits this module builds</p>
       </div>
 
       <div className="flex gap-4 mt-6">

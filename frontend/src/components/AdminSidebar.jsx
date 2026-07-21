@@ -1,13 +1,14 @@
 // Admin sidebar — matches Figma "Admin sidebar" (brand, navigation with badges, admin identity)
 // Badges are live: they track open alerts and pending approvals (Jia Yin's A4/A5).
 import { useEffect, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import LogoutConfirm from './LogoutConfirm.jsx'
 import { api } from '../lib/api.js'
 
 export default function AdminSidebar() {
   const [logoutOpen, setLogoutOpen] = useState(false)
   const [stats, setStats] = useState(null)
+  const location = useLocation()
 
   useEffect(() => {
     let alive = true
@@ -19,9 +20,9 @@ export default function AdminSidebar() {
 
   const nav = [
     { to: '/admin', label: 'Overview', end: true },
-    { to: '/admin/departments', label: 'Departments' },
+    { to: '/admin/training', label: 'Training', match: ['/admin/training/assign'] },
     { to: '/admin/risk-alerts', label: 'Risk Alerts', badge: stats?.openAlerts, badgeColor: 'bg-[#d92d20] text-white' },
-    { to: '/admin/audit-log', label: 'Audit Log' },
+    { to: '/admin/audit-log', label: 'Audit Log', match: ['/admin/audit-report'] },
     { to: '/admin/tool-approvals', label: 'Tool Approvals', badge: stats?.pendingApprovals, badgeColor: 'bg-gold-brand text-navy-header' },
     { to: '/admin/employees', label: 'Employees' },
     { to: '/admin/settings', label: 'Settings' },
@@ -45,7 +46,7 @@ export default function AdminSidebar() {
             end={n.end}
             className={({ isActive }) =>
               `h-11 px-3.5 rounded-[11px] text-[13px] flex justify-between items-center ${
-                isActive ? 'bg-gold-brand text-navy-header font-semibold' : 'text-[#d0d5dd] font-medium hover:bg-white/5'
+                isActive || n.match?.includes(location.pathname) ? 'bg-gold-brand text-navy-header font-semibold' : 'text-[#d0d5dd] font-medium hover:bg-white/5'
               }`
             }
           >

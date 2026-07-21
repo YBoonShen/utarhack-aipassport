@@ -96,14 +96,17 @@ app.get('/api/profile', (req, res) => res.json(db.profile))
 
 app.get('/api/leaderboard', (req, res) => res.json(leaderboard()))
 
-// Quiz: first attempt per question earns +50 when correct
+// Quiz: first attempt per question earns +50 when correct — tracked per module
 app.post('/api/quiz/answer', (req, res) => {
-  const { question, correct } = req.body || {}
-  res.json(answerQuiz(Number(question), Boolean(correct)))
+  const { module, question, correct } = req.body || {}
+  res.json(answerQuiz(Number(module) || 1, Number(question), Boolean(correct)))
 })
-app.get('/api/quiz/results', (req, res) => res.json(quizResults()))
+app.get('/api/quiz/results', (req, res) => res.json(quizResults(Number(req.query.module) || 1)))
 
-app.post('/api/training/complete', (req, res) => res.json(completeTraining()))
+app.post('/api/training/complete', (req, res) => {
+  const { module } = req.body || {}
+  res.json(completeTraining(Number(module) || 1))
+})
 
 app.get('/api/notifications', (req, res) => res.json(db.notifications))
 app.post('/api/notifications/:id/read', (req, res) => {

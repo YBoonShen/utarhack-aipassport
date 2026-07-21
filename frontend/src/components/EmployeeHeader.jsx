@@ -42,10 +42,10 @@ export default function EmployeeHeader() {
           </div>
         </div>
         <nav className="flex items-center">
+          <NavLink to="/home" className={linkClass}>Home</NavLink>
           <NavLink to="/license" className={linkClass}>My License</NavLink>
           <NavLink to="/training" className={linkClass}>Training</NavLink>
           <NavLink to="/visas" className={linkClass}>My Visas</NavLink>
-          <NavLink to="/gateway" className={linkClass}>Smart Gateway</NavLink>
         </nav>
         <div className="flex items-center gap-3">
           <button

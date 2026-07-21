@@ -3,29 +3,19 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api.js'
-import Leaderboard from '../components/Leaderboard.jsx'
+import { MODULE_LIST } from '../lib/trainingModules.js'
 
-const upcoming = [
-  {
-    available: 'AVAILABLE 18 JUL 2026',
-    title: 'Safe AI Tool Selection',
-    desc: 'Choose approved tools and match each task to the right data scope.',
-    meta: '8 min · 4 questions · +120 miles',
-  },
-  {
-    available: 'AVAILABLE 25 JUL 2026',
-    title: 'Human Review in AI-Assisted Decisions',
-    desc: 'Know when a person must review, explain and record an AI-supported outcome.',
-    meta: '10 min · 5 questions · +180 miles',
-  },
-]
+const availableFrom = { 2: 'AVAILABLE 18 JUL 2026', 3: 'AVAILABLE 25 JUL 2026' }
 
 export default function Training() {
-  const [profile, setProfile] = useState({ points: 1240, target: 2000, stamps: [{}, {}, {}], trainingCompleted: false })
+  const [profile, setProfile] = useState({ points: 1240, target: 2000, stamps: [{}, {}, {}], trainingCompleted: false, completedModules: [] })
 
   useEffect(() => {
     api.get('/profile').then(setProfile).catch(() => {})
   }, [])
+
+  const completed = profile.completedModules || []
+  const upcoming = MODULE_LIST.filter(m => m.id !== 1)
 
   const done = profile.trainingCompleted
   const kpis = [
@@ -72,7 +62,7 @@ export default function Training() {
             </div>
             <p className="text-navy text-sm font-semibold shrink-0">{done ? '3 of 3' : '1 of 3'}</p>
             <Link
-              to={done ? '/training/results' : '/training/quiz'}
+              to={done ? '/training/results/1' : '/training/quiz/1'}
               className="bg-gold hover:bg-gold-dark text-navy font-semibold text-[15px] px-5 h-12 rounded-full flex items-center shrink-0"
             >
               {done ? 'View results →' : 'Resume training →'}
@@ -98,22 +88,22 @@ export default function Training() {
 
       <h2 className="text-[22px] font-bold text-navy mt-8 mb-3">Upcoming training</h2>
       <div className="grid grid-cols-2 gap-5">
-        {upcoming.map(u => (
-          <div key={u.title} className="bg-card border border-sand rounded-[16px] p-5">
-            <p className="text-gold text-xs font-semibold">{u.available}</p>
-            <p className="text-navy font-bold text-[21px] mt-2">{u.title}</p>
-            <p className="text-ink text-[15px] mt-2">{u.desc}</p>
-            <div className="flex items-end justify-between mt-5">
-              <p className="text-slate2 text-[13px] font-medium">{u.meta}</p>
-              <span className="bg-chip text-slate2 text-xs font-semibold px-4 py-1.5 rounded-full">UPCOMING</span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-2 gap-5 mt-6">
-        <Leaderboard />
-        <div />
+        {upcoming.map(u => {
+          const done = completed.includes(u.id)
+          return (
+            <Link key={u.id} to={done ? `/training/results/${u.id}` : `/training/quiz/${u.id}`} className="bg-card border border-sand rounded-[16px] p-5 hover:border-navy">
+              <p className="text-gold text-xs font-semibold">{done ? '✓ COMPLETED' : availableFrom[u.id]}</p>
+              <p className="text-navy font-bold text-[21px] mt-2">{u.title}</p>
+              <p className="text-ink text-[15px] mt-2">{u.subtitle}</p>
+              <div className="flex items-end justify-between mt-5">
+                <p className="text-slate2 text-[13px] font-medium">{u.minutes} min · 3 questions · +{u.points} miles</p>
+                <span className={`text-xs font-semibold px-4 py-1.5 rounded-full ${done ? 'bg-green-soft text-green' : 'bg-gold text-navy'}`}>
+                  {done ? 'Redo' : 'Start module →'}
+                </span>
+              </div>
+            </Link>
+          )
+        })}
       </div>
 
       <p className="text-slate2 text-[13px] mt-6">

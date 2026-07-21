@@ -87,7 +87,6 @@ export default function Settings() {
   const setMode = m => setDraft(d => ({ ...d, mode: m }))
   const toggleControl = k => setDraft(d => ({ ...d, controls: { ...d.controls, [k]: !d.controls[k] } }))
   const toggleExp = k => setDraft(d => ({ ...d, experience: { ...d.experience, [k]: !d.experience[k] } }))
-  const toggleEscalate = () => setDraft(d => ({ ...d, escalate: !d.escalate }))
 
   const changes = countChanges(draft, saved)
   const enabledCount = Object.values(controls).filter(Boolean).length + Object.values(exp).filter(Boolean).length + (escalate ? 1 : 0)
@@ -227,27 +226,6 @@ export default function Settings() {
             </div>
             <span className="bg-[#eef2ff] text-[#365fd9] font-semibold text-[11px] rounded-full px-6 py-1.5 mt-4">90 days</span>
           </div>
-
-          {/* Critical notifications */}
-          <div className="bg-[#fffcef] border border-[#d8d0b4] rounded-[10px] p-4 mt-4 flex justify-between items-center">
-            <div>
-              <p className="text-[#17213a] font-semibold text-[13px]">Escalate high-risk alerts</p>
-              <p className="text-[#667085] text-[11px] mt-1">Notify Compliance and the department owner within 15 minutes.</p>
-            </div>
-            <Toggle on={escalate} onClick={toggleEscalate} />
-          </div>
-
-          {/* Unsaved changes */}
-          {changes > 0 ? (
-            <div className="bg-[#fff5de] rounded-[10px] px-3.5 py-3.5 mt-4 flex justify-between items-center">
-              <p className="text-[#d97706] font-medium text-[11px]">● {changes} unsaved change{changes === 1 ? '' : 's'} · save to apply the new policy to every employee</p>
-              <button onClick={() => setModal('confirmSave')} className="text-[#365fd9] font-semibold text-[11px] cursor-pointer">Review changes ›</button>
-            </div>
-          ) : (
-            <div className="bg-[#e9f8f2] rounded-[10px] px-3.5 py-3.5 mt-4">
-              <p className="text-[#078b6c] font-medium text-[11px]">✓ Policy v{saved.policyVersion} active · all changes saved</p>
-            </div>
-          )}
         </div>
       </div>
 
