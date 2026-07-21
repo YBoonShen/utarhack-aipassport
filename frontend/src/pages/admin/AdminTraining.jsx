@@ -6,7 +6,7 @@
 // Demo-local state: assign/publish live in this component's state and reset
 // on page reload — no backend persistence yet.
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useToast } from '../../components/Toast.jsx'
 import { AssignModal, InfoToast } from '../../components/admin/TrainingModuleForm.jsx'
 
@@ -23,10 +23,18 @@ export default function AdminTraining() {
   const [assignTarget, setAssignTarget] = useState(null) // module being assigned
   const [toastInfo, setToastInfo] = useState(null) // { kicker, title, body }
   const toast = useToast()
+  const navigate = useNavigate()
 
   function publish(id) {
     setModules(ms => ms.map(m => (m.id === id ? { ...m, status: 'live' } : m)))
     setToastInfo({ kicker: 'MODULE PUBLISHED', title: 'Now live for employees', body: 'The module is now visible in every employee’s training list and can be assigned to a group.' })
+  }
+
+  // Hide takes a live module out of the employee-visible list (back to draft).
+  function hide(id) {
+    const m = modules.find(x => x.id === id)
+    setModules(ms => ms.map(x => (x.id === id ? { ...x, status: 'draft' } : x)))
+    toast(`"${m.title}" hidden — no longer visible to employees. Publish to restore.`)
   }
 
   function assign(target) {
@@ -64,7 +72,10 @@ export default function AdminTraining() {
             <span className={`text-[11.5px] font-semibold rounded-full px-3 py-1.5 shrink-0 ${m.status === 'live' ? 'bg-[#e7f4ee] text-[#328768]' : 'bg-[#ededf2] text-slate2'}`}>
               {m.status === 'live' ? 'Live · visible to employees' : 'Draft · hidden from employees'}
             </span>
-            <button onClick={() => toast(m.status === 'live' ? 'Editing modules is coming soon.' : 'Editing modules is coming soon.')} className="text-slate2 text-[12.5px] font-semibold cursor-pointer shrink-0">
+            <button
+              onClick={() => (m.status === 'live' ? hide(m.id) : navigate('/admin/training/assign'))}
+              className="text-slate2 text-[12.5px] font-semibold cursor-pointer shrink-0 hover:text-navy"
+            >
               {m.status === 'live' ? 'Hide' : 'Edit'}
             </button>
             {m.status === 'live' ? (
