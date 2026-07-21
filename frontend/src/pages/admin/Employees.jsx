@@ -37,10 +37,23 @@ const distribution = [
 
 const cols = 'grid grid-cols-[150px_82px_70px_150px_86px_64px_1fr] items-center gap-1'
 
+const departments = [...new Set(employees.map(e => e.dept))]
+const levels = ['L1', 'L2', 'L3']
+
 export default function Employees() {
   const toast = useToast()
   const [assignOpen, setAssignOpen] = useState(false)
   const [toastInfo, setToastInfo] = useState(null)
+  const [search, setSearch] = useState('')
+  const [dept, setDept] = useState('All')
+  const [level, setLevel] = useState('All')
+  const [menu, setMenu] = useState(null) // 'dept' | 'level' | null
+
+  const filtered = employees.filter(e =>
+    (dept === 'All' || e.dept === dept) &&
+    (level === 'All' || e.level === level) &&
+    (search.trim() === '' || `${e.id} ${e.dept}`.toLowerCase().includes(search.trim().toLowerCase()))
+  )
 
   function assign(target) {
     const count = target === 'everyone' ? 303 : target === 'department' ? 84 : 12
@@ -73,10 +86,47 @@ export default function Employees() {
       <div className="bg-white border border-[#d8d0b4] rounded-[12px] px-4 py-2 mt-5 flex items-center gap-2.5">
         <div className="bg-[#fffcef] border border-[#d8d0b4] rounded-[9px] h-10 w-[326px] flex items-center px-2.5 gap-2">
           <span className="text-[#667085] text-[17px]">⌕</span>
-          <input placeholder="Search employee ID or department" className="flex-1 bg-transparent outline-none text-xs text-[#17213a] placeholder-[#667085]" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search employee ID or department"
+            className="flex-1 bg-transparent outline-none text-xs text-[#17213a] placeholder-[#667085]"
+          />
+          {search && <button onClick={() => setSearch('')} className="text-[#667085] text-sm cursor-pointer px-1">×</button>}
         </div>
-        <button className="bg-navy-header text-white font-semibold text-[13px] h-11 px-5 rounded-full cursor-pointer">All departments</button>
-        <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-11 px-5 rounded-full cursor-pointer hover:bg-chip">License level</button>
+
+        {/* Department filter */}
+        <div className="relative">
+          <button onClick={() => setMenu(m => (m === 'dept' ? null : 'dept'))} className="bg-navy-header text-white font-semibold text-[13px] h-11 px-5 rounded-full cursor-pointer">
+            {dept === 'All' ? 'All departments' : dept}&nbsp;&nbsp;▾
+          </button>
+          {menu === 'dept' && (
+            <div className="absolute left-0 top-12 z-20 bg-white border border-[#d8d0b4] rounded-[10px] shadow-[0px_8px_20px_rgba(0,0,0,0.12)] py-1.5 w-44">
+              {['All', ...departments].map(d => (
+                <button key={d} onClick={() => { setDept(d); setMenu(null) }} className={`block w-full text-left px-4 py-2 text-[13px] cursor-pointer hover:bg-chip ${dept === d ? 'text-[#365fd9] font-semibold' : 'text-[#17213a]'}`}>
+                  {d === 'All' ? 'All departments' : d}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* License level filter */}
+        <div className="relative">
+          <button onClick={() => setMenu(m => (m === 'level' ? null : 'level'))} className={`font-semibold text-[13px] h-11 px-5 rounded-full cursor-pointer ${level === 'All' ? 'border-[1.5px] border-navy-header text-navy-header hover:bg-chip' : 'bg-navy-header text-white'}`}>
+            {level === 'All' ? 'License level' : `Level ${level.slice(1)}`}&nbsp;&nbsp;▾
+          </button>
+          {menu === 'level' && (
+            <div className="absolute left-0 top-12 z-20 bg-white border border-[#d8d0b4] rounded-[10px] shadow-[0px_8px_20px_rgba(0,0,0,0.12)] py-1.5 w-40">
+              {['All', ...levels].map(l => (
+                <button key={l} onClick={() => { setLevel(l); setMenu(null) }} className={`block w-full text-left px-4 py-2 text-[13px] cursor-pointer hover:bg-chip ${level === l ? 'text-[#365fd9] font-semibold' : 'text-[#17213a]'}`}>
+                  {l === 'All' ? 'All levels' : `Level ${l.slice(1)}`}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="flex-1" />
         <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-11 px-6 rounded-full cursor-pointer hover:bg-chip">More filters</button>
       </div>
@@ -90,7 +140,7 @@ export default function Employees() {
           <div className={`${cols} bg-navy-header rounded-[8px] text-gold-brand font-semibold text-[11px] px-3 h-11 mt-3.5`}>
             <p>Employee</p><p>Dept</p><p>License</p><p>Training</p><p>Protected</p><p>Alerts</p><p>Status</p>
           </div>
-          {employees.map((e, i) => (
+          {filtered.map((e, i) => (
             <div key={e.id} className={`${cols} px-3 h-16 border-b border-[#eee6d4] ${i % 2 === 1 ? 'bg-[#fffcef]' : 'bg-white'}`}>
               <div className="flex items-center gap-2.5">
                 <span className="w-8 h-8 rounded-full bg-[#edf2ff] text-navy font-bold text-[10px] flex items-center justify-center shrink-0">{e.avatar}</span>
@@ -109,9 +159,12 @@ export default function Employees() {
               <p><span className={`inline-block font-semibold text-[11px] rounded-full px-3.5 py-1.5 ${statusChip[e.status]}`}>{e.status}</span></p>
             </div>
           ))}
+          {filtered.length === 0 && (
+            <p className="text-[#667085] text-sm text-center py-10">No employees match your search or filters.</p>
+          )}
 
           <div className="flex items-center justify-between mt-4">
-            <p className="text-[#667085] text-xs">Showing 7 of 303 employees</p>
+            <p className="text-[#667085] text-xs">Showing {filtered.length} of 303 employees</p>
             <div className="flex items-center gap-3">
               <p className="text-[#667085] font-medium text-xs">1 of 44</p>
               <button onClick={() => toast(DEMO_NOTE)} className="w-8 h-8 rounded-full bg-[#fffcef] border border-[#d8d0b4] text-[#667085] text-lg cursor-pointer">‹</button>
