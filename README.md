@@ -22,31 +22,53 @@ utarhack-aipassport/
 └── README.md
 ```
 
-## How to Run
+## Run Locally
 
-Requirements: Node.js 18+ and npm.
+**Requirements:** [Node.js](https://nodejs.org) 18+ and npm (`node -v` to check).
 
-**1. Backend** (runs on http://localhost:5001)
+You need **two terminals** — one for the backend, one for the frontend. Both must run at the same time.
+
+> ⚠️ **Important — start in the right folder.** All commands below assume you are **inside the `utarhack-aipassport/` project folder** (the one containing `frontend/` and `backend/`). If you cloned the repo, `cd` into it first:
+> ```bash
+> cd utarhack-aipassport
+> ```
+> If you see `The system cannot find the path specified` or `ENOENT: package.json`, you are one folder too high — `cd` into `utarhack-aipassport` and try again.
+
+### Terminal 1 — Backend (http://localhost:5001)
 ```bash
 cd backend
-npm install
-cp .env.example .env   # optional: add GEMINI_API_KEY for Layer 2 AI name detection
+npm install                 # first time only
+copy .env.example .env      # Windows  (macOS/Linux: cp .env.example .env)  — optional, for Gemini
 npm run dev
 ```
+Leave it running. Optional: add a free `GEMINI_API_KEY` to `backend/.env` to enable Layer‑2 AI name detection (works fine without it — falls back to an offline heuristic).
 
-**2. Frontend** (runs on http://localhost:5173)
+### Terminal 2 — Frontend (http://localhost:5173)
 ```bash
 cd frontend
-npm install
+npm install                 # first time only
 npm run dev
 ```
-Open http://localhost:5173 — the dev server proxies `/api` to the backend automatically.
+Then open **http://localhost:5173** in your browser. The frontend proxies `/api` to the backend automatically.
 
-**3. Tests** — 7 Layer-1 regex cases + 5 Layer-2 name cases:
+### Logging in (demo accounts)
+- **Employee side:** sign in with **any email** (e.g. `jiayin@abcd.com`) + any password.
+- **Admin console:** sign in with **`admin@abcd.com`**, or click **"Continue with enterprise SSO"**.
+
+### Verify it works (optional)
 ```bash
 cd backend
-npm test
+npm test          # detection unit tests — 7 Layer-1 + 5 Layer-2 cases
+npm run benchmark # accuracy on the 100-prompt labelled set (target ≥ 90%)
 ```
+
+### Troubleshooting
+| Problem | Fix |
+|---|---|
+| `cd backend` → *"cannot find the path"* / `ENOENT ...package.json` | You're in the wrong folder. `cd utarhack-aipassport` first, then `cd backend`. |
+| `EADDRINUSE: address already in use :::5001` (or `:5173`) | An old server is still running. Close it, or on Windows PowerShell: `Get-NetTCPConnection -LocalPort 5001,5173 -State Listen \| Select -Expand OwningProcess \| ForEach { Stop-Process -Id $_ -Force }` |
+| Page loads but data is blank / "Backend not running" | Make sure Terminal 1 (backend) is running on port 5001. |
+| Want to reset the demo data | Restart the backend (`Ctrl+C`, then `npm run dev`) — state is in‑memory. |
 
 ## Detection — two layers
 - **Layer 1 (regex, always on):** Malaysian IC, passport numbers, phone numbers, emails,
