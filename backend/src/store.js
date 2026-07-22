@@ -460,6 +460,30 @@ export function riskScore() {
   }
 }
 
+// ---- personal AI safety score (employee-facing, higher is better) ----------
+// The employee mirror of the org risk score: a 0–100 grade the individual can
+// grow. Built from the same behaviour the points system already rewards — safe
+// streak, level progress, training stamps, and clean-handling habit. Overriding
+// the gateway resets the streak (recordOverride), so the score visibly drops,
+// which reinforces "the safe path is the rewarded path".
+export function safetyScore() {
+  const p = db.profile
+  const streakPart = Math.min(p.streakDays, 30) / 30 * 25
+  const progressPart = Math.min(p.points / p.target, 1) * 20
+  const trainingPart = Math.min(p.stamps.length, 4) / 4 * 20
+  const habitPart = p.streakDays > 0 ? 30 : 8 // a recent override zeroes the streak
+  const residual = 5
+  const factors = [
+    { key: 'streak', label: 'Safe prompt streak', value: streakPart, detail: `${p.streakDays} day${p.streakDays === 1 ? '' : 's'} clean` },
+    { key: 'habit', label: 'Clean handling', value: habitPart, detail: p.streakDays > 0 ? 'No gateway overrides' : 'Recent override — rebuild streak' },
+    { key: 'training', label: 'Training completed', value: trainingPart, detail: `${p.stamps.length} verified stamp${p.stamps.length === 1 ? '' : 's'}` },
+    { key: 'progress', label: 'License progress', value: progressPart, detail: `${p.points.toLocaleString()} / ${p.target.toLocaleString()} pts` },
+  ]
+  const score = Math.round(Math.min(100, Math.max(0, streakPart + progressPart + trainingPart + habitPart + residual)))
+  const grade = score >= 80 ? 'Excellent' : score >= 62 ? 'Good' : score >= 45 ? 'Fair' : 'At risk'
+  return { score, grade, factors: factors.map(f => ({ ...f, value: Math.round(f.value) })) }
+}
+
 // ---- live demo simulator (pitch mode) --------------------------------------
 // Injects synthetic org-wide activity so every admin screen visibly moves
 // during a live demo. Runs on the server so audit log, KPIs, the department

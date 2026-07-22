@@ -13,7 +13,7 @@ import {
   db, resetStore, recordPromptEvent, recordOverride, addNotification,
   answerQuiz, quizResults, completeTraining, applyForVisa, decideVisa,
   openAlerts, resolveAlert, addReviewRequest, leaderboard,
-  riskScore, reportData, sim, simulateTick,
+  riskScore, reportData, sim, simulateTick, safetyScore,
 } from './store.js'
 import { askCopilot, executiveSummary, SUGGESTED_QUESTIONS } from './copilot.js'
 
@@ -94,7 +94,7 @@ app.post('/api/gateway/override', (req, res) => {
 })
 
 // ---- employee data ---------------------------------------------------------
-app.get('/api/profile', (req, res) => res.json(db.profile))
+app.get('/api/profile', (req, res) => res.json({ ...db.profile, safety: safetyScore() }))
 
 app.get('/api/leaderboard', (req, res) => res.json(leaderboard()))
 

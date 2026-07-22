@@ -12,6 +12,15 @@ const fallbackProfile = {
   name: 'Tan Jia Yin', dept: 'Engineering', licenseNo: 'AIP-2026-004173', issued: '02 Jan 2026',
   level: 2, levelName: 'Navigator', points: 1240, target: 2000, streakDays: 21,
   promptsProtected: 47, itemsMasked: 12, trainingCompleted: false,
+  safety: {
+    score: 80, grade: 'Excellent',
+    factors: [
+      { key: 'streak', label: 'Safe prompt streak', value: 18, detail: '21 days clean' },
+      { key: 'habit', label: 'Clean handling', value: 30, detail: 'No gateway overrides' },
+      { key: 'training', label: 'Training completed', value: 15, detail: '3 verified stamps' },
+      { key: 'progress', label: 'License progress', value: 12, detail: '1,240 / 2,000 pts' },
+    ],
+  },
   stamps: [
     { title: 'AI BASICS', score: 'PASSED · 100%', date: '04 JAN 2026', shape: 'circle', color: '#078b6c' },
     { title: 'DATA PRIVACY', score: 'PASSED · 100%', date: '11 JAN 2026', shape: 'square', color: '#d92d20' },
@@ -94,6 +103,35 @@ function StampPopover({ s, onClose }) {
   )
 }
 
+// Personal AI Safety Score — the employee mirror of the admin risk score.
+// A circular progress ring on the navy card; grows with safe streak, training
+// and level progress, and drops sharply if the gateway is overridden.
+const gradeColor = { Excellent: '#34d399', Good: '#d9b32c', Fair: '#f0a13b', 'At risk': '#f87171' }
+
+function SafetyRing({ safety }) {
+  const size = 132, stroke = 11, r = (size - stroke) / 2
+  const circ = 2 * Math.PI * r
+  const frac = Math.min(1, Math.max(0, safety.score / 100))
+  const color = gradeColor[safety.grade] || '#d9b32c'
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#1f3b7a" strokeWidth={stroke} />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={circ} strokeDashoffset={circ * (1 - frac)}
+          style={{ transition: 'stroke-dashoffset 800ms ease, stroke 400ms' }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <p className="text-white font-bold text-[34px] leading-none">{safety.score}</p>
+        <p className="text-[10px] text-[#a9b6d6] tracking-[0.5px]">/ 100</p>
+        <p className="font-bold text-[11px] tracking-[0.6px] mt-1" style={{ color }}>{safety.grade.toUpperCase()}</p>
+      </div>
+    </div>
+  )
+}
+
 function LockedStamp({ s }) {
   const round = s.shape === 'circle' ? 'rounded-full' : 'rounded-[12px]'
   const size = s.shape === 'circle' ? 'w-[180px] h-[180px]' : 'w-[180px] h-[150px]'
@@ -127,6 +165,7 @@ export default function License() {
     ['SAFETY POINTS', `${profile.points.toLocaleString()} pts`],
   ]
   const earnedStamps = profile.stamps.map((s, i) => ({ ...s, rotate: stampRotations[i % stampRotations.length] }))
+  const safety = profile.safety || fallbackProfile.safety
 
   return (
     <div className="max-w-[1440px] mx-auto px-10 py-8">
@@ -180,19 +219,45 @@ export default function License() {
         {/* Side rail */}
         <div className="flex flex-col gap-4">
           <div className="bg-navy-header rounded-[16px] p-6">
-            <p className="text-gold-brand font-bold text-[11px] tracking-[1.32px]">THIS MONTH</p>
-            <div className="flex gap-16 mt-3">
-              <div>
-                <p className="text-white font-bold text-[30px]">{profile.promptsProtected}</p>
-                <p className="text-[#cbd5e1] text-xs mt-1">prompts protected</p>
-              </div>
-              <div>
-                <p className="text-white font-bold text-[30px]">{profile.itemsMasked}</p>
-                <p className="text-[#cbd5e1] text-xs mt-1">items masked</p>
+            <div className="flex items-center justify-between">
+              <p className="text-gold-brand font-bold text-[11px] tracking-[1.32px]">AI SAFETY SCORE</p>
+              <span className="text-[#9fb0d4] text-[10px] flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#34d399]" />live
+              </span>
+            </div>
+            <div className="flex items-center gap-5 mt-4">
+              <SafetyRing safety={safety} />
+              <div className="flex-1 flex flex-col gap-3">
+                <div className="flex gap-8">
+                  <div>
+                    <p className="text-white font-bold text-[28px] leading-none">{profile.promptsProtected}</p>
+                    <p className="text-[#cbd5e1] text-[11px] mt-1.5">prompts protected</p>
+                  </div>
+                  <div>
+                    <p className="text-white font-bold text-[28px] leading-none">{profile.itemsMasked}</p>
+                    <p className="text-[#cbd5e1] text-[11px] mt-1.5">items masked</p>
+                  </div>
+                </div>
+                <div className="bg-[#173976] rounded-[10px] px-3 py-2">
+                  <p className="text-[#a7f3d0] font-medium text-xs">✓&nbsp;&nbsp;No unsafe prompts for {profile.streakDays} days</p>
+                </div>
               </div>
             </div>
-            <div className="inline-block bg-[#173976] rounded-[10px] px-3 py-2 mt-4">
-              <p className="text-[#a7f3d0] font-medium text-xs">✓&nbsp;&nbsp;No unsafe prompts for {profile.streakDays} days</p>
+
+            {/* What builds the score */}
+            <div className="mt-4 pt-4 border-t border-[#1f3b7a] grid grid-cols-2 gap-x-5 gap-y-3">
+              {safety.factors.map(f => (
+                <div key={f.key}>
+                  <div className="flex justify-between items-baseline">
+                    <p className="text-[#cdd7ee] text-[10.5px] font-medium">{f.label}</p>
+                    <p className="text-white text-[10px] font-semibold">+{f.value}</p>
+                  </div>
+                  <div className="h-1.5 bg-[#1f3b7a] rounded-full mt-1.5 overflow-hidden">
+                    <div className="h-full rounded-full bg-gold-brand transition-all duration-700" style={{ width: `${Math.min(100, (f.value / 32) * 100)}%` }} />
+                  </div>
+                  <p className="text-[#8fa1c7] text-[9px] mt-1">{f.detail}</p>
+                </div>
+              ))}
             </div>
           </div>
           <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-6 flex-1 flex flex-col">

@@ -53,7 +53,7 @@ export default function TrainingQuiz() {
   }
 
   async function next() {
-    if (!isCorrect) return
+    if (!answered) return // wrong answers can still continue — first attempt already scored
     if (isLast) {
       try { await api.post('/training/complete', { module: moduleId }) } catch { /* offline — results page shows fallback */ }
       return navigate(`/training/results/${moduleId}`)
@@ -182,19 +182,13 @@ export default function TrainingQuiz() {
             <button onClick={back} className="border border-navy-header text-navy-header text-[13px] font-semibold w-[130px] h-12 rounded-full cursor-pointer hover:bg-chip">
               ←&nbsp;&nbsp;Back
             </button>
-            {answered && !isCorrect ? (
-              <button onClick={() => setSelected(null)} className="bg-gold-brand text-[#17213a] text-[13px] font-semibold w-[180px] h-12 rounded-full cursor-pointer hover:bg-gold">
-                Try again&nbsp;&nbsp;↻
-              </button>
-            ) : (
-              <button
-                onClick={next}
-                disabled={!isCorrect}
-                className={`text-[13px] font-semibold w-[180px] h-12 rounded-full ${isCorrect ? 'bg-gold-brand text-navy-header cursor-pointer hover:bg-gold' : 'bg-[#d8d0b4] text-[#667085]'}`}
-              >
-                {isLast ? 'Submit answers' : 'Continue'}&nbsp;&nbsp;→
-              </button>
-            )}
+            <button
+              onClick={next}
+              disabled={!answered}
+              className={`text-[13px] font-semibold w-[180px] h-12 rounded-full ${answered ? 'bg-gold-brand text-navy-header cursor-pointer hover:bg-gold' : 'bg-[#d8d0b4] text-[#667085]'}`}
+            >
+              {isLast ? 'Submit answers' : 'Continue'}&nbsp;&nbsp;→
+            </button>
           </div>
         </div>
 
