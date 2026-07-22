@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import AdminSidebar from './AdminSidebar.jsx'
+import GovernanceCopilot from './admin/GovernanceCopilot.jsx'
 
 export default function AdminLayout() {
   return (
@@ -8,6 +9,7 @@ export default function AdminLayout() {
       <main className="flex-1 px-7 py-6 min-w-0">
         <Outlet />
       </main>
+      <GovernanceCopilot />
     </div>
   )
 }

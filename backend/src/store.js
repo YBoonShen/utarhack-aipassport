@@ -45,7 +45,11 @@ function seed() {
       ],
     },
 
-    counters: { promptsToday: 312, maskedToday: 58, nextEventNo: 8218, nextRequestNo: 493, nextAlertNo: 2052 },
+    counters: { promptsToday: 312, maskedToday: 58, overridesToday: 0, nextEventNo: 8218, nextRequestNo: 493, nextAlertNo: 2052 },
+
+    // Trailing 5-day organisational risk-score history — the live score is
+    // appended by riskScore() so the trend line always ends on "today".
+    riskHistory: [46, 43, 39, 36, 33],
 
     quiz: { 1: {}, 2: {}, 3: {} }, // moduleId -> { [questionIndex]: { correct } } — first attempt only
 
@@ -275,6 +279,7 @@ export function recordPromptEvent({ detections, masked, tool = 'AI Assistant' })
 // -20 points, streak reset, High alert for the admin, ALERT audit event.
 export function recordOverride({ prompt }) {
   db.profile.streakDays = 0
+  db.counters.overridesToday += 1
   applyPoints(-20)
   const event = pushAuditEvent({ action: 'ALERT', record: prompt })
   event.control = 'PDPA P7'
@@ -406,6 +411,175 @@ export function leaderboard() {
     { name: db.profile.name, dept: db.profile.dept, points: db.profile.points, you: true },
   ].sort((a, b) => b.points - a.points)
   return rows.map((r, i) => ({ ...r, rank: i + 1 }))
+}
+
+// ---- organisational AI risk score (proposal §6 — quantified governance) ----
+// A single 0–100 score the board can read at a glance: LOWER is better. It is
+// computed live from the same signals the admin already acts on, so resolving
+// an alert or an employee overriding the gateway visibly moves the number.
+// Each masked item is treated as one prevented exposure; RM value uses the
+// IBM/Ponemon per-record breach cost (~USD 165 ≈ RM 780) as a defensible proxy.
+const VALUE_PER_ITEM_RM = 780
+
+export function riskScore() {
+  const open = openAlerts()
+  const high = open.filter(a => a.severity === 'HIGH').length
+  const med = open.filter(a => a.severity === 'MEDIUM').length
+  const mon = open.filter(a => a.severity === 'MONITORING').length
+  const overrides = db.counters.overridesToday
+  const pending = db.visaRequests.filter(r => ['SECURITY REVIEW', 'COMPLIANCE'].includes(r.status)).length
+  const modulesDone = db.profile.completedModules.length
+  const trainingGap = Math.max(0, 3 - modulesDone)
+
+  // Each factor contributes points of risk; the gauge sums them (capped at 100).
+  const factors = [
+    { key: 'alerts', label: 'Unresolved risk alerts', points: high * 10 + med * 4 + mon * 1, detail: `${high} high · ${med} medium · ${mon} monitoring` },
+    { key: 'override', label: 'Policy overrides today', points: overrides * 15, detail: overrides ? `${overrides} employee override${overrides === 1 ? '' : 's'}` : 'No overrides — gateway respected' },
+    { key: 'shadow', label: 'Shadow-AI exposure', points: pending * 2, detail: `${pending} tool${pending === 1 ? '' : 's'} pending review` },
+    { key: 'training', label: 'Training coverage gap', points: trainingGap * 1, detail: `${modulesDone}/3 core modules complete` },
+    { key: 'residual', label: 'Baseline residual risk', points: 4, detail: 'Always-on gateway · masked storage' },
+  ].map(f => ({ ...f, tone: f.points >= 12 ? 'high' : f.points >= 5 ? 'med' : 'low' }))
+
+  const score = Math.min(100, Math.max(0, factors.reduce((n, f) => n + f.points, 0)))
+  const band = score < 25 ? 'Low' : score < 45 ? 'Moderate' : score < 70 ? 'Elevated' : 'High'
+  const trend = [...db.riskHistory, score]
+  const prev = db.riskHistory[db.riskHistory.length - 1]
+
+  const maskedToday = db.counters.maskedToday
+  return {
+    score, band, factors, trend,
+    delta: score - prev, // negative = improving
+    metrics: {
+      promptsProtected: db.counters.promptsToday,
+      itemsIntercepted: maskedToday,
+      incidentsPrevented: maskedToday,
+      valueProtected: maskedToday * VALUE_PER_ITEM_RM,
+      overrides,
+      confirmedLeaks: 0,
+    },
+  }
+}
+
+// ---- live demo simulator (pitch mode) --------------------------------------
+// Injects synthetic org-wide activity so every admin screen visibly moves
+// during a live demo. Runs on the server so audit log, KPIs, the department
+// chart and the risk score all react from one source. Purely additive — it
+// never touches the signed-in employee's own profile/points.
+export const sim = { on: false, injected: 0 }
+
+const SIM_USERS = [
+  { user: 'F-102', dept: 'Fin' }, { user: 'S-044', dept: 'Sales' }, { user: 'S-051', dept: 'Sales' },
+  { user: 'E-198', dept: 'Eng' }, { user: 'E-233', dept: 'Eng' }, { user: 'H-011', dept: 'HR' },
+  { user: 'M-083', dept: 'Mkt' }, { user: 'O-031', dept: 'Ops' },
+]
+const SIM_TOOLS = ['ChatGPT', 'Gemini', 'Claude', 'Copilot']
+const SIM_CLEAN = [
+  'Explain the difference between SQL joins with examples',
+  'Draft a polite follow-up email to a supplier about delivery',
+  'Summarise the key points of our Q3 marketing strategy',
+  'Write unit tests for a pagination helper function',
+  'Rewrite this paragraph to be clearer and more concise',
+]
+const SIM_MASKED = [
+  { record: 'Fix login bug reported by client [MASKED-NAME], ref [MASKED-RECORD]', control: 'PDPA P7' },
+  ['Draft payment reminder for invoice [MASKED-RECORD], amount [MASKED-AMOUNT]', 'NIST PR.DS'],
+  ['Reply to [MASKED-NAME] at [MASKED-EMAIL] about their account', 'PDPA P7'],
+  ['Verify customer identity — IC [MASKED-IC], phone [MASKED-PHONE]', 'PDPA P7'],
+  ['Review contractor onboarding for [MASKED-NAME], passport [MASKED-PASSPORT]', 'PDPA P7'],
+]
+const pick = arr => arr[Math.floor(Math.random() * arr.length)]
+
+function pushSimEvent({ user, dept, tool, action, control, record }) {
+  const event = {
+    id: `EV-${db.counters.nextEventNo++}`,
+    time: nowTime(), user, dept, tool, action,
+    control: control || 'NIST GV.4',
+    record: record.length > 60 ? record.slice(0, 57) + '…' : record,
+    sim: true,
+  }
+  db.auditEvents.unshift(event)
+  db.auditEvents = db.auditEvents.slice(0, 50)
+  return event
+}
+
+// One tick of simulated traffic. Weighted so most prompts are clean, some are
+// masked, and occasionally an unapproved-tool redirect or an override alert
+// fires — enough variety to make the dashboard feel alive without spamming.
+export function simulateTick() {
+  const who = pick(SIM_USERS)
+  const tool = pick(SIM_TOOLS)
+  const roll = Math.random()
+  db.counters.promptsToday += 1
+  sim.injected += 1
+
+  if (roll < 0.55) {
+    pushSimEvent({ ...who, tool, action: 'CLEAN', record: pick(SIM_CLEAN) })
+  } else if (roll < 0.9) {
+    const m = pick(SIM_MASKED)
+    const record = Array.isArray(m) ? m[0] : m.record
+    const control = Array.isArray(m) ? m[1] : m.control
+    const count = 1 + Math.floor(Math.random() * 2)
+    db.counters.maskedToday += count
+    pushSimEvent({ ...who, tool, action: 'MASKED', control, record })
+  } else if (roll < 0.96) {
+    pushSimEvent({ ...who, tool: 'SummarizerX', action: 'REDIRECTED', control: 'AIGE 4.2', record: 'Switched to approved tool · ChatGPT' })
+  } else {
+    // Rare high-risk override — also raises the live risk score.
+    db.counters.overridesToday += 1
+    pushSimEvent({ ...who, tool, action: 'ALERT', control: 'PDPA P7', record: 'Original prompt sent after gateway warning' })
+    db.alerts.unshift({
+      id: `RA-${db.counters.nextAlertNo++}`, severity: 'HIGH', status: 'open',
+      title: 'Protected prompt overridden',
+      meta: `${who.dept} · ${who.user} · just now`, due: 'Review today',
+      detailMeta: `${who.dept} · User ${who.user} · detected today at ${nowTime()}`,
+      what: 'An employee sent the original prompt after the gateway flagged sensitive content. Points were deducted and the event was logged for review.',
+      evidence: 'Original sent by employee choice · flagged for review', evidenceNote: 'Simulated event · live demo',
+      timeline: [[nowTime(), 'Override recorded'], ['—', 'Manager review pending']],
+      recommend: 'Assign the 5-minute Data Privacy refresher.', primary: 'Assign training',
+    })
+  }
+  return { injected: sim.injected }
+}
+
+// ---- compliance report data (single source for the AI report page) ---------
+// Maps live detections to the controls they evidence so the report reads as a
+// regulator-ready document rather than a static mock-up.
+const REPORT_CONTROLS = [
+  { type: 'Personal identifiers (IC, passport, phone, email, names)', framework: 'Malaysia PDPA · Principle 7 (Security)', evidence: 'Masked before transmission · raw values never stored' },
+  { type: 'Financial figures (amounts, invoices)', framework: 'NIST AI RMF · MEASURE 2.7', evidence: 'Amounts tokenised · audit stores masked text only' },
+  { type: 'Customer & case records', framework: 'PDPA · Principle 7 + retention limit', evidence: 'Reference IDs masked · 90-day purge enforced' },
+  { type: 'Credentials & source secrets', framework: 'NIST AI RMF · MANAGE 2.2', evidence: 'Keys and secrets blocked at the gateway' },
+  { type: 'AI-assisted decisions', framework: 'EU AI Act · Art. 14 (Human oversight)', evidence: 'Public review portal · independent human sign-off' },
+  { type: 'AI literacy & training', framework: 'EU AI Act · Art. 4 (AI literacy)', evidence: 'Gamified licence · per-employee training stamps' },
+]
+
+export function reportData() {
+  const risk = riskScore()
+  const toolsApproved = db.visaRequests.filter(r => r.status === 'APPROVED').length
+  const risksResolved = db.alerts.filter(a => a.status === 'resolved').length
+  const today = todayDate()
+  return {
+    org: 'Example Sdn Bhd',
+    period: '1–' + today.split(' ')[0] + ' ' + today.split(' ').slice(1).join(' '),
+    generated: today,
+    risk,
+    controls: REPORT_CONTROLS,
+    frameworks: [
+      { name: 'NIST AI RMF', detail: 'Govern · Map · Measure · Manage — all evidenced', status: 'Compliant' },
+      { name: 'EU AI Act', detail: 'Art. 4 literacy · Art. 14 human oversight · transparency', status: 'Compliant' },
+      { name: 'Malaysia PDPA', detail: 'Personal-data handling · masking · 90-day retention', status: 'Compliant' },
+    ],
+    kpis: {
+      promptsProtected: risk.metrics.promptsProtected,
+      itemsMasked: risk.metrics.itemsIntercepted,
+      toolsApproved,
+      risksResolved,
+      humanReviews: 11,
+      confirmedLeaks: 0,
+      valueProtected: risk.metrics.valueProtected,
+    },
+    topEvents: db.auditEvents.slice(0, 8),
+  }
 }
 
 // ---- visas / tool approvals ----

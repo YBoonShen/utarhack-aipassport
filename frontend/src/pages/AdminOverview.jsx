@@ -4,6 +4,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api.js'
+import RiskPanel from '../components/admin/RiskPanel.jsx'
+import LiveSimToggle from '../components/admin/LiveSimToggle.jsx'
 
 // Department chart: a plausible weekly baseline plus live prompts from the
 // audit log (each masked prompt for a department grows its bar). `abbr`
@@ -54,9 +56,12 @@ export default function AdminOverview() {
           <h1 className="text-[28px] font-bold text-navy-header">Overview</h1>
           <p className="text-[#667085] text-xs mt-1">Company-wide AI usage · refreshed live</p>
         </div>
-        <Link to="/admin/audit-report" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-11 h-[46px] rounded-full flex items-center cursor-pointer">
-          Export audit report&nbsp;&nbsp;↓
-        </Link>
+        <div className="flex items-center gap-3">
+          <LiveSimToggle />
+          <Link to="/admin/audit-report" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-8 h-[46px] rounded-full flex items-center cursor-pointer">
+            Compliance report&nbsp;&nbsp;↓
+          </Link>
+        </div>
       </div>
 
       {/* KPI cards */}
@@ -90,6 +95,9 @@ export default function AdminOverview() {
           </div>
         </div>
       </div>
+
+      {/* Organisational AI risk score + ROI */}
+      <RiskPanel />
 
       {/* Usage chart + risk alerts */}
       <div className="grid grid-cols-[1fr_438px] gap-4 mt-4">

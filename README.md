@@ -8,6 +8,22 @@ Four features: a gamified **AI License**, a **Smart Gateway** that masks
 sensitive data ("mask, don't block"), an **Admin Dashboard** with live risk alerts and
 audit log, and an **AI Tool Approval workflow** ("guide, don't punish").
 
+### Signature features (governance depth)
+- **Organisational AI Risk Score** — one board-level number (0–100, lower is better) computed
+  live from open alerts, gateway overrides, shadow-AI exposure and training coverage, with a
+  6-day trend and ROI tiles (exposure value protected, incidents prevented). Resolving an alert
+  or an employee override visibly moves it.
+- **Governance Copilot** — an explainability assistant on every admin screen. Ask "what's our
+  biggest risk?" or "why was this masked?" and it answers from the live audit data, mapping each
+  point to PDPA / NIST AI RMF / EU AI Act. Gemini-powered when a key is set, deterministic
+  analyst otherwise (every reply is labelled — the fallback is never passed off as the model).
+- **One-click AI Compliance Report** — a regulator-ready report built live from the audit log:
+  AI-written executive summary, framework coverage, data-category → control mapping, masked
+  evidence, and a self-contained print/PDF download.
+- **Live Demo Simulator** — a pitch-mode switch that streams synthetic company-wide activity into
+  the backend, so the audit log, KPIs, department chart and risk score all move on their own
+  during a live demo. Never touches the signed-in employee's own profile.
+
 ## Team Members
 - Yeap Boon Shen (@YBoonShen) — Team Leader
 - Lee Jia Yin
@@ -96,7 +112,13 @@ npm run benchmark # accuracy on the 100-prompt labelled set (target ≥ 90%)
 | GET    | /api/audit                 | Live audit log (masked records only) |
 | GET    | /api/stats                 | Admin KPIs — single source of truth for all screens |
 | GET/PUT| /api/settings              | Gateway policy — Mask / Warn only / Block really applies |
-| POST   | /api/reset                 | Reset demo data |
+| GET    | /api/risk                  | Organisational AI Risk Score — score, band, factors, 6-day trend, ROI metrics |
+| POST   | /api/copilot               | `{ question }` → Governance Copilot answer grounded in live data (`source`: gemini/offline) |
+| GET    | /api/copilot/suggestions   | Suggested copilot questions |
+| GET    | /api/report                | Compliance report data — risk, KPIs, framework coverage, control mapping, evidence |
+| GET    | /api/report/summary        | AI-written executive summary (`source`: gemini/offline) |
+| GET/POST| /api/simulate             | Live demo simulator — `POST { on }` toggles synthetic activity injection |
+| POST   | /api/reset                 | Reset demo data (also stops the simulator) |
 
 Demo state is **in-memory**: it resets on server restart or `POST /api/reset`.
 Admin → Settings has hidden "Demo tools" links (reset / jump to 1,950 pts) for demo prep.
