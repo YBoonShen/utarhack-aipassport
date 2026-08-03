@@ -12,12 +12,12 @@ export default function LogoutConfirm({ role, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-6 z-[60]" onClick={onClose}>
+    <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-4 sm:p-6 z-[60]" onClick={onClose}>
       <div
-        className="bg-white border-[1.5px] border-[#c7b887] rounded-[20px] shadow-[0px_18px_24px_rgba(3,10,31,0.22)] w-full max-w-[517px] p-7"
+        className="bg-white border-[1.5px] border-[#c7b887] rounded-[20px] shadow-[0px_18px_24px_rgba(3,10,31,0.22)] w-full max-w-[517px] p-5 sm:p-7"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-start gap-5">
+        <div className="flex items-start gap-3 sm:gap-5">
           <div className="w-[52px] h-[52px] rounded-full bg-[#fff5de] border-2 border-[#e3b214] flex items-center justify-center shrink-0">
             <span className="text-[#d97706] font-bold text-2xl">!</span>
           </div>

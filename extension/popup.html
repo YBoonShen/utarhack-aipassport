@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>AI Passport</title>
+    <style>
+      /* Mirrors the side-panel styling of the /extension demo page. */
+      * { box-sizing: border-box; margin: 0; }
+      body {
+        width: 320px;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: #fffefa;
+        color: #111d35;
+      }
+      .head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 16px;
+        border-bottom: 1px solid #d5dae3;
+      }
+      .ring {
+        width: 34px; height: 34px; flex-shrink: 0;
+        border: 2px solid #e0b31e; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        color: #e0b31e; font-weight: 700; font-size: 14px;
+      }
+      .head p:first-of-type { font-size: 16px; font-weight: 700; color: #0c2556; line-height: 1.2; }
+      .kicker { font-size: 9px; font-weight: 600; letter-spacing: 0.9px; color: #e0b31e; }
+      .body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+      .status {
+        background: #0c2556; border-radius: 14px; padding: 14px;
+        display: flex; align-items: center; gap: 10px;
+      }
+      .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: #05946e; }
+      .dot.off { background: #c72929; }
+      .status p:first-of-type { color: #fff; font-size: 14px; font-weight: 600; }
+      .status p:last-of-type { color: #ccd6eb; font-size: 11px; margin-top: 2px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .stat { border: 1px solid #d5dae3; border-radius: 12px; padding: 10px 12px; }
+      .stat b { display: block; font-size: 20px; color: #0c2556; }
+      .stat span { font-size: 10px; color: #5c6a82; }
+      .row {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px;
+        border: 1px solid #d5dae3; border-radius: 12px; padding: 10px 12px;
+      }
+      .row span:first-child { font-size: 11px; color: #5c6a82; }
+      .row span:last-child { font-size: 12px; font-weight: 600; color: #0c2556; text-align: right; }
+      a.cta {
+        display: block; text-align: center; text-decoration: none;
+        background: #e0b31e; color: #0c2556; font-size: 12.5px; font-weight: 600;
+        border-radius: 999px; padding: 11px;
+      }
+      .foot { font-size: 10px; color: #98a2b3; text-align: center; padding: 0 16px 14px; }
+    </style>
+  </head>
+  <body>
+    <div class="head">
+      <span class="ring">A</span>
+      <div>
+        <p>AI Passport</p>
+        <p class="kicker">SMART GATEWAY</p>
+      </div>
+    </div>
+
+    <div class="body">
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <div>
+          <p id="state">Checking…</p>
+          <p id="stateNote">Contacting the Smart Gateway</p>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="stat"><b id="protected">—</b><span>prompts protected</span></div>
+        <div class="stat"><b id="masked">—</b><span>items masked</span></div>
+      </div>
+
+      <div class="row"><span>AI literacy</span><span id="literacy">—</span></div>
+      <div class="row"><span>Gateway policy</span><span id="mode">—</span></div>
+      <div class="row"><span>This site</span><span id="site">—</span></div>
+
+      <a class="cta" id="dashboard" href="#" target="_blank">Open my dashboard →</a>
+    </div>
+
+    <p class="foot">AI Passport Extension · v1.0 · prompts are checked before they leave your browser</p>
+
+    <script src="config.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

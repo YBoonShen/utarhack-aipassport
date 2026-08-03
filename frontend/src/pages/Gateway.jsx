@@ -88,7 +88,9 @@ export default function Gateway() {
   const blocked = mode === 'Block'
 
   return (
-    <div className="bg-[#eef2f7] min-h-[calc(100vh-80px)] flex">
+    // Below lg the employee header also renders a nav strip (~44px), so the
+    // chat column accounts for both bars; at lg+ it is the original 80px.
+    <div className="bg-[#eef2f7] min-h-[calc(100vh-124px)] lg:min-h-[calc(100vh-80px)] flex">
       {/* Chat sidebar */}
       <aside className="bg-white border-r border-[#e4e7ec] w-[250px] shrink-0 px-7 py-7 hidden lg:block">
         <p className="text-navy-header font-bold text-[17px]">AI CHAT</p>
@@ -106,7 +108,7 @@ export default function Gateway() {
       </aside>
 
       {/* Chat area */}
-      <div className="flex-1 flex flex-col px-10 lg:px-20">
+      <div className="flex-1 min-w-0 flex flex-col px-4 sm:px-10 lg:px-20">
         <div className="text-center pt-9 pb-5 border-b border-[#d0d5dd]">
           <p className="text-navy-header font-bold text-2xl">AI Assistant</p>
         </div>
@@ -117,7 +119,7 @@ export default function Gateway() {
           )}
           {messages.map((m, i) =>
             m.role === 'user' ? (
-              <div key={i} className="max-w-[70%] self-end bg-[#eaf0ff] border border-[#94adff] text-[#111d35] rounded-2xl px-5 py-3.5">
+              <div key={i} className="max-w-[85%] sm:max-w-[70%] self-end bg-[#eaf0ff] border border-[#94adff] text-[#111d35] rounded-2xl px-5 py-3.5">
                 <ProtectedText text={m.text} />
                 {m.maskedCount > 0 && (
                   <span className="inline-flex items-center gap-1.5 bg-[#e6faf2] rounded-full px-3 py-1 mt-2.5">
@@ -127,7 +129,7 @@ export default function Gateway() {
                 )}
               </div>
             ) : (
-              <div key={i} className="max-w-[70%] self-start bg-white border border-[#e4e7ec] text-[#344054] rounded-2xl px-5 py-3.5">
+              <div key={i} className="max-w-[85%] sm:max-w-[70%] self-start bg-white border border-[#e4e7ec] text-[#344054] rounded-2xl px-5 py-3.5">
                 <p className="font-semibold text-sm">{m.title}</p>
                 {m.subject && <p className="text-sm mt-2">{m.subject}</p>}
                 <p className="text-sm mt-2">{m.text}</p>
@@ -161,9 +163,9 @@ export default function Gateway() {
 
       {/* Smart Gateway modal */}
       {result && (
-        <div className="fixed inset-0 bg-[rgba(7,24,58,0.52)] flex items-center justify-center p-6 z-50">
-          <div className="bg-[#f8f5ea] border-2 border-navy-header rounded-[20px] shadow-[0px_16px_36px_0px_rgba(0,0,0,0.28)] w-full max-w-[860px] overflow-hidden">
-            <div className="bg-navy-header px-7 py-6 flex items-center gap-4">
+        <div className="fixed inset-0 bg-[rgba(7,24,58,0.52)] flex items-center justify-center p-4 sm:p-6 z-50">
+          <div className="bg-[#f8f5ea] border-2 border-navy-header rounded-[20px] shadow-[0px_16px_36px_0px_rgba(0,0,0,0.28)] w-full max-w-[860px] overflow-hidden max-h-[92vh] overflow-y-auto">
+            <div className="bg-navy-header px-4 sm:px-7 py-6 flex items-center gap-4">
               <div className="w-[52px] h-[52px] rounded-[16px] border-2 border-gold-brand flex items-center justify-center shrink-0">
                 <span className="text-gold-brand font-bold text-2xl">✓</span>
               </div>
@@ -177,7 +179,7 @@ export default function Gateway() {
               </div>
             </div>
 
-            <div className="px-7 py-6">
+            <div className="px-4 sm:px-7 py-6">
               <p className="text-[#8a7d56] font-semibold text-[11px] tracking-[1.1px]">YOUR ORIGINAL PROMPT</p>
               <div className="bg-white border border-[#d8d0b4] rounded-[12px] px-4 py-3.5 mt-2 min-h-[76px]">
                 <p className="text-[#344054] text-sm leading-relaxed">{checkedPrompt}</p>
@@ -208,9 +210,9 @@ export default function Gateway() {
                 </div>
               )}
 
-              <div className="flex items-center gap-3 mt-6">
+              <div className="flex flex-wrap items-center gap-3 mt-6">
                 {!blocked && (
-                  <button onClick={() => deliver(result.masked)} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[316px] h-12 rounded-full cursor-pointer">
+                  <button onClick={() => deliver(result.masked)} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-full sm:w-[316px] h-12 rounded-full cursor-pointer">
                     Send protected version&nbsp;&nbsp;→
                   </button>
                 )}
@@ -219,7 +221,7 @@ export default function Gateway() {
                     Send original anyway (-20 pts)
                   </button>
                 )}
-                <button onClick={() => setResult(null)} className="border border-navy-header text-navy-header font-semibold text-sm w-[180px] h-12 rounded-full cursor-pointer hover:bg-white">
+                <button onClick={() => setResult(null)} className="border border-navy-header text-navy-header font-semibold text-sm w-full sm:w-[180px] h-12 rounded-full cursor-pointer hover:bg-white">
                   Edit prompt
                 </button>
                 <button onClick={() => setShowWhy(w => !w)} className="text-[#8a7d56] font-semibold text-sm px-4 h-12 cursor-pointer">

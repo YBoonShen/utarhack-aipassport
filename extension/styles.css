@@ -1,0 +1,160 @@
+/* AI Passport protection panel.
+   Loaded inside a shadow root, so nothing here can leak into the AI tool's page
+   and the page's own CSS cannot reach these rules. Colours match the AI Passport
+   palette used by the /extension demo page. */
+
+:host,
+* {
+  box-sizing: border-box;
+}
+
+.aip-card {
+  width: 340px;
+  max-width: calc(100vw - 40px);
+  background: #fffefa;
+  border: 1.5px solid #0c2556;
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(5, 18, 46, 0.28);
+  padding: 16px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #111d35;
+}
+
+.aip-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.aip-ring {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 2px solid #e0b31e;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e0b31e;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.aip-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.aip-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0c2556;
+  line-height: 1.2;
+}
+
+.aip-kicker {
+  margin: 2px 0 0;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+}
+
+.aip-ok { color: #05946e; }
+.aip-warn { color: #b27a0d; }
+.aip-block { color: #c72929; }
+.aip-off { color: #5c6a82; }
+
+.aip-x {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  background: #f2f4f8;
+  color: #0c2556;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.aip-x:hover {
+  background: #e4e7ec;
+}
+
+.aip-lead {
+  margin: 14px 0 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0c2556;
+}
+
+.aip-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.aip-chip {
+  background: #fff0f0;
+  border: 1px solid #d92d20;
+  color: #b42318;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.aip-body {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #475467;
+}
+
+.aip-note {
+  margin: 8px 0 0;
+  font-size: 10.5px;
+  color: #98a2b3;
+  word-break: break-word;
+}
+
+.aip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.aip-btn {
+  flex: 1 1 auto;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+}
+
+.aip-gold {
+  background: #e0b31e;
+  border-color: #e0b31e;
+  color: #0c2556;
+}
+
+.aip-gold:hover {
+  background: #c99f1a;
+}
+
+.aip-ghost {
+  background: #fffefa;
+  border-color: #0c2556;
+  color: #0c2556;
+}
+
+.aip-ghost:hover {
+  background: #f2f4f8;
+}

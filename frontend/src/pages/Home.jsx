@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, currentUser } from '../lib/api.js'
+import { levelState, barXP, progressHint } from '../lib/levels.js'
 
 const fallbackProfile = {
   name: 'Tan Jia Yin', level: 2, levelName: 'Navigator', points: 1240, target: 2000,
@@ -31,7 +32,9 @@ export default function Home() {
     return () => { alive = false }
   }, [])
 
-  const pct = Math.min(100, Math.round((profile.points / profile.target) * 100))
+  // Progress within the current level band (lib/levels.js), not a share of the
+  // whole 0 → 8,000 system.
+  const lvl = levelState(profile)
 
   const todayCards = [
     {
@@ -62,17 +65,19 @@ export default function Home() {
   ]
 
   return (
-    <div className="max-w-[1440px] mx-auto px-10 py-8">
-      <h1 className="text-[30px] font-bold text-navy-header">Good morning, {firstName}</h1>
+    <div className="max-w-[1440px] mx-auto px-4 lg:px-10 py-6 lg:py-8">
+      <h1 className="text-[26px] lg:text-[30px] font-bold text-navy-header">Good morning, {firstName}</h1>
       <p className="text-[#667085] text-[15px] mt-1.5">Here&rsquo;s what needs your attention today.</p>
 
-      <div className="grid grid-cols-3 gap-6 mt-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6 mt-6">
         {todayCards.map(c => (
           <div key={c.kicker} className="bg-white border border-[#e0e0e5] rounded-[16px] p-6 flex flex-col">
             <p className={`font-semibold text-[11px] ${c.kickerColor}`}>{c.kicker}</p>
             <p className="text-navy-header font-bold text-lg mt-2.5">{c.title}</p>
             <p className="text-[#667085] text-[13.5px] mt-2.5 flex-1">{c.desc}</p>
-            <Link to={c.to} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-5 h-11 rounded-full inline-flex items-center justify-center mt-5 w-fit">
+            {/* ml-auto puts the action on the right on phones, like the
+                upcoming-training cards; lg:ml-0 restores the desktop position. */}
+            <Link to={c.to} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-5 h-11 rounded-full inline-flex items-center justify-center mt-5 w-fit ml-auto lg:ml-0">
               {c.button}
             </Link>
           </div>
@@ -89,17 +94,15 @@ export default function Home() {
       </div>
 
       <p className="text-[#667085] font-semibold text-[13px] mt-8">Your progress</p>
-      <div className="grid grid-cols-[1fr_1.2fr] gap-6 mt-3">
-        <div className="bg-navy-header rounded-[16px] p-7">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4 lg:gap-6 mt-3">
+        <div className="bg-navy-header rounded-[16px] p-5 lg:p-7">
           <p className="text-gold-brand font-semibold text-[11px]">YOUR AI PASSPORT</p>
-          <p className="text-white font-bold text-[26px] mt-2.5">Level {profile.level} · {profile.levelName}</p>
-          <p className="text-[#cbd5e1] text-sm mt-2">{profile.points.toLocaleString()} / {profile.target.toLocaleString()} safety points</p>
+          <p className="text-white font-bold text-[26px] mt-2.5">Level {lvl.level} · {lvl.levelName}</p>
+          <p className="text-[#cbd5e1] text-sm mt-2">{barXP(lvl).toLocaleString()} / {lvl.nextLevelXP.toLocaleString()} XP</p>
           <div className="h-2.5 rounded-full bg-[#213866] mt-3">
-            <div className="h-2.5 rounded-full bg-gold-brand transition-all duration-700" style={{ width: `${pct}%` }} />
+            <div className="h-2.5 rounded-full bg-gold-brand transition-all duration-700" style={{ width: `${lvl.progressPercentage}%` }} />
           </div>
-          <p className="text-[#cbd5e1] text-[13px] mt-2.5">
-            {profile.level >= 3 ? 'Level 3 · Ambassador — advanced tools unlocked' : 'Level 3 · Advanced training coming soon'}
-          </p>
+          <p className="text-[#cbd5e1] text-[13px] mt-2.5">{progressHint(lvl)}</p>
           <div className="grid grid-cols-3 mt-6">
             <div>
               <p className="text-white font-bold text-[22px]">{profile.promptsProtected}</p>
@@ -114,7 +117,7 @@ export default function Home() {
               <p className="text-[#cbd5e1] text-xs mt-1">safe streak</p>
             </div>
           </div>
-          <Link to="/license" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-5 h-11 rounded-full inline-flex items-center justify-center mt-6 w-fit">
+          <Link to="/license" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-5 h-11 rounded-full inline-flex items-center justify-center mt-6 w-fit ml-auto lg:ml-0">
             View my license →
           </Link>
         </div>

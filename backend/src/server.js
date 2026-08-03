@@ -11,9 +11,10 @@ import { detectNames, maskNames } from './layer2.js'
 import { logDetection } from './firebase.js'
 import {
   db, resetStore, recordPromptEvent, recordOverride, addNotification,
-  answerQuiz, quizResults, completeTraining, applyForVisa, decideVisa,
-  openAlerts, resolveAlert, addReviewRequest, leaderboard,
+  answerQuiz, quizResults, completeTraining, retryTraining, applyForVisa, decideVisa,
+  openAlerts, resolveAlert, addReviewRequest, leaderboard, progressionSummary,
 } from './store.js'
+import { LEVELS } from './levels.js'
 
 const app = express()
 app.use(cors())
@@ -36,8 +37,12 @@ app.post('/api/auth/login', (req, res) => {
 })
 
 // ---- smart gateway ---------------------------------------------------------
+// `preview: true` runs the exact same detection but records nothing. The Chrome
+// extension uses it for the debounced while-typing check, then calls again
+// without the flag when the employee actually protects and sends — so one sent
+// prompt still produces exactly one audit event, same as the web Gateway.
 app.post('/api/detect', async (req, res) => {
-  const { prompt, tool } = req.body || {}
+  const { prompt, tool, preview } = req.body || {}
   if (typeof prompt !== 'string' || prompt.length === 0) {
     return res.status(400).json({ error: 'Body must be { "prompt": "..." }' })
   }
@@ -74,6 +79,15 @@ app.post('/api/detect', async (req, res) => {
     }
   }
 
+  // Preview = while-typing check: same result, no audit event, no counters, no
+  // points. Only the masked/detection outcome is returned.
+  if (preview) {
+    return res.json({
+      masked, detections, layer2, levelUp: false, preview: true,
+      mode: db.settings.mode, explain: db.settings.experience,
+    })
+  }
+
   const { event, levelUp } = recordPromptEvent({ detections, masked, tool: tool || 'AI Assistant' })
   const audit = await logDetection({ detections, masked })
   res.json({
@@ -96,7 +110,12 @@ app.get('/api/profile', (req, res) => res.json(db.profile))
 
 app.get('/api/leaderboard', (req, res) => res.json(leaderboard()))
 
-// Quiz: first attempt per question earns +50 when correct — tracked per module
+// The employee's XP / level progression, plus the level table the UI labels
+// bands with. Admin reads the same record — one source of truth for both sides.
+app.get('/api/progression', (req, res) => res.json({ levels: LEVELS, ...progressionSummary() }))
+
+// Quiz: an answer is recorded (first attempt per question only) but earns no XP
+// on its own — XP is settled once, when the assessment is evaluated.
 app.post('/api/quiz/answer', (req, res) => {
   const { module, question, correct } = req.body || {}
   res.json(answerQuiz(Number(module) || 1, Number(question), Boolean(correct)))
@@ -106,6 +125,14 @@ app.get('/api/quiz/results', (req, res) => res.json(quizResults(Number(req.query
 app.post('/api/training/complete', (req, res) => {
   const { module } = req.body || {}
   res.json(completeTraining(Number(module) || 1))
+})
+
+// Retry is only offered after the whole assessment has been evaluated, and only
+// once the 24h lock has expired — 423 while it is still locked.
+app.post('/api/quiz/retry', (req, res) => {
+  const { module } = req.body || {}
+  const result = retryTraining(Number(module) || 1)
+  res.status(result.ok ? 200 : 423).json(result)
 })
 
 app.get('/api/notifications', (req, res) => res.json(db.notifications))
@@ -145,7 +172,7 @@ app.get('/api/stats', (req, res) => {
     promptsToday: db.counters.promptsToday,
     maskedToday: db.counters.maskedToday,
     openAlerts: openAlerts().length,
-    avgLicense: db.profile.level >= 3 ? 2.2 : 2.1,
+    avgLicense: Number((2.0 + (db.profile.level - 2) * 0.1).toFixed(1)),
     pendingApprovals: db.visaRequests.filter(r => ['SECURITY REVIEW', 'COMPLIANCE'].includes(r.status)).length,
   })
 })

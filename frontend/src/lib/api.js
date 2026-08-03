@@ -2,7 +2,14 @@
 
 async function request(path, options) {
   const res = await fetch(`/api${path}`, options)
-  if (!res.ok) throw new Error(`API ${path} failed (${res.status})`)
+  if (!res.ok) {
+    // Keep the status and payload — callers such as the 24h retry lock need the
+    // details the server sent with the error (e.g. 423 + retryAvailableAt).
+    const error = new Error(`API ${path} failed (${res.status})`)
+    error.status = res.status
+    error.body = await res.json().catch(() => null)
+    throw error
+  }
   return res.json()
 }
 

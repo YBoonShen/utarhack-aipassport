@@ -3,6 +3,9 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
 import { AssignModal, InfoToast } from '../../components/admin/TrainingModuleForm.jsx'
+import { EMPLOYEES, DEPARTMENT_CODES } from '../../lib/employees.js'
+import { assignmentSummary } from '../../lib/assignments.js'
+import { trainingById } from '../../lib/trainingLibrary.js'
 
 const statusChip = {
   'On track': 'bg-[#e9f8f2] text-[#078b6c]',
@@ -12,15 +15,9 @@ const statusChip = {
   Ambassador: 'bg-[#eef2ff] text-[#365fd9]',
 }
 
-const employees = [
-  { avatar: 'JY', id: 'E-217', dept: 'Eng', level: 'L2', training: 92, protectedCount: 47, alerts: 0, status: 'On track' },
-  { avatar: 'MW', id: 'S-044', dept: 'Sales', level: 'L2', training: 80, protectedCount: 38, alerts: 1, status: 'Refresher' },
-  { avatar: 'SK', id: 'F-102', dept: 'Finance', level: 'L1', training: 60, protectedCount: 26, alerts: 2, status: 'Support due' },
-  { avatar: 'NL', id: 'M-083', dept: 'Mkt', level: 'L2', training: 87, protectedCount: 32, alerts: 0, status: 'On track' },
-  { avatar: 'PL', id: 'H-011', dept: 'HR', level: 'L1', training: 72, protectedCount: 18, alerts: 1, status: 'Review' },
-  { avatar: 'RT', id: 'O-031', dept: 'Ops', level: 'L2', training: 84, protectedCount: 29, alerts: 0, status: 'On track' },
-  { avatar: 'AR', id: 'E-198', dept: 'Eng', level: 'L3', training: 100, protectedCount: 52, alerts: 0, status: 'Ambassador' },
-]
+// The directory records now live in lib/employees.js so Assign Training picks
+// recipients from exactly the same people this table shows.
+const employees = EMPLOYEES
 
 const kpis = [
   { label: 'ACTIVE EMPLOYEES', value: '303', note: 'Across 6 departments', dark: true, noteColor: 'text-[#e9f8f2]' },
@@ -37,8 +34,10 @@ const distribution = [
 
 const cols = 'grid grid-cols-[150px_82px_70px_150px_86px_64px_1fr] items-center gap-1'
 
-const departments = [...new Set(employees.map(e => e.dept))]
+const departments = DEPARTMENT_CODES
 const levels = ['L1', 'L2', 'L3']
+// The module the "next training cohort" panel assigns.
+const COHORT_TRAINING = trainingById(1)
 const PAGE_SIZE = 8
 
 export default function Employees() {
@@ -61,24 +60,27 @@ export default function Employees() {
   const current = Math.min(page, totalPages - 1)
   const slice = filtered.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE)
 
-  function assign(target) {
-    const count = target === 'everyone' ? 303 : target === 'department' ? 84 : 12
+  function assign(result) {
     setAssignOpen(false)
-    setToastInfo({ kicker: 'MODULE ASSIGNED', title: `Assigned to ${count} employees`, body: 'They will see it in their training list and get a notification. Progress appears here as they complete it.' })
+    setToastInfo({
+      kicker: 'MODULE ASSIGNED',
+      title: `Assigned to ${result.assigned} employee${result.assigned === 1 ? '' : 's'}`,
+      body: assignmentSummary(result),
+    })
   }
 
   return (
     <div>
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
         <div>
           <h1 className="text-[28px] font-bold text-[#17213a]">Employees</h1>
           <p className="text-[#667085] text-sm mt-1.5">Support AI literacy and safe use with role-appropriate training and controls.</p>
         </div>
-        <Link to="/admin/training" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-6 h-11 rounded-full flex items-center cursor-pointer">Assign Training</Link>
+        <Link to="/admin/training" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-6 h-11 rounded-full flex items-center cursor-pointer shrink-0">Assign Training</Link>
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-4 gap-4 mt-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
         {kpis.map(k => (
           <div key={k.label} className={`rounded-[14px] px-4 py-3 ${k.dark ? 'bg-navy-header' : 'bg-white border border-[#d8d0b4]'}`}>
             <p className={`font-semibold text-[11px] ${k.dark ? 'text-gold-brand' : 'text-[#667085]'}`}>{k.label}</p>
@@ -89,8 +91,8 @@ export default function Employees() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white border border-[#d8d0b4] rounded-[12px] px-4 py-2 mt-5 flex items-center gap-2.5">
-        <div className="bg-[#fffcef] border border-[#d8d0b4] rounded-[9px] h-10 w-[326px] flex items-center px-2.5 gap-2">
+      <div className="bg-white border border-[#d8d0b4] rounded-[12px] px-4 py-2 mt-5 flex flex-wrap items-center gap-2.5">
+        <div className="bg-[#fffcef] border border-[#d8d0b4] rounded-[9px] h-10 w-full sm:w-[326px] flex items-center px-2.5 gap-2">
           <span className="text-[#667085] text-[17px]">⌕</span>
           <input
             value={search}
@@ -137,7 +139,7 @@ export default function Employees() {
         <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-11 px-6 rounded-full cursor-pointer hover:bg-chip">More filters</button>
       </div>
 
-      <div className="grid grid-cols-[1fr_360px] gap-5 mt-5 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5 mt-5 items-start">
         {/* Employee directory */}
         <div className="bg-white border border-[#d8d0b4] rounded-[14px] p-4">
           <p className="text-[#17213a] font-bold text-lg">Employee directory</p>
@@ -201,7 +203,7 @@ export default function Employees() {
             </div>
             <div className="h-px bg-[#d8d0b4] my-4" />
             <p className="text-gold font-semibold text-[10px]">NEXT TRAINING COHORT</p>
-            <p className="text-[#17213a] font-semibold text-sm mt-1.5">Spotting Personal Data in Prompts</p>
+            <p className="text-[#17213a] font-semibold text-sm mt-1.5">{COHORT_TRAINING.title}</p>
             <p className="text-[#667085] text-xs mt-1">24 employees · due 23 Jul</p>
             <button onClick={() => setAssignOpen(true)} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs w-full h-10 rounded-full mt-3.5 cursor-pointer">Assign Training</button>
           </div>
@@ -216,7 +218,7 @@ export default function Employees() {
         </div>
       </div>
 
-      {assignOpen && <AssignModal moduleTitle="Spotting Personal Data in Prompts" onCancel={() => setAssignOpen(false)} onAssigned={assign} />}
+      {assignOpen && <AssignModal training={COHORT_TRAINING} onCancel={() => setAssignOpen(false)} onAssigned={assign} />}
       {toastInfo && <InfoToast {...toastInfo} onClose={() => setToastInfo(null)} />}
     </div>
   )
