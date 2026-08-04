@@ -4,8 +4,8 @@ import { Link } from 'react-router-dom'
 import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
 import { AssignModal, InfoToast } from '../../components/admin/TrainingModuleForm.jsx'
 import { EMPLOYEES, DEPARTMENT_CODES } from '../../lib/employees.js'
-import { assignmentSummary } from '../../lib/assignments.js'
-import { trainingById } from '../../lib/trainingLibrary.js'
+import { assignmentSummary } from '../../lib/trainingStore.js'
+import { useTrainingLibrary } from '../../lib/useTraining.js'
 import { api } from '../../lib/api.js'
 import { levelFor, barXP, nextLevelLabel } from '../../lib/levels.js'
 
@@ -118,8 +118,6 @@ const cols = 'grid grid-cols-[150px_82px_70px_150px_86px_64px_1fr] items-center 
 
 const departments = DEPARTMENT_CODES
 const levels = ['L1', 'L2', 'L3', 'L4']
-// The module the "next training cohort" panel assigns.
-const COHORT_TRAINING = trainingById(1)
 const PAGE_SIZE = 8
 
 export default function Employees() {
@@ -134,29 +132,36 @@ export default function Employees() {
 
   const [page, setPage] = useState(0)
 
-  // The demo employee's progression is real — read it from the backend so the
-  // admin sees exactly the XP and per-module contributions the employee earned.
-  const [live, setLive] = useState(null)
+  // The "next training cohort" panel assigns the first module in the library.
+  const { modules: library } = useTrainingLibrary()
+  const cohortTraining = library[0] || null
+
+  // Progression is real for every employee who has signed in — read it from the
+  // backend so the admin sees exactly the XP and per-module contributions those
+  // employees earned, from the same records the employees see.
+  const [live, setLive] = useState([])
   useEffect(() => {
     let alive = true
-    const load = () => api.get('/progression').then(p => alive && setLive(p)).catch(() => {})
+    const load = () => api.get('/progression').then(p => alive && setLive(p.employees || [])).catch(() => {})
     load()
     const t = setInterval(load, 5000)
     return () => { alive = false; clearInterval(t) }
   }, [])
 
-  const directory = employees.map(e =>
-    live && e.id === live.id
-      ? {
-          ...e,
-          live: true,
-          level: `L${live.level}`,
-          xp: live.totalXP,
-          modules: live.modules,
-          training: Math.round((live.modulesCompleted / 3) * 100),
-        }
-      : e
-  )
+  const directory = employees.map(e => {
+    const record = live.find(l => l.id === e.id)
+    if (!record) return e
+    return {
+      ...e,
+      live: true,
+      level: `L${record.level}`,
+      xp: record.totalXP,
+      modules: record.modules,
+      training: record.assignedModules
+        ? Math.round((record.modulesCompleted / record.assignedModules) * 100)
+        : 0,
+    }
+  })
 
   const filtered = directory.filter(e =>
     (dept === 'All' || e.dept === dept) &&
@@ -177,28 +182,32 @@ export default function Employees() {
   }
 
   return (
-    <div>
-      <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
+    // One screen, no scrolling: the page is a column the height of the admin
+    // main area and the directory row is what flexes, so the KPIs, the filters
+    // and the insights panel are all visible without scrolling past them.
+    // Below lg the sidebar stacks on top, so the fixed height is lifted.
+    <div className="flex flex-col gap-3 lg:h-[calc(100vh-3rem)] lg:overflow-y-auto">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-3 shrink-0">
         <div>
           <h1 className="text-[28px] font-bold text-[#17213a]">Employees</h1>
-          <p className="text-[#667085] text-sm mt-1.5">Support AI literacy and safe use with role-appropriate training and controls.</p>
+          <p className="text-[#667085] text-sm mt-1">Support AI literacy and safe use with role-appropriate training and controls.</p>
         </div>
         <Link to="/admin/training" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-6 h-11 rounded-full flex items-center cursor-pointer shrink-0">Assign Training</Link>
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
         {kpis.map(k => (
-          <div key={k.label} className={`rounded-[14px] px-4 py-3 ${k.dark ? 'bg-navy-header' : 'bg-white border border-[#d8d0b4]'}`}>
+          <div key={k.label} className={`rounded-[14px] px-4 py-2.5 ${k.dark ? 'bg-navy-header' : 'bg-white border border-[#d8d0b4]'}`}>
             <p className={`font-semibold text-[11px] ${k.dark ? 'text-gold-brand' : 'text-[#667085]'}`}>{k.label}</p>
-            <p className={`font-bold text-[26px] mt-1 ${k.dark ? 'text-white' : 'text-[#17213a]'}`}>{k.value}</p>
-            <p className={`font-medium text-[11px] mt-0.5 ${k.noteColor}`}>{k.note}</p>
+            <p className={`font-bold text-[24px] mt-0.5 ${k.dark ? 'text-white' : 'text-[#17213a]'}`}>{k.value}</p>
+            <p className={`font-medium text-[11px] ${k.noteColor}`}>{k.note}</p>
           </div>
         ))}
       </div>
 
       {/* Filters */}
-      <div className="bg-white border border-[#d8d0b4] rounded-[12px] px-4 py-2 mt-5 flex flex-wrap items-center gap-2.5">
+      <div className="bg-white border border-[#d8d0b4] rounded-[12px] px-4 py-2 flex flex-wrap items-center gap-2.5 shrink-0">
         <div className="bg-[#fffcef] border border-[#d8d0b4] rounded-[9px] h-10 w-full sm:w-[326px] flex items-center px-2.5 gap-2">
           <span className="text-[#667085] text-[17px]">⌕</span>
           <input
@@ -246,22 +255,25 @@ export default function Employees() {
         <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-11 px-6 rounded-full cursor-pointer hover:bg-chip">More filters</button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5 mt-5 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 flex-1 min-h-0 lg:items-stretch items-start">
         {/* Employee directory */}
-        <div className="bg-white border border-[#d8d0b4] rounded-[14px] p-4">
-          <p className="text-[#17213a] font-bold text-lg">Employee directory</p>
-          <p className="text-[#667085] text-xs mt-0.5">303 active records · privacy-minimised view · select a row for XP detail</p>
+        <div className="bg-white border border-[#d8d0b4] rounded-[14px] p-4 flex flex-col min-h-0">
+          <p className="text-[#17213a] font-bold text-lg shrink-0">Employee directory</p>
+          <p className="text-[#667085] text-xs mt-0.5 shrink-0">303 active records · privacy-minimised view · select a row for XP detail</p>
 
-          <div className={`${cols} bg-navy-header rounded-[8px] text-gold-brand font-semibold text-[11px] px-3 h-11 mt-3.5`}>
+          <div className={`${cols} bg-navy-header rounded-[8px] text-gold-brand font-semibold text-[11px] px-3 h-10 mt-3 shrink-0`}>
             <p>Employee</p><p>Dept</p><p>License</p><p>Training · XP</p><p>Protected</p><p>Alerts</p><p>Status</p>
           </div>
+          {/* The rows are the one part allowed to overflow, and paging keeps
+              even that rare — everything around them stays on screen. */}
+          <div className="flex-1 min-h-0 overflow-y-auto">
           {/* A row opens that employee's progression detail (level, total XP,
               per-module contribution). */}
           {slice.map((e, i) => (
             <button
               key={e.id}
               onClick={() => setDetail(e)}
-              className={`${cols} w-full text-left px-3 h-16 border-b border-[#eee6d4] cursor-pointer hover:bg-[#f7f4e8] ${i % 2 === 1 ? 'bg-[#fffcef]' : 'bg-white'}`}
+              className={`${cols} w-full text-left px-3 h-[52px] border-b border-[#eee6d4] cursor-pointer hover:bg-[#f7f4e8] ${i % 2 === 1 ? 'bg-[#fffcef]' : 'bg-white'}`}
             >
               <div className="flex items-center gap-2.5">
                 <span className="w-8 h-8 rounded-full bg-[#edf2ff] text-navy font-bold text-[10px] flex items-center justify-center shrink-0">{e.avatar}</span>
@@ -283,8 +295,9 @@ export default function Employees() {
           {filtered.length === 0 && (
             <p className="text-[#667085] text-sm text-center py-10">No employees match your search or filters.</p>
           )}
+          </div>
 
-          <div className="flex items-center justify-between mt-4">
+          <div className="flex items-center justify-between mt-3 shrink-0">
             <p className="text-[#667085] text-xs">Showing {slice.length} of {filtered.length} employees</p>
             {totalPages > 1 && (
               <div className="flex items-center gap-3">
@@ -296,12 +309,13 @@ export default function Employees() {
           </div>
         </div>
 
-        {/* Employee insights */}
-        <div className="flex flex-col gap-4">
-          <div className="bg-white border border-[#d8d0b4] rounded-[14px] p-5">
-            <p className="text-[#17213a] font-bold text-base">License distribution</p>
-            <p className="text-[#667085] text-xs mt-0.5">Organisation-wide readiness</p>
-            <div className="flex flex-col gap-4 mt-4">
+        {/* Employee insights — the distribution bars absorb the spare height so
+            the cohort action underneath them is always reachable. */}
+        <div className="flex flex-col gap-3 min-h-0">
+          <div className="bg-white border border-[#d8d0b4] rounded-[14px] p-4 flex flex-col min-h-0 flex-1">
+            <p className="text-[#17213a] font-bold text-base shrink-0">License distribution</p>
+            <p className="text-[#667085] text-xs mt-0.5 shrink-0">Organisation-wide readiness</p>
+            <div className="flex flex-col justify-around flex-1 min-h-0 mt-3">
               {distribution.map(d => (
                 <div key={d.label}>
                   <div className="flex justify-between">
@@ -314,25 +328,31 @@ export default function Employees() {
                 </div>
               ))}
             </div>
-            <div className="h-px bg-[#d8d0b4] my-4" />
-            <p className="text-gold font-semibold text-[10px]">NEXT TRAINING COHORT</p>
-            <p className="text-[#17213a] font-semibold text-sm mt-1.5">{COHORT_TRAINING.title}</p>
-            <p className="text-[#667085] text-xs mt-1">24 employees · due 23 Jul</p>
-            <button onClick={() => setAssignOpen(true)} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs w-full h-10 rounded-full mt-3.5 cursor-pointer">Assign Training</button>
+            <div className="h-px bg-[#d8d0b4] my-3 shrink-0" />
+            <p className="text-gold font-semibold text-[10px] shrink-0">NEXT TRAINING COHORT</p>
+            <p className="text-[#17213a] font-semibold text-sm mt-1 shrink-0">{cohortTraining?.title || 'Loading the training library…'}</p>
+            <p className="text-[#667085] text-xs mt-0.5 shrink-0">24 employees · due 23 Jul</p>
+            <button
+              onClick={() => setAssignOpen(true)}
+              disabled={!cohortTraining}
+              className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs w-full h-10 rounded-full mt-3 cursor-pointer disabled:opacity-50 shrink-0"
+            >
+              Assign Training
+            </button>
           </div>
 
-          <div className="bg-[#eef2ff] rounded-[14px] p-5">
+          <div className="bg-[#eef2ff] rounded-[14px] p-4 shrink-0">
             <p className="text-[#365fd9] font-semibold text-[10px]">PEOPLE-FIRST GOVERNANCE</p>
-            <p className="text-[#17213a] text-xs mt-2 leading-relaxed">
+            <p className="text-[#17213a] text-xs mt-1.5 leading-relaxed">
               Use alerts to guide learning and safer workflows—not to rank employee performance.
             </p>
-            <p className="text-[#667085] text-[11px] mt-2">Directory shows employee IDs and role data only.</p>
+            <p className="text-[#667085] text-[11px] mt-1.5">Directory shows employee IDs and role data only.</p>
           </div>
         </div>
       </div>
 
       {detail && <ProgressionModal employee={detail} onClose={() => setDetail(null)} />}
-      {assignOpen && <AssignModal training={COHORT_TRAINING} onCancel={() => setAssignOpen(false)} onAssigned={assign} />}
+      {assignOpen && cohortTraining && <AssignModal training={cohortTraining} onCancel={() => setAssignOpen(false)} onAssigned={assign} />}
       {toastInfo && <InfoToast {...toastInfo} onClose={() => setToastInfo(null)} />}
     </div>
   )

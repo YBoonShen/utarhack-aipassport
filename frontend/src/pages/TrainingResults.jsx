@@ -6,7 +6,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../lib/api.js'
-import { MODULES } from '../lib/trainingModules.js'
+import { buildLesson } from '../lib/lesson.js'
+import { useAssignedModules } from '../lib/useTraining.js'
 import { clearCompletion, recordCompletion, retryStatus, RETRY_LOCK_HOURS } from '../lib/retryLock.js'
 import { levelState, barXP, nextLevelLabel, celebrateOnce } from '../lib/levels.js'
 import LevelUpOverlay from '../components/LevelUpOverlay.jsx'
@@ -60,12 +61,24 @@ function evaluate(pct) {
 export default function TrainingResults() {
   const { moduleId: moduleIdParam } = useParams()
   const moduleId = Number(moduleIdParam) || 1
-  const mod = MODULES[moduleId] || MODULES[1]
   const navigate = useNavigate()
-  const questionLabels = mod.questions.map(q => q.stepTitle)
+
+  // The module is read through the same access-checked route the quiz uses, so
+  // the results of a training somebody else was assigned cannot be opened here
+  // either.
+  const [module, setModule] = useState(null)
+  const [denied, setDenied] = useState(false)
+  useEffect(() => {
+    let alive = true
+    setDenied(false)
+    api.get(`/training/mine/${moduleId}`)
+      .then(m => alive && setModule(m))
+      .catch(() => alive && setDenied(true))
+    return () => { alive = false }
+  }, [moduleId])
 
   const [profile, setProfile] = useState({ points: 1390, target: 2000, level: 2, levelName: 'Navigator' })
-  const [results, setResults] = useState({ correct: 3, total: 3, pointsEarned: mod.points, answers: {}, module: null })
+  const [results, setResults] = useState({ correct: 0, total: 0, pointsEarned: 0, answers: {}, module: null })
   const [serverCompletedAt, setServerCompletedAt] = useState(null)
   const [now, setNow] = useState(Date.now())
   const [retrying, setRetrying] = useState(false)
@@ -101,9 +114,36 @@ export default function TrainingResults() {
 
   const lock = retryStatus(moduleId, serverCompletedAt, now)
 
+  // The employee's own module list, so "next" is a module they actually have
+  // rather than whatever id happens to come after this one.
+  const { modules: assigned } = useAssignedModules()
+  const mod = buildLesson(module)
+
+  if (denied) {
+    return (
+      <div className="max-w-[1320px] mx-auto px-4 lg:px-10 pt-8 pb-10">
+        <div className="bg-card border border-sand rounded-[18px] p-8 max-w-[620px]">
+          <p className="text-gold text-[10px] font-semibold tracking-[1px]">NOT ASSIGNED TO YOU</p>
+          <p className="text-navy font-bold text-[22px] mt-2">You don’t have access to this training</p>
+          <p className="text-slate2 text-sm mt-2.5">
+            This module is either not published yet, or it was assigned to other employees. Everything assigned to you
+            is on your training list.
+          </p>
+          <Link to="/training/modules" className="border border-navy text-navy text-[13px] font-semibold px-6 h-12 rounded-full inline-flex items-center mt-6 hover:bg-chip">
+            ←&nbsp;&nbsp;All training modules
+          </Link>
+        </div>
+      </div>
+    )
+  }
+  if (!mod) {
+    return <p className="max-w-[1320px] mx-auto px-4 lg:px-10 pt-8 pb-10 text-slate2 text-sm">Loading your results…</p>
+  }
+
+  const questionLabels = mod.questions.map(q => q.stepTitle)
   const total = mod.questions.length || results.total
   const correct = Math.min(results.correct, total)
-  const scorePct = Math.round((correct / total) * 100)
+  const scorePct = total ? Math.round((correct / total) * 100) : 0
 
   // XP summary. `record` is this module's stored progression record, so these
   // numbers are rebuilt from the server on a later visit too — not just in the
@@ -116,7 +156,9 @@ export default function TrainingResults() {
   const lvl = levelState(profile)
   const verdict = evaluate(scorePct)
   const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-  const nextModule = MODULES[moduleId + 1]
+  // The next module this employee has, not the next id in the library — an id
+  // they were never assigned would be a dead end.
+  const nextModule = assigned.find(m => m.id !== moduleId && !profile.completedModules?.includes(m.id)) || null
 
   async function retry() {
     if (lock.locked || retrying) return

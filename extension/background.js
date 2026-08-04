@@ -183,13 +183,34 @@ async function flushQueue() {
 
 // ---- approved tools --------------------------------------------------------
 
-// Resolves whether a tool is approved for this employee. /api/visas holds visa
-// *requests*, so a decision there wins; otherwise the tool table in config.js
-// applies. Replace this body when the backend exposes an approved-tools list —
-// nothing else in the extension needs to change.
+// Resolves whether a tool is approved, and tells the gateway it was opened.
+//
+// The organisation's approved-tool register is the authority — the same list an
+// admin curates on Tool Approvals — so this asks the backend rather than
+// assuming. Reporting the use is what turns "this employee is on an unapproved
+// tool" into a risk alert the admin can act on; without it the extension knew
+// and nobody else did.
+//
+// Offline it falls back to the visa decisions and then to the configured tool
+// table, because a gateway that cannot be reached must not lock an employee out
+// of their AI tool — the checkpoint still protects the prompt either way.
 async function resolveTool(toolName) {
   const known = CFG.TOOLS.find(t => t.name === toolName) || null
   if (!known) return { approved: false, reason: 'unknown', tool: null }
+
+  try {
+    // POST, not GET: opening the tool is the event being recorded. The backend
+    // de-duplicates per employee + tool, so re-arming the checkpoint on a
+    // navigation cannot fill the queue.
+    const seen = await postJson('/gateway/tool-use', { tool: toolName })
+    return {
+      approved: Boolean(seen.approved),
+      reason: seen.approved ? 'approved' : seen.status === 'SUSPENDED' ? 'suspended' : 'unapproved',
+      tool: known,
+    }
+  } catch {
+    /* gateway unreachable — fall through to what we can decide locally */
+  }
 
   try {
     const visas = await callApi('/visas')

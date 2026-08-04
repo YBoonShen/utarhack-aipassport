@@ -359,7 +359,13 @@
     p.host.style.display = 'block'
     p.card.className = wide ? 'aip-card aip-wide' : 'aip-card'
     p.card.innerHTML = html
-    for (const [selector, handler] of Object.entries(actions || {})) {
+    // Closing is wired here, once, for every panel there will ever be. Each
+    // panel used to declare its own `[data-close]` handler, so a panel that
+    // forgot to — or that listed only some of its close controls — shipped a
+    // button that did nothing. The checkpoint still overrides it below, because
+    // closing *that* panel has to drop the prompt it is holding.
+    const wired = { '[data-close]': dismiss, ...actions }
+    for (const [selector, handler] of Object.entries(wired)) {
       // querySelectorAll, not querySelector: every panel carries the header's
       // `data-close` ×, and several add a second `data-close` — the visible
       // "Dismiss" button. Binding only the first match left that button inert
@@ -463,7 +469,7 @@
        <div class="aip-chips">${chipsHtml(res.detections)}</div>
        <p class="aip-body">${note}</p>
        <div class="aip-actions"><button class="aip-btn aip-ghost" data-edit>Edit prompt</button></div>`,
-      { '[data-edit]': dismissToEdit, '[data-close]': dismiss }
+      { '[data-edit]': dismissToEdit }
     )
   }
 
@@ -852,7 +858,7 @@
        <div class="aip-chips">${chipsHtml(res.detections)}</div>
        <p class="aip-body">Company policy blocks prompts containing personal data, so this prompt was not sent. Remove the ${total} item${total === 1 ? '' : 's'} above and try again.</p>
        <div class="aip-actions"><button class="aip-btn aip-ghost" data-edit>Edit prompt</button></div>`,
-      { '[data-edit]': dismissToEdit, '[data-close]': dismiss }
+      { '[data-edit]': dismissToEdit }
     )
   }
 
@@ -879,7 +885,6 @@
           if (res2.__error) CFG.logError('override', 'not recorded', res2.__error)
           approveAndSend(original, origin)
         },
-        '[data-close]': dismiss,
       }
     )
   }
@@ -901,8 +906,7 @@
        <div class="aip-actions">
          <a class="aip-btn aip-gold" href="${CFG.dashboardBase}/login" target="_blank" rel="noopener">Sign in</a>
          <button class="aip-btn aip-ghost" data-close>Dismiss</button>
-       </div>`,
-      { '[data-close]': dismiss }
+       </div>`
     )
   }
 
@@ -915,8 +919,7 @@
       `${header('warn')}
        <p class="aip-lead">${esc(title)}</p>
        <p class="aip-body">${esc(body)}</p>
-       <div class="aip-actions"><button class="aip-btn aip-ghost" data-close>Dismiss</button></div>`,
-      { '[data-close]': dismiss }
+       <div class="aip-actions"><button class="aip-btn aip-ghost" data-close>Dismiss</button></div>`
     )
   }
 
@@ -1127,8 +1130,7 @@
         `${header('warn')}
          <p class="aip-lead">${esc(tool.name)} is not approved</p>
          <p class="aip-body">Your AI Passport visa for this tool is not active. Avoid entering company or customer data here, and request a visa from My Visas.</p>
-         <div class="aip-actions"><button class="aip-btn aip-ghost" data-close>Dismiss</button></div>`,
-        { '[data-close]': dismiss }
+         <div class="aip-actions"><button class="aip-btn aip-ghost" data-close>Dismiss</button></div>`
       )
     }
   })

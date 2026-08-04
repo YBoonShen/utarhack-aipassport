@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import LogoutConfirm from './LogoutConfirm.jsx'
 import { useNotifications } from './notificationsStore.jsx'
+import { currentUser } from '../lib/api.js'
 
 const linkClass = ({ isActive }) =>
   `px-4 py-3 rounded-[10px] text-sm ${isActive ? 'text-gold font-semibold' : 'text-white font-medium hover:text-gold-brand'}`
@@ -40,6 +41,9 @@ export default function EmployeeHeader() {
   const [logoutOpen, setLogoutOpen] = useState(false)
   const { unreadCount } = useNotifications()
   const navigate = useNavigate()
+  // Whose passport this is. More than one employee can sign in, so the avatar
+  // has to name the session rather than the demo employee.
+  const user = currentUser()
 
   return (
     <>
@@ -81,7 +85,12 @@ export default function EmployeeHeader() {
               </span>
             )}
           </button>
-          <div className="w-11 h-11 rounded-full bg-gold-brand hidden sm:flex items-center justify-center text-navy-header font-bold text-sm">JY</div>
+          <div
+            className="w-11 h-11 rounded-full bg-gold-brand hidden sm:flex items-center justify-center text-navy-header font-bold text-sm"
+            title={user?.id || ''}
+          >
+            {user?.initials || 'JY'}
+          </div>
         </div>
       </header>
       <nav className="lg:hidden bg-navy-header border-t border-white/10 px-2 flex items-center gap-1 overflow-x-auto relative z-40">

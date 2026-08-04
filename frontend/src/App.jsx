@@ -20,6 +20,7 @@ import Extension from './pages/Extension.jsx'
 import AdminOverview from './pages/AdminOverview.jsx'
 import AdminTraining from './pages/admin/AdminTraining.jsx'
 import AssignTraining from './pages/admin/AssignTraining.jsx'
+import EditQuestions from './pages/admin/EditQuestions.jsx'
 import RiskAlerts from './pages/admin/RiskAlerts.jsx'
 import AuditLog from './pages/admin/AuditLog.jsx'
 import AuditReport from './pages/admin/AuditReport.jsx'
@@ -86,6 +87,8 @@ export default function App() {
             <Route index element={<AdminOverview />} />
             <Route path="training" element={<AdminTraining />} />
             <Route path="training/assign" element={<AssignTraining />} />
+            {/* Training module → question list → edit a question → confirm */}
+            <Route path="training/:moduleId/questions" element={<EditQuestions />} />
             <Route path="risk-alerts" element={<RiskAlerts />} />
             <Route path="audit-log" element={<AuditLog />} />
             <Route path="audit-report" element={<AuditReport />} />

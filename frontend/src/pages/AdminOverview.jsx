@@ -15,7 +15,10 @@ const deptConfig = [
   { name: 'Marketing', abbr: 'Mkt', base: 180, color: '#365fd9' },
   { name: 'HR', abbr: 'HR', base: 90, color: '#98a2b3' },
 ]
-const MAX_BAR = 178 // px height of the tallest bar
+// The tallest bar as a share of the chart area, not a pixel count: the chart
+// grows and shrinks with the viewport so the whole Overview fits one screen,
+// and 85% leaves room for the value printed above each bar.
+const MAX_BAR_PCT = 85
 
 // Alert card styling by severity — data itself is live from /api/alerts
 const alertStyle = {
@@ -25,6 +28,9 @@ const alertStyle = {
 }
 
 const cols = 'grid grid-cols-[72px_90px_100px_110px_112px_1fr]'
+// Rows in the Overview's audit preview. The full log is one click away, so this
+// is capped at what fits rather than at what exists.
+const AUDIT_PREVIEW = 5
 
 export default function AdminOverview() {
   const [stats, setStats] = useState({ promptsToday: 312, maskedToday: 58, openAlerts: 3, avgLicense: 2.1 })
@@ -48,8 +54,13 @@ export default function AdminOverview() {
   const maxVal = Math.max(...deptData.map(d => d.value))
 
   return (
-    <div>
-      <div className="flex items-start justify-between">
+    // One screen, no scrolling: the page is a column the height of the admin
+    // main area, and the only part that flexes is the chart row. Everything an
+    // admin needs to see at a glance is therefore always on screen — below lg
+    // the sidebar stacks on top, so the fixed height is lifted and the page
+    // scrolls as normal.
+    <div className="flex flex-col gap-3 lg:h-[calc(100vh-3rem)] lg:overflow-y-auto">
+      <div className="flex items-start justify-between shrink-0">
         <div>
           <h1 className="text-[28px] font-bold text-navy-header">Overview</h1>
           <p className="text-[#667085] text-xs mt-1">Company-wide AI usage · refreshed live</p>
@@ -60,7 +71,7 @@ export default function AdminOverview() {
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-4 gap-3 mt-5">
+      <div className="grid grid-cols-4 gap-3 shrink-0">
         <div className="bg-navy-header rounded-[14px] px-5 py-4">
           <p className="text-gold-brand font-semibold text-[10px] tracking-[1px]">PROMPTS PROTECTED TODAY</p>
           <div className="flex items-baseline gap-3 mt-2">
@@ -93,27 +104,31 @@ export default function AdminOverview() {
         </div>
       </div>
 
-      {/* Usage chart + risk alerts */}
-      <div className="grid grid-cols-[1fr_438px] gap-4 mt-4">
-        <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-5">
-          <p className="text-navy-header font-semibold text-[15px]">AI usage by department · prompts this week</p>
-          <div className="flex items-end justify-around h-[230px] mt-6">
+      {/* Usage chart + risk alerts — the flexible row. It takes whatever height
+          is left over, so the audit log below it never falls off the screen. */}
+      <div className="grid grid-cols-[1fr_438px] gap-4 flex-1 min-h-0">
+        <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-5 flex flex-col min-h-0">
+          <p className="text-navy-header font-semibold text-[15px] shrink-0">AI usage by department · prompts this week</p>
+          <div className="flex items-end justify-around flex-1 min-h-[150px] mt-4">
             {deptData.map(d => (
-              <div key={d.name} className="flex flex-col items-center justify-end">
+              <div key={d.name} className="flex flex-col items-center justify-end h-full">
                 <p className="text-navy-header font-semibold text-xs mb-1.5">{d.value}</p>
-                <div className="w-[72px] rounded-[8px] transition-all duration-500" style={{ height: `${Math.round((d.value / maxVal) * MAX_BAR)}px`, backgroundColor: d.color }} />
+                <div
+                  className="w-[72px] rounded-[8px] transition-all duration-500"
+                  style={{ height: `${Math.round((d.value / maxVal) * MAX_BAR_PCT)}%`, backgroundColor: d.color }}
+                />
                 <p className="text-[#667085] font-medium text-[11px] mt-2">{d.name}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-4">
-          <div className="flex justify-between items-center px-0.5">
+        <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-4 flex flex-col min-h-0">
+          <div className="flex justify-between items-center px-0.5 shrink-0">
             <p className="text-navy-header font-semibold text-[15px]">Risk alerts</p>
             <p className="text-[#d92d20] font-semibold text-[11px]">{stats.openAlerts} open</p>
           </div>
-          <div className="flex flex-col gap-2.5 mt-3.5">
+          <div className="flex flex-col gap-2.5 mt-3.5 flex-1 min-h-0 overflow-y-auto">
             {alerts.slice(0, 3).map(a => {
               const s = alertStyle[a.severity] || alertStyle.MEDIUM
               return (
@@ -134,7 +149,7 @@ export default function AdminOverview() {
           {stats.pendingApprovals > 0 && (
             <Link
               to="/admin/tool-approvals"
-              className="mt-3 flex items-center justify-between border-t border-[#eee6d4] pt-3 px-0.5 text-[11px]"
+              className="mt-3 flex items-center justify-between border-t border-[#eee6d4] pt-3 px-0.5 text-[11px] shrink-0"
             >
               <span className="text-[#667085]">
                 {stats.pendingApprovals} tool request{stats.pendingApprovals === 1 ? '' : 's'} awaiting a decision
@@ -145,17 +160,23 @@ export default function AdminOverview() {
         </div>
       </div>
 
-      {/* Live audit log */}
-      <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-4 mt-4">
+      {/* Live audit log — the newest few events. This is a preview, so it says
+          so and links to the full log rather than growing off the screen. */}
+      <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-4 shrink-0">
         <div className="flex justify-between items-center px-0.5">
           <p className="text-navy-header font-semibold text-[15px]">Live audit log</p>
-          <p className="text-[#078b6c] font-medium text-[10px]">●&nbsp;&nbsp;live</p>
+          <div className="flex items-center gap-3">
+            <p className="text-[#078b6c] font-medium text-[10px]">●&nbsp;&nbsp;live</p>
+            <Link to="/admin/audit-log" className="text-[#365fd9] font-medium text-[10px]">
+              View all {events.length}&nbsp;&nbsp;→
+            </Link>
+          </div>
         </div>
-        <div className={`${cols} bg-navy-header rounded-[9px] text-gold-brand font-semibold text-[10px] tracking-[0.6px] px-3.5 py-2.5 mt-3`}>
+        <div className={`${cols} bg-navy-header rounded-[9px] text-gold-brand font-semibold text-[10px] tracking-[0.6px] px-3.5 py-2 mt-2.5`}>
           <p>TIME</p><p>USER</p><p>DEPT</p><p>TOOL</p><p>ACTION</p><p>MASKED PROMPT · STORED VERSION</p>
         </div>
-        {events.slice(0, 5).map((e, i) => (
-          <div key={e.id} className={`${cols} text-[#475467] text-[10px] px-3.5 py-3.5 ${i % 2 === 0 ? 'bg-[#fcfaf3]' : 'bg-white'}`}>
+        {events.slice(0, AUDIT_PREVIEW).map((e, i) => (
+          <div key={e.id} className={`${cols} text-[#475467] text-[10px] px-3.5 py-2.5 ${i % 2 === 0 ? 'bg-[#fcfaf3]' : 'bg-white'}`}>
             <p>{e.time}</p><p>{e.user}</p><p>{e.dept}</p><p>{e.tool}</p><p>{e.action}</p><p className="truncate pr-2">{e.record}</p>
           </div>
         ))}
