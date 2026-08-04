@@ -9,6 +9,7 @@ const statusChip = {
   ALERT: 'bg-[#fff0f0] text-[#d92d20]',
   REDIRECTED: 'bg-[#fff5de] text-[#d97706]',
   CLEAN: 'bg-[#eef2ff] text-[#365fd9]',
+  SUSPENDED: 'bg-[#fceded] text-[#c72929]', // admin suspended a tool org-wide
 }
 
 const assurance = [
@@ -44,6 +45,8 @@ export default function AuditLog() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const current = Math.min(page, totalPages - 1)
   const slice = filtered.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE)
+  // Events that were masked on-device during an outage and recorded afterwards.
+  const recovered = events.filter(e => e.offline).length
 
   const resetPage = fn => v => { fn(v); setPage(0) }
 
@@ -74,7 +77,10 @@ export default function AuditLog() {
         <div className="flex justify-between items-start">
           <div>
             <p className="text-[#17213a] font-bold text-lg">Audit events</p>
-            <p className="text-[#667085] text-xs mt-0.5">{events.length} events · refreshed just now</p>
+            <p className="text-[#667085] text-xs mt-0.5">
+              {events.length} events · refreshed just now
+              {recovered > 0 && <span className="text-[#d97706]"> · {recovered} recovered from a gateway outage ⟲</span>}
+            </p>
           </div>
           <div className="flex gap-2.5">
             <div className="bg-[#fffcef] border border-[#d8d0b4] rounded-[9px] h-10 w-[280px] flex items-center px-2.5 gap-2">
@@ -130,12 +136,24 @@ export default function AuditLog() {
         </div>
         {slice.map((e, i) => (
           <div key={e.id} className={`${cols} px-3 h-14 border-b border-[#eee6d4] text-xs ${i % 2 === 1 ? 'bg-[#fffcef]' : 'bg-white'}`}>
-            <p className="text-[#475467]">{e.time}</p>
+            {/* `time` is when the prompt was sent. A recovered event was masked
+                on the employee's device during a gateway outage and only reached
+                the log later, so it also carries when it was recorded — the
+                distinction an auditor needs to read the gap correctly. */}
+            <p className="text-[#475467]">
+              {e.time}
+              {e.offline && <span className="block text-[9px] text-[#d97706] leading-tight">rec {e.recordedAt}</span>}
+            </p>
             <p className="text-[#475467] font-medium">{e.id}</p>
             <p className="text-[#475467]">{e.user}</p>
             <p className="text-[#475467]">{e.dept}</p>
             <p className="text-[#475467]">{e.tool}</p>
-            <p><span className={`inline-block font-semibold text-[10px] rounded-full px-2.5 py-1 ${statusChip[e.action] || statusChip.CLEAN}`}>{e.action}</span></p>
+            <p className="flex items-center gap-1">
+              <span className={`inline-block font-semibold text-[10px] rounded-full px-2.5 py-1 ${statusChip[e.action] || statusChip.CLEAN}`}>{e.action}</span>
+              {e.offline && (
+                <span title="Masked on device during a gateway outage, recorded on reconnection" className="text-[#d97706] text-[11px]">⟲</span>
+              )}
+            </p>
             <p className="text-[#365fd9] font-medium">{e.control}</p>
             <p className="text-[#475467] truncate pr-2">{e.record}</p>
             <p className="text-[#667085] text-center">⋯</p>

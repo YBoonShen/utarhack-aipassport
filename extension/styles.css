@@ -1,0 +1,342 @@
+/* AI Passport protection panel.
+   Loaded inside a shadow root, so nothing here can leak into the AI tool's page
+   and the page's own CSS cannot reach these rules. Colours match the AI Passport
+   palette used by the /extension demo page. */
+
+:host,
+* {
+  box-sizing: border-box;
+}
+
+.aip-card {
+  width: 340px;
+  max-width: calc(100vw - 40px);
+  background: #fffefa;
+  border: 1.5px solid #0c2556;
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(5, 18, 46, 0.28);
+  padding: 16px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #111d35;
+}
+
+.aip-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.aip-ring {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 2px solid #e0b31e;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e0b31e;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.aip-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.aip-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0c2556;
+  line-height: 1.2;
+}
+
+.aip-kicker {
+  margin: 2px 0 0;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+}
+
+.aip-ok { color: #05946e; }
+.aip-warn { color: #b27a0d; }
+.aip-block { color: #c72929; }
+.aip-off { color: #5c6a82; }
+
+.aip-x {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  background: #f2f4f8;
+  color: #0c2556;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.aip-x:hover {
+  background: #e4e7ec;
+}
+
+.aip-lead {
+  margin: 14px 0 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0c2556;
+}
+
+.aip-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.aip-chip {
+  background: #fff0f0;
+  border: 1px solid #d92d20;
+  color: #b42318;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.aip-body {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #475467;
+}
+
+.aip-note {
+  margin: 8px 0 0;
+  font-size: 10.5px;
+  color: #98a2b3;
+  word-break: break-word;
+}
+
+.aip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.aip-btn {
+  flex: 1 1 auto;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+}
+
+/* The sign-in action is a real link (it opens the dashboard), so it needs the
+   centring a <button> gets for free. */
+a.aip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.aip-gold {
+  background: #e0b31e;
+  border-color: #e0b31e;
+  color: #0c2556;
+}
+
+.aip-gold:hover {
+  background: #c99f1a;
+}
+
+.aip-ghost {
+  background: #fffefa;
+  border-color: #0c2556;
+  color: #0c2556;
+}
+
+.aip-ghost:hover {
+  background: #f2f4f8;
+}
+
+/* ---- checkpoint ----------------------------------------------------------
+   The in-page version of the Smart Gateway checkpoint on /gateway: original
+   prompt above, safe version below, and nothing leaves the browser until the
+   employee presses the gold button. Same structure and palette as that page,
+   re-laid out for a narrow in-page panel. */
+
+.aip-card.aip-wide {
+  width: 440px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 0;
+  background: #f8f5ea;
+}
+
+.aip-cp-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #0c2556;
+  padding: 16px 18px;
+}
+
+.aip-cp-ring {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 2px solid #e0b31e;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e0b31e;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.aip-cp-title {
+  margin: 0;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.aip-cp-sub {
+  margin: 2px 0 0;
+  color: #fde68a;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.aip-cp-body {
+  padding: 16px 18px 18px;
+}
+
+.aip-cp-label {
+  margin: 0 0 6px;
+  color: #8a7d56;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.aip-cp-label + .aip-cp-safe,
+.aip-cp-original + .aip-cp-label {
+  margin-top: 14px;
+}
+
+.aip-cp-original,
+.aip-cp-safe {
+  border-radius: 12px;
+  padding: 11px 13px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.aip-cp-original {
+  background: #fff;
+  border: 1px solid #d8d0b4;
+  color: #344054;
+}
+
+.aip-cp-safe {
+  background: #f3fbf7;
+  border: 1px solid #078b6c;
+  color: #1a3d34;
+}
+
+.aip-tok {
+  color: #078b6c;
+  font-weight: 700;
+}
+
+.aip-cp-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: #fff;
+  border: 1px solid #d8d0b4;
+  border-radius: 10px;
+  padding: 9px 13px;
+  margin-top: 14px;
+}
+
+.aip-cp-dot {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #078b6c;
+}
+
+/* Masked by the local fallback rather than the Gateway. Same checkpoint, but the
+   employee can see at a glance that this one is the reduced check. */
+.aip-cp-meta.aip-offline {
+  border-color: #e0c78a;
+  background: #fdfaf0;
+}
+
+.aip-cp-meta.aip-offline .aip-cp-dot {
+  background: #b27a0d;
+}
+
+.aip-cp-meta p {
+  margin: 0;
+  color: #667085;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.aip-cp-why {
+  background: #eef2ff;
+  border-radius: 10px;
+  padding: 10px 13px;
+  margin-top: 10px;
+  color: #365fd9;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.aip-cp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.aip-cp-send {
+  flex: 1 1 100%;
+}
+
+.aip-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.aip-cp-link {
+  border: none;
+  background: none;
+  color: #8a7d56;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.aip-cp-link:hover {
+  color: #0c2556;
+}

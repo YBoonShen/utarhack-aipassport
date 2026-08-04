@@ -3,7 +3,8 @@ import EmployeeHeader from './components/EmployeeHeader.jsx'
 import AdminLayout from './components/AdminLayout.jsx'
 import { NotificationsProvider } from './components/notificationsStore.jsx'
 import { ToastProvider } from './components/Toast.jsx'
-import { currentUser } from './lib/api.js'
+import { useEffect } from 'react'
+import { currentUser, restoreSession } from './lib/api.js'
 import Auth from './pages/Auth.jsx'
 import Home from './pages/Home.jsx'
 import License from './pages/License.jsx'
@@ -39,8 +40,8 @@ function HomeRedirect() {
   return <Navigate to={user.role === 'admin' ? '/admin' : '/home'} replace />
 }
 
-// `role` defaults to employee. Pass role={null} for pages the admin also
-// reaches (e.g. My Visas via Tool Approvals' "Suspend org-wide").
+// `role` defaults to employee. Pass role={null} for pages the admin may also
+// open directly (e.g. My Visas, to see how a decision looks to the employee).
 function EmployeePage({ children, role = 'employee' }) {
   return (
     <RequireRole role={role}>
@@ -53,6 +54,10 @@ function EmployeePage({ children, role = 'employee' }) {
 }
 
 export default function App() {
+  // Keeps the shared server-side session in step with this tab, so the Chrome
+  // extension follows the same employee the dashboard is signed in as.
+  useEffect(() => { restoreSession() }, [])
+
   return (
     <ToastProvider>
     <NotificationsProvider>

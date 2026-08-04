@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>AI Passport</title>
+    <style>
+      /* Smart Gateway control panel. Palette matches styles.css and the
+         /extension demo page: navy #0c2556, gold #e0b31e, warm white #fffefa. */
+      * { box-sizing: border-box; margin: 0; }
+      :root {
+        --navy: #0c2556;
+        --gold: #e0b31e;
+        --green: #05946e;
+        --amber: #b27a0d;
+        --red: #c72929;
+        --muted: #5c6a82;
+        --line: #e4e7ec;
+      }
+      body {
+        width: 344px;
+        display: flex;
+        flex-direction: column;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: #f3f4f7;
+        color: #111d35;
+        font-size: 13px;
+      }
+
+      /* ---- header ---- */
+      .head {
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 14px;
+        background: #fffefa;
+        border-bottom: 1px solid var(--line);
+      }
+      .ring {
+        width: 32px; height: 32px; flex-shrink: 0;
+        border: 2px solid var(--gold); border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        color: var(--gold); font-weight: 700; font-size: 14px;
+      }
+      .brand { flex: 1; min-width: 0; }
+      .brand p:first-child { font-size: 15px; font-weight: 700; color: var(--navy); line-height: 1.2; }
+      .kicker { font-size: 9px; font-weight: 700; letter-spacing: 0.9px; color: var(--gold); margin-top: 1px; }
+      .x {
+        width: 26px; height: 26px; flex-shrink: 0;
+        border: none; border-radius: 50%; background: #f2f4f8;
+        color: var(--navy); font-size: 15px; line-height: 1; cursor: pointer;
+      }
+      .x:hover { background: #e4e7ec; }
+
+      /* ---- scroll area ---- */
+      main {
+        max-height: 512px; overflow-y: auto;
+        padding: 12px 14px 14px;
+        display: flex; flex-direction: column; gap: 10px;
+      }
+      .label {
+        font-size: 9.5px; font-weight: 700; letter-spacing: 0.9px;
+        color: #98a2b3; margin-top: 4px;
+      }
+
+      /* ---- employee card ---- */
+      .person {
+        display: flex; align-items: center; gap: 10px;
+        background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+      }
+      .avatar {
+        width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%;
+        background: var(--gold); color: var(--navy);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 12px; font-weight: 700;
+      }
+      .person > div { flex: 1; min-width: 0; }
+      #empName { font-size: 13.5px; font-weight: 700; color: var(--navy); line-height: 1.25; }
+      #empLevel { font-size: 11px; color: var(--muted); margin-top: 1px; }
+      .pill {
+        display: flex; align-items: center; gap: 5px; flex-shrink: 0;
+        font-size: 10.5px; font-weight: 600; color: var(--green);
+      }
+      .pill i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+      .pill.off { color: var(--muted); }
+      .avatar.out { background: #e4e7ec; color: var(--muted); }
+      .signin {
+        flex-shrink: 0; text-decoration: none;
+        background: var(--gold); color: var(--navy);
+        border-radius: 999px; padding: 5px 12px;
+        font-size: 11px; font-weight: 700;
+      }
+      .signin:hover { background: #c99f1a; }
+
+      /* ---- protection card ---- */
+      .shield {
+        background: var(--navy); border-radius: 14px; padding: 14px;
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      .shield.warn { background: #4a3410; }
+      .shield.err { background: #3d1414; }
+      .shield-top { display: flex; align-items: center; gap: 10px; }
+      .badge {
+        width: 30px; height: 30px; flex-shrink: 0; border-radius: 50%;
+        background: rgba(255, 255, 255, 0.12); color: #fff;
+        display: flex; align-items: center; justify-content: center; font-size: 14px;
+      }
+      .shield.ok .badge { background: rgba(5, 148, 110, 0.22); color: #4ade9f; }
+      .shield.warn .badge { background: rgba(224, 179, 30, 0.2); color: #f2c94c; }
+      .shield.err .badge { background: rgba(199, 41, 41, 0.24); color: #ff8f8f; }
+      #shieldKicker { font-size: 9px; font-weight: 700; letter-spacing: 0.9px; color: var(--gold); }
+      #shieldTitle { font-size: 15px; font-weight: 700; color: #fff; line-height: 1.3; margin-top: 2px; }
+      #shieldNote { font-size: 11.5px; line-height: 1.5; color: #ccd6eb; }
+      .shield-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+      .mode {
+        display: flex; align-items: center; gap: 6px;
+        background: rgba(255, 255, 255, 0.1); border-radius: 999px; padding: 4px 10px;
+        font-size: 10.5px; font-weight: 600; color: #fff;
+      }
+      .mode i { width: 6px; height: 6px; border-radius: 50%; background: #4ade9f; }
+      .retry {
+        background: var(--gold); color: var(--navy); border: none; border-radius: 999px;
+        padding: 5px 14px; font-size: 11px; font-weight: 700; cursor: pointer;
+      }
+      .retry:hover { background: #c99f1a; }
+      [hidden] { display: none !important; }
+
+      /* ---- current site ---- */
+      .site {
+        display: flex; align-items: center; gap: 7px;
+        font-size: 11px; color: var(--muted); padding: 0 2px;
+      }
+      .site i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+      .site.idle i { background: #cbd2dd; }
+      .site.warn i { background: var(--amber); }
+
+      /* ---- stats ---- */
+      .stats {
+        display: grid; grid-template-columns: 1fr 1fr;
+        background: #fff; border: 1px solid var(--line); border-radius: 12px;
+      }
+      .stats > div { padding: 11px 14px; }
+      .stats > div + div { border-left: 1px solid var(--line); }
+      .stats b { display: block; font-size: 21px; font-weight: 700; color: var(--navy); line-height: 1.1; }
+      .stats span { font-size: 10px; color: var(--muted); }
+
+      /* ---- quick actions ---- */
+      .action {
+        display: flex; align-items: flex-start; gap: 10px;
+        text-decoration: none; border-radius: 12px; padding: 11px 12px;
+        border: 1px solid var(--line); background: #fff;
+      }
+      .action.gold { background: #fdf8e8; border-color: #f0dfa4; }
+      .action.blue { background: #eef2fb; border-color: #ccd8f2; }
+      .action:hover { filter: brightness(0.98); }
+      .ico {
+        width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 13px; font-weight: 700;
+      }
+      .action.gold .ico { background: var(--navy); color: var(--gold); }
+      .action.blue .ico { background: #fff; color: var(--navy); border: 1px solid #ccd8f2; }
+      .action > div { flex: 1; min-width: 0; }
+      .action p { font-size: 12.5px; font-weight: 700; color: var(--navy); }
+      .action span.desc { display: block; font-size: 10.5px; line-height: 1.45; color: var(--muted); margin-top: 2px; }
+      .action em { display: block; font-style: normal; font-size: 10.5px; font-weight: 600; color: #2f5bd7; margin-top: 6px; }
+      .chev { flex-shrink: 0; color: var(--navy); font-size: 14px; align-self: center; }
+
+      /* ---- recent activity ---- */
+      .act {
+        display: flex; align-items: flex-start; gap: 9px;
+        background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+      }
+      .act + .act { margin-top: 8px; }
+      .act .tick {
+        width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%;
+        background: #e6f5ef; color: var(--green);
+        display: flex; align-items: center; justify-content: center; font-size: 11px;
+      }
+      .act > div { flex: 1; min-width: 0; }
+      .act p { font-size: 12px; font-weight: 700; color: var(--navy); }
+      .act span { display: block; font-size: 10.5px; line-height: 1.45; color: var(--muted); margin-top: 2px; }
+      .act time { display: block; font-size: 9.5px; color: #98a2b3; margin-top: 3px; }
+      .act.privacy { background: #f2faf6; border-color: #cbe8dc; margin-top: 8px; }
+      .act.privacy span { color: #3d7a63; }
+      .empty {
+        background: #fff; border: 1px dashed #d5dae3; border-radius: 12px;
+        padding: 14px 12px; text-align: center; font-size: 11px; color: var(--muted);
+      }
+
+      /* ---- footer ---- */
+      footer {
+        display: flex; justify-content: space-between; gap: 8px;
+        padding: 9px 14px; border-top: 1px solid var(--line); background: #fffefa;
+        font-size: 9.5px; color: #98a2b3;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="head">
+      <span class="ring">A</span>
+      <div class="brand">
+        <p>AI Passport</p>
+        <p class="kicker">SMART GATEWAY</p>
+      </div>
+      <button class="x" id="close" aria-label="Close">×</button>
+    </div>
+
+    <main>
+      <!-- who am I -->
+      <section class="person">
+        <span class="avatar" id="initials">··</span>
+        <div>
+          <p id="empName">Loading…</p>
+          <p id="empLevel">Checking your AI License</p>
+        </div>
+        <span class="pill off" id="authPill"><i></i><span id="authText">Checking</span></span>
+        <a class="signin" id="signin" href="#" target="_blank" rel="noopener" hidden>Sign in</a>
+      </section>
+
+      <!-- am I protected -->
+      <section class="shield" id="shield">
+        <div class="shield-top">
+          <span class="badge" id="shieldIcon">◌</span>
+          <div>
+            <p id="shieldKicker">CHECKING</p>
+            <p id="shieldTitle">Checking protection…</p>
+          </div>
+        </div>
+        <p id="shieldNote">Contacting the Smart Gateway.</p>
+        <div class="shield-foot">
+          <span class="mode" id="mode" hidden><i></i><span id="modeText"></span></span>
+          <button class="retry" id="retry" hidden>Try again</button>
+        </div>
+      </section>
+
+      <p class="site idle" id="site"><i></i><span id="siteText">Checking this tab…</span></p>
+
+      <!-- key numbers -->
+      <section class="stats">
+        <div><b id="protected">—</b><span>prompts protected</span></div>
+        <div><b id="masked">—</b><span>items masked</span></div>
+      </section>
+
+      <!-- what can I do -->
+      <p class="label">QUICK ACTIONS</p>
+      <a class="action gold" id="dashboard" href="#" target="_blank" rel="noopener">
+        <span class="ico">↗</span>
+        <div>
+          <p>Open employee dashboard</p>
+          <span class="desc">View your AI License, training and visas.</span>
+        </div>
+        <span class="chev">›</span>
+      </a>
+      <a class="action blue" id="transparency" href="#" target="_blank" rel="noopener">
+        <span class="ico">?</span>
+        <div>
+          <p>Check decision transparency</p>
+          <span class="desc">Received an AI-assisted decision? Use the reference from your letter or email to see what happened.</span>
+          <em>Open transparency checker →</em>
+        </div>
+      </a>
+
+      <!-- what happened recently -->
+      <p class="label">RECENT ACTIVITY</p>
+      <div id="activity">
+        <div class="empty">Loading recent activity…</div>
+      </div>
+      <div class="act privacy">
+        <span class="tick">✓</span>
+        <div>
+          <p>Privacy by design</p>
+          <span>Only masked prompts are logged.</span>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <span id="version">AI Passport Extension</span>
+      <span id="employeeId"></span>
+    </footer>
+
+    <script src="config.js"></script>
+    <script src="state.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

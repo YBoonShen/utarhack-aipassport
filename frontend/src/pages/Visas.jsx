@@ -97,10 +97,10 @@ export default function Visas() {
   }
 
   return (
-    <div className="max-w-[1440px] mx-auto px-10 py-8">
-      <div className="flex items-start justify-between">
+    <div className="max-w-[1440px] mx-auto px-4 lg:px-10 py-6 lg:py-8">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
         <div>
-          <h1 className="text-[30px] font-bold text-navy-header">My Visas — Approved AI Tools</h1>
+          <h1 className="text-[26px] lg:text-[30px] font-bold text-navy-header">My Visas — Approved AI Tools</h1>
           <p className="text-[#667085] text-sm mt-1.5 max-w-[720px]">Your visas show which AI tools you can use and with what data. Higher license levels unlock more.</p>
         </div>
         <button
@@ -114,7 +114,7 @@ export default function Visas() {
       {/* Visa dashboard */}
       <div className="mt-6">
         {/* Summary strip */}
-        <div className="bg-[#fafafc] border border-[#e0e0e5] rounded-[10px] h-11 flex items-center px-5 gap-5 flex-wrap">
+        <div className="bg-[#fafafc] border border-[#e0e0e5] rounded-[10px] min-h-11 sm:h-11 py-2 sm:py-0 flex items-center px-4 sm:px-5 gap-x-5 gap-y-1 flex-wrap">
           <p className="text-[#0a204f] font-bold text-sm">{tools.length} AI tools</p>
           <span className="flex items-center gap-2"><span className="text-[#078b6c] text-xs">●</span><span className="text-[#0a204f] font-semibold text-[13px]">{count('active')} active</span></span>
           <span className="flex items-center gap-2"><span className="text-[#b27a0d] text-xs">●</span><span className="text-[#0a204f] font-semibold text-[13px]">{count('review')} under review</span></span>
@@ -122,58 +122,72 @@ export default function Visas() {
           <span className="flex items-center gap-2"><span className="text-[#667085] text-xs">🔒</span><span className="text-[#0a204f] font-semibold text-[13px]">{count('locked')} needs Level 3</span></span>
         </div>
 
-        {/* Table header */}
-        <div className={`${cols} px-6 mt-6 pb-2 border-b border-[#d9d9e0]`}>
-          <p className="text-[#8a7d56] font-semibold text-[11px]">AI TOOL</p>
-          <p className="text-[#8a7d56] font-semibold text-[11px]">MODEL</p>
-          <p className="text-[#8a7d56] font-semibold text-[11px]">PERMITTED DATA</p>
-          <p className="text-[#8a7d56] font-semibold text-[11px]">STATUS</p>
-        </div>
+        {/* The 4-column table keeps its desktop shape; below lg it scrolls
+            sideways inside this wrapper instead of widening the page. */}
+        <div className="overflow-x-auto lg:overflow-x-visible -mx-4 px-4 lg:mx-0 lg:px-0">
+          <div className="min-w-[680px] lg:min-w-0">
+            {/* Table header */}
+            <div className={`${cols} px-6 mt-6 pb-2 border-b border-[#d9d9e0]`}>
+              <p className="text-[#8a7d56] font-semibold text-[11px]">AI TOOL</p>
+              <p className="text-[#8a7d56] font-semibold text-[11px]">MODEL</p>
+              <p className="text-[#8a7d56] font-semibold text-[11px]">PERMITTED DATA</p>
+              <p className="text-[#8a7d56] font-semibold text-[11px]">STATUS</p>
+            </div>
 
-        {/* Rows */}
-        <div className="mt-3 flex flex-col gap-2">
-          {tools.map((t, i) => {
-            const st = statusStyle[t.status]
-            return (
-              <div key={t.name} className={`relative rounded-[8px] overflow-hidden ${i % 2 ? 'bg-[#fbfbfc]' : 'bg-white'}`}>
-                <div className={`absolute left-0 top-0 h-full w-[5px] rounded-[3px] ${st.bar}`} />
-                <div className={`${cols} items-center pl-7 pr-5 min-h-[88px] py-4`}>
-                  <div>
-                    <p className="text-[#0a204f] font-bold text-base">{t.name}</p>
-                    <p className="text-[#667085] text-[11px] mt-1">No. {t.number}</p>
+            {/* Rows */}
+            <div className="mt-3 flex flex-col gap-2">
+              {tools.map((t, i) => {
+                const st = statusStyle[t.status]
+                return (
+                  <div key={t.name} className={`relative rounded-[8px] overflow-hidden ${i % 2 ? 'bg-[#fbfbfc]' : 'bg-white'}`}>
+                    <div className={`absolute left-0 top-0 h-full w-[5px] rounded-[3px] ${st.bar}`} />
+                    <div className={`${cols} items-center pl-7 pr-5 min-h-[88px] py-4`}>
+                      <div>
+                        <p className="text-[#0a204f] font-bold text-base">{t.name}</p>
+                        <p className="text-[#667085] text-[11px] mt-1">No. {t.number}</p>
+                      </div>
+                      <p className="text-[#0a204f] font-semibold text-sm">{t.model}</p>
+                      <p className="text-[#667085] text-sm">{t.data}</p>
+                      <div>
+                        <span className={`inline-flex items-center font-semibold text-[13px] rounded-full px-3 h-[30px] ${st.chip}`}>{st.label}</span>
+                        <p className="text-[#667085] text-xs mt-2">{t.sub}</p>
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-[#0a204f] font-semibold text-sm">{t.model}</p>
-                  <p className="text-[#667085] text-sm">{t.data}</p>
-                  <div>
-                    <span className={`inline-flex items-center font-semibold text-[13px] rounded-full px-3 h-[30px] ${st.chip}`}>{st.label}</span>
-                    <p className="text-[#667085] text-xs mt-2">{t.sub}</p>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
+                )
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
       {/* AI literacy levels */}
-      <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-7 mt-6">
+      <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-5 sm:p-7 mt-6">
         <p className="text-[#0a204f] font-bold text-base">AI literacy levels — what each level means</p>
         <p className="text-[#667085] text-[13px] mt-2 max-w-[1000px]">
           Finish the 3 core AI-safety modules to reach Level 2. Higher levels need advanced training (coming soon). Access to sensitive data always still depends on your job role and admin approval.
         </p>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
+        {/* Every card carries the same 2px border and the same flex column, so
+            the current level (Navigator) lines up with its neighbours instead
+            of being nudged 1px in by the thicker "you are here" border. The
+            row stretches to the tallest card rather than clipping at a fixed
+            height, which is what pushed Navigator's longer description out. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-5 items-stretch">
           {levels.map(l => {
             const done = l.n < level
             const cur = l.n === level
             return (
-              <div key={l.n} className={`rounded-[12px] border p-4 h-[120px] ${cur ? 'bg-[#0a204f] border-2 border-[#d9b32c]' : done ? 'bg-white border-[#e0e0e5]' : 'bg-[#f2f2f5] border-[#e0e0e5]'}`}>
-                <div className="flex justify-between items-start">
-                  <p className={`font-semibold text-[10px] ${cur ? 'text-[#d9b32c]' : done ? 'text-[#667085]' : 'text-[#999ea8]'}`}>LEVEL {l.n}</p>
-                  <span className={`font-bold text-[9px] rounded-full px-2 py-1 ${cur ? 'bg-[#d9b32c] text-[#0a204f]' : done ? 'bg-[#e5f4ed] text-[#328768]' : 'bg-[#e5e5eb] text-[#999ea8]'}`}>
+              <div
+                key={l.n}
+                className={`flex flex-col h-full min-h-[120px] rounded-[12px] border-2 p-4 ${cur ? 'bg-[#0a204f] border-[#d9b32c]' : done ? 'bg-white border-[#e0e0e5]' : 'bg-[#f2f2f5] border-[#e0e0e5]'}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className={`font-semibold text-[10px] shrink-0 ${cur ? 'text-[#d9b32c]' : done ? 'text-[#667085]' : 'text-[#999ea8]'}`}>LEVEL {l.n}</p>
+                  <span className={`font-bold text-[9px] leading-none whitespace-nowrap rounded-full px-2 py-1 shrink-0 ${cur ? 'bg-[#d9b32c] text-[#0a204f]' : done ? 'bg-[#e5f4ed] text-[#328768]' : 'bg-[#e5e5eb] text-[#999ea8]'}`}>
                     {cur ? 'YOU ARE HERE' : done ? '✓ DONE' : l.badge}
                   </span>
                 </div>
-                <p className={`font-bold text-lg mt-1 ${cur ? 'text-white' : done ? 'text-[#0a204f]' : 'text-[#737882]'}`}>{l.name}</p>
+                <p className={`font-bold text-lg mt-1.5 leading-tight ${cur ? 'text-white' : done ? 'text-[#0a204f]' : 'text-[#737882]'}`}>{l.name}</p>
                 <p className={`text-[12.5px] mt-2 leading-snug ${cur ? 'text-[#cbd5e1]' : done ? 'text-[#667085]' : 'text-[#999ea8]'}`}>{l.desc}</p>
               </div>
             )
@@ -183,13 +197,13 @@ export default function Visas() {
 
       {/* Request a new AI tool — matches Figma "Modal / Request new tool" */}
       {modal === 'request' && (
-        <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-6 z-50" onClick={() => setModal(null)}>
-          <div className="bg-[#fffefa] border-[1.5px] border-[#0a204f] rounded-[20px] shadow-[0px_10px_30px_0px_rgba(0,0,0,0.22)] w-full max-w-[600px] p-[30px] max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-4 sm:p-6 z-50" onClick={() => setModal(null)}>
+          <div className="bg-[#fffefa] border-[1.5px] border-[#0a204f] rounded-[20px] shadow-[0px_10px_30px_0px_rgba(0,0,0,0.22)] w-full max-w-[600px] p-5 sm:p-[30px] max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <p className="text-[#d9b32c] font-semibold text-[11px]">NEW TOOL REQUEST · SENT TO ADMIN</p>
-            <p className="text-[#0a204f] font-bold text-[26px] mt-1.5">Request a new AI tool</p>
+            <p className="text-[#0a204f] font-bold text-[22px] sm:text-[26px] mt-1.5">Request a new AI tool</p>
             <p className="text-[#667085] text-sm mt-2.5">Tell IT what tool and model you want and why. They review the vendor and data scope before approving.</p>
 
-            <div className="grid grid-cols-2 gap-3 mt-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
               <ReqField label="TOOL NAME" value={toolName} onChange={setToolName} />
               <ReqField label="MODEL / VERSION" value={model} onChange={setModel} />
               <ReqField label="VENDOR / WEBSITE" value={vendor} onChange={setVendor} />
@@ -218,8 +232,8 @@ export default function Visas() {
 
             <p className="text-[#667085] font-medium text-[12.5px] mt-4">Typical review time: 3 working days. You will get a notification when a decision is made.</p>
 
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setModal(null)} className="border-[1.5px] border-[#0a204f] text-[#0a204f] font-semibold text-sm w-[176px] h-12 rounded-full cursor-pointer hover:bg-chip">
+            <div className="flex flex-col sm:flex-row gap-3 mt-6">
+              <button onClick={() => setModal(null)} className="border-[1.5px] border-[#0a204f] text-[#0a204f] font-semibold text-sm w-full sm:w-[176px] h-12 rounded-full cursor-pointer hover:bg-chip">
                 Cancel
               </button>
               <button onClick={submitRequest} disabled={submitting || !toolName.trim()} className="bg-[#d9b32c] hover:bg-gold-dark text-[#0a204f] font-semibold text-sm flex-1 h-12 rounded-full cursor-pointer disabled:opacity-60">
@@ -232,8 +246,8 @@ export default function Visas() {
 
       {/* Request submitted — matches Figma "Modal / Request submitted" */}
       {modal === 'sent' && (
-        <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-6 z-50" onClick={() => setModal(null)}>
-          <div className="bg-[#fffefa] border-[1.5px] border-[#328768] rounded-[20px] shadow-[0px_10px_30px_0px_rgba(0,0,0,0.22)] w-full max-w-[520px] p-[30px]" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-4 sm:p-6 z-50" onClick={() => setModal(null)}>
+          <div className="bg-[#fffefa] border-[1.5px] border-[#328768] rounded-[20px] shadow-[0px_10px_30px_0px_rgba(0,0,0,0.22)] w-full max-w-[520px] p-5 sm:p-[30px] max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 rounded-[32px] bg-[#e7f1ec] border-2 border-[#328768] flex items-center justify-center text-[#19533e] text-[28px] font-bold shrink-0">✓</div>
               <div>

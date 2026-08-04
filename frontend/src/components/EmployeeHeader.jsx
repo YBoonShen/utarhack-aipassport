@@ -8,6 +8,16 @@ import { useNotifications } from './notificationsStore.jsx'
 const linkClass = ({ isActive }) =>
   `px-4 py-3 rounded-[10px] text-sm ${isActive ? 'text-gold font-semibold' : 'text-white font-medium hover:text-gold-brand'}`
 
+// Same links in the desktop header bar and in the mobile strip below it.
+const mobileLinkClass = state => `${linkClass(state)} shrink-0 whitespace-nowrap`
+
+const navLinks = [
+  ['/home', 'Home'],
+  ['/license', 'My License'],
+  ['/training', 'Training'],
+  ['/visas', 'My Visas'],
+]
+
 function BellIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
@@ -33,21 +43,23 @@ export default function EmployeeHeader() {
 
   return (
     <>
-      <header className="bg-navy-header px-10 h-20 flex items-center justify-between relative z-40">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-full border-2 border-gold-brand flex items-center justify-center text-gold-brand font-bold text-lg">A</div>
-          <div>
+      {/* Desktop (lg+) keeps the original single bar: brand · nav · actions.
+          Below lg the nav moves to its own scrollable strip underneath so the
+          bar never overflows a phone viewport. */}
+      <header className="bg-navy-header px-4 lg:px-10 h-20 flex items-center justify-between gap-3 relative z-40">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-11 h-11 rounded-full border-2 border-gold-brand flex items-center justify-center text-gold-brand font-bold text-lg shrink-0">A</div>
+          <div className="min-w-0">
             <p className="text-white font-bold text-[17px] leading-tight">AI PASSPORT</p>
-            <p className="text-gold-brand text-[10px] font-semibold tracking-[1.2px]">SAFE AI FOR EVERY EMPLOYEE</p>
+            <p className="text-gold-brand text-[10px] font-semibold tracking-[1.2px] hidden sm:block">SAFE AI FOR EVERY EMPLOYEE</p>
           </div>
         </div>
-        <nav className="flex items-center">
-          <NavLink to="/home" className={linkClass}>Home</NavLink>
-          <NavLink to="/license" className={linkClass}>My License</NavLink>
-          <NavLink to="/training" className={linkClass}>Training</NavLink>
-          <NavLink to="/visas" className={linkClass}>My Visas</NavLink>
+        <nav className="hidden lg:flex items-center">
+          {navLinks.map(([to, label]) => (
+            <NavLink key={to} to={to} className={linkClass}>{label}</NavLink>
+          ))}
         </nav>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <button
             onClick={() => setLogoutOpen(true)}
             className="w-11 h-11 rounded-full bg-navy flex items-center justify-center cursor-pointer hover:bg-navy-mid"
@@ -69,9 +81,14 @@ export default function EmployeeHeader() {
               </span>
             )}
           </button>
-          <div className="w-11 h-11 rounded-full bg-gold-brand flex items-center justify-center text-navy-header font-bold text-sm">JY</div>
+          <div className="w-11 h-11 rounded-full bg-gold-brand hidden sm:flex items-center justify-center text-navy-header font-bold text-sm">JY</div>
         </div>
       </header>
+      <nav className="lg:hidden bg-navy-header border-t border-white/10 px-2 flex items-center gap-1 overflow-x-auto relative z-40">
+        {navLinks.map(([to, label]) => (
+          <NavLink key={to} to={to} className={mobileLinkClass}>{label}</NavLink>
+        ))}
+      </nav>
       {logoutOpen && <LogoutConfirm role="employee" onClose={() => setLogoutOpen(false)} />}
     </>
   )

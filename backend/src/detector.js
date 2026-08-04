@@ -10,8 +10,10 @@ export const RULES = [
   { type: 'FINANCIAL', regex: /\b(?:RM|MYR|USD|SGD)\s?\d[\d,]*(?:\.\d{1,2})?\b/g, token: '[MASKED-AMOUNT]' },
   // Malaysian phone numbers: 012-3456789, +60123456789, 03-12345678 etc.
   { type: 'PHONE', regex: /(?:\+?60|0)1\d[- ]?\d{3,4}[- ]?\d{4}\b/g, token: '[MASKED-PHONE]' },
-  // Email addresses
-  { type: 'EMAIL', regex: /\b[\w.+-]+@[\w-]+\.[\w.]+\b/g, token: '[MASKED-EMAIL]' },
+  // Email addresses. Every quantifier is bounded (RFC limits: 64-char local
+  // part, 63-char labels) so a near-miss like "a.a.a…@" costs constant work per
+  // start position instead of backtracking quadratically over the whole prompt.
+  { type: 'EMAIL', regex: /\b[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,8}\b/g, token: '[MASKED-EMAIL]' },
   // Credit/debit card numbers (13-16 digits, optionally spaced/dashed)
   { type: 'CARD', regex: /\b(?:\d[ -]?){13,16}\b/g, token: '[MASKED-CARD]' },
   // Simple credential patterns: password: xxxx / apikey=xxxx

@@ -46,7 +46,15 @@ async function geminiDetectNames(text) {
 // Offline fallback: a capitalised word (or two) right after a person-context
 // word — "customer Lim", "Encik Ahmad", "our colleague Sarah Tan". The context
 // word matches either case ("ms"/"Ms"); the name itself must stay capitalised.
-const CONTEXT_WORDS = ['customer', 'client', 'colleague', 'employee', 'candidate', 'patient', 'mr', 'mrs', 'ms', 'miss', 'dr', 'encik', 'puan', 'cik']
+// Two families: words that name a person's role, and verbs that take a person as
+// their object. The verbs matter because real prompts usually say "contact Ahmad"
+// rather than "customer Ahmad". Over-matching here masks a word that was not a
+// name, which is the safe direction to fail in a mask-don't-block product.
+const CONTEXT_WORDS = [
+  'customer', 'client', 'colleague', 'employee', 'candidate', 'patient',
+  'mr', 'mrs', 'ms', 'miss', 'dr', 'encik', 'puan', 'cik',
+  'contact', 'email', 'call', 'message', 'notify', 'inform', 'remind', 'meet',
+]
 const NAME_PART = '(?:[A-Z][a-z]+|[A-Z]{2,})'
 const CONTEXT = new RegExp(
   `\\b(?:${CONTEXT_WORDS.map(w => `[${w[0].toUpperCase()}${w[0]}]${w.slice(1)}`).join('|')})\\.?\\s+(${NAME_PART}(?:\\s${NAME_PART}){0,2})`,
@@ -94,7 +102,9 @@ export async function maskPromptFull(text) {
   const layer1 = maskPrompt(text)
   const detections = [...layer1.detections]
 
-  const { names, source } = await detectNames(text)
+  // Layer 2 receives the already-masked text, not the raw prompt — see the same
+  // rule in server.js /api/detect.
+  const { names, source } = await detectNames(layer1.masked)
   const { masked, count } = maskNames(layer1.masked, names)
   if (count > 0) detections.push({ type: 'NAME', count })
 

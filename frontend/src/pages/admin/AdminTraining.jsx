@@ -9,17 +9,11 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useToast } from '../../components/Toast.jsx'
 import { AssignModal, InfoToast } from '../../components/admin/TrainingModuleForm.jsx'
-
-const seedModules = [
-  { id: 1, title: 'Spotting Personal Data in Prompts', questions: 3, points: 150, status: 'live', assigned: 303, done: 78 },
-  { id: 2, title: 'Safe AI Tool Selection', questions: 3, points: 180, status: 'live', assigned: 210, done: 54 },
-  { id: 3, title: 'Human Review in AI Decisions', questions: 3, points: 200, status: 'live', assigned: 96, done: 30 },
-  { id: 4, title: 'Advanced AI Ethics', questions: 3, points: 220, status: 'draft', assigned: 0, done: 0 },
-  { id: 5, title: 'AI Tools at Work: Staying Compliant & Safe', questions: 3, points: 150, status: 'draft', assigned: 0, done: 0 },
-]
+import { assignmentSummary } from '../../lib/assignments.js'
+import { TRAINING_LIBRARY } from '../../lib/trainingLibrary.js'
 
 export default function AdminTraining() {
-  const [modules, setModules] = useState(seedModules)
+  const [modules, setModules] = useState(TRAINING_LIBRARY)
   const [assignTarget, setAssignTarget] = useState(null) // module being assigned
   const [toastInfo, setToastInfo] = useState(null) // { kicker, title, body }
   const toast = useToast()
@@ -37,35 +31,40 @@ export default function AdminTraining() {
     toast(`"${m.title}" hidden — no longer visible to employees. Publish to restore.`)
   }
 
-  function assign(target) {
-    const count = target === 'everyone' ? 303 : target === 'department' ? 84 : 12
-    setModules(ms => ms.map(m => (m.id === assignTarget.id ? { ...m, assigned: count } : m)))
-    setToastInfo({ kicker: 'MODULE ASSIGNED', title: `Assigned to ${count} employees`, body: 'They will see it in their training list and get a notification. Progress appears here as they complete it.' })
+  // `result` comes from the Assign Training wizard — it has already written the
+  // assignment record and skipped anyone who already had this training.
+  function assign(result) {
+    setModules(ms => ms.map(m => (m.id === assignTarget.id ? { ...m, assigned: m.assigned + result.assigned } : m)))
+    setToastInfo({
+      kicker: 'MODULE ASSIGNED',
+      title: `Assigned to ${result.assigned} employee${result.assigned === 1 ? '' : 's'}`,
+      body: assignmentSummary(result),
+    })
     setAssignTarget(null)
   }
 
   return (
     <div>
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
         <div>
           <h1 className="text-[28px] font-bold text-[#17213a]">Training modules</h1>
           <p className="text-[#667085] text-sm mt-1.5">Assign modules to employees or departments, or create a new one.</p>
         </div>
-        <Link to="/admin/training/assign" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-6 h-12 rounded-full flex items-center cursor-pointer">
+        <Link to="/admin/training/assign" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-6 h-12 rounded-full flex items-center cursor-pointer shrink-0">
           + Create module
         </Link>
       </div>
 
       <div className="flex flex-col gap-3 mt-6">
         {modules.map((m, i) => (
-          <div key={m.id} className={`border rounded-[12px] px-5 py-4.5 flex items-center gap-4 ${m.status === 'live' ? 'bg-white border-[#e0e0e5]' : 'bg-[#f7f7fa] border-[#e0e0e5]'}`}>
+          <div key={m.id} className={`border rounded-[12px] px-5 py-4.5 flex flex-wrap items-center gap-4 ${m.status === 'live' ? 'bg-white border-[#e0e0e5]' : 'bg-[#f7f7fa] border-[#e0e0e5]'}`}>
             <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 ${m.status === 'live' ? 'bg-navy' : 'bg-[#ccccd1]'}`}>
               {i + 1}
             </div>
             <div className="flex-1 min-w-0">
               <p className={`font-bold text-[15px] ${m.status === 'live' ? 'text-navy' : 'text-slate2'}`}>{m.title}</p>
               <p className="text-slate2 text-[12.5px] mt-1">
-                {m.questions} questions · +{m.points} pts{' '}
+                {m.questions} questions · +{m.points} XP{' '}
                 {m.status === 'live' ? `· assigned to ${m.assigned} · ${m.done}% done` : '· not assigned'}
               </p>
             </div>
@@ -91,7 +90,7 @@ export default function AdminTraining() {
         ))}
       </div>
 
-      {assignTarget && <AssignModal moduleTitle={assignTarget.title} onCancel={() => setAssignTarget(null)} onAssigned={assign} />}
+      {assignTarget && <AssignModal training={assignTarget} onCancel={() => setAssignTarget(null)} onAssigned={assign} />}
       {toastInfo && <InfoToast {...toastInfo} onClose={() => setToastInfo(null)} />}
     </div>
   )

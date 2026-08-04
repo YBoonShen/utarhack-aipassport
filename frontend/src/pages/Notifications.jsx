@@ -6,9 +6,9 @@ import { useNotifications } from '../components/notificationsStore.jsx'
 
 function DeleteConfirm({ n, onCancel, onConfirm }) {
   return (
-    <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-6 z-[60]" onClick={onCancel}>
+    <div className="fixed inset-0 bg-navy-dark/50 flex items-center justify-center p-4 sm:p-6 z-[60]" onClick={onCancel}>
       <div
-        className="bg-white border-[1.5px] border-navy-header rounded-[18px] shadow-[0px_12px_16px_rgba(5,15,38,0.22)] w-full max-w-[480px] p-7"
+        className="bg-white border-[1.5px] border-navy-header rounded-[18px] shadow-[0px_12px_16px_rgba(5,15,38,0.22)] w-full max-w-[480px] p-5 sm:p-7"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">
@@ -58,11 +58,11 @@ export default function Notifications() {
   }
 
   return (
-    <div className="max-w-[1440px] mx-auto px-10 py-8">
-      <h1 className="text-[30px] font-bold text-navy-header">Notifications</h1>
+    <div className="max-w-[1440px] mx-auto px-4 lg:px-10 py-6 lg:py-8">
+      <h1 className="text-[26px] lg:text-[30px] font-bold text-navy-header">Notifications</h1>
       <p className="text-[#667085] text-sm mt-1.5 mb-6">Review updates about your training, visas, safety progress and Smart Gateway activity.</p>
 
-      <div className="grid grid-cols-[340px_1fr] gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 lg:gap-6 items-start">
         {/* Inbox */}
         <div className="bg-card border border-sand rounded-[16px] p-4">
           <div className="flex items-center justify-between px-1">
@@ -102,9 +102,9 @@ export default function Notifications() {
 
         {/* Detail panel */}
         {selected ? (
-          <div className="bg-card border border-sand rounded-[16px] p-7">
+          <div className="bg-card border border-sand rounded-[16px] p-5 lg:p-7">
             <span className="text-[10px] font-semibold px-3 py-1.5 rounded-full bg-[#edf2ff] text-[#2e5ccc]">{selected.category}</span>
-            <h2 className="text-navy font-bold text-[27px] mt-3">{selected.title}</h2>
+            <h2 className="text-navy font-bold text-[22px] lg:text-[27px] mt-3">{selected.title}</h2>
             <p className="text-slate2 text-[13px] font-medium mt-1">{selected.received}</p>
             <div className="h-px bg-sand my-4" />
             <p className="text-gold text-[11px] font-semibold tracking-wide">WHAT HAPPENED</p>
@@ -113,8 +113,8 @@ export default function Notifications() {
             <div className="bg-[#edf2ff] rounded-[14px] p-4.5 mt-6">
               <p className="text-navy font-semibold text-base mb-1 px-0.5">Details</p>
               {selected.facts.map(([k, v], i) => (
-                <div key={k} className={`flex justify-between py-2.5 px-0.5 ${i > 0 ? 'border-t border-sand' : ''}`}>
-                  <span className="text-slate2 text-[13px] font-medium">{k}</span>
+                <div key={k} className={`flex justify-between gap-4 py-2.5 px-0.5 ${i > 0 ? 'border-t border-sand' : ''}`}>
+                  <span className="text-slate2 text-[13px] font-medium shrink-0">{k}</span>
                   <span className="text-navy text-[13px] font-semibold text-right">{v}</span>
                 </div>
               ))}
