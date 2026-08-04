@@ -8,11 +8,27 @@ Four features: a gamified **AI License**, a **Smart Gateway** that masks
 sensitive data ("mask, don't block"), an **Admin Dashboard** with live risk alerts and
 audit log, and an **AI Tool Approval workflow** ("guide, don't punish").
 
+### Signature features (governance depth)
+- **Organisational AI Risk Score** — one board-level number (0–100, lower is better) computed
+  live from open alerts, gateway overrides, shadow-AI exposure and training coverage, with a
+  6-day trend and ROI tiles (exposure value protected, incidents prevented). Resolving an alert
+  or an employee override visibly moves it.
+- **Governance Copilot** — an explainability assistant on every admin screen. Ask "what's our
+  biggest risk?" or "why was this masked?" and it answers from the live audit data, mapping each
+  point to PDPA / NIST AI RMF / EU AI Act. Gemini-powered when a key is set, deterministic
+  analyst otherwise (every reply is labelled — the fallback is never passed off as the model).
+- **One-click AI Compliance Report** — a regulator-ready report built live from the audit log:
+  AI-written executive summary, framework coverage, data-category → control mapping, masked
+  evidence, and a self-contained print/PDF download.
+- **Live Demo Simulator** — a pitch-mode switch that streams synthetic company-wide activity into
+  the backend, so the audit log, KPIs, department chart and risk score all move on their own
+  during a live demo. Never touches the signed-in employee's own profile.
+
 ## Team Members
 - Yeap Boon Shen (@YBoonShen) — Team Leader
 - Lee Jia Yin
 - Muhammad Ikhlas Bin Mohd Faizal
-- Samantha Chan Pei Yin
+- Samantha Chan Pei Yin 
 
 ---
 
@@ -247,8 +263,17 @@ who can open what, no duplicate notifications) and the risk-alert rules (thresho
 escalation instead of duplication, per-employee isolation):
 ```bash
 cd backend
-npm test
+npm test          # detection unit tests — 7 Layer-1 + 5 Layer-2 cases
+npm run benchmark # accuracy on the 100-prompt labelled set (target ≥ 90%)
 ```
+
+### Troubleshooting
+| Problem | Fix |
+|---|---|
+| `cd backend` → *"cannot find the path"* / `ENOENT ...package.json` | You're in the wrong folder. `cd utarhack-aipassport` first, then `cd backend`. |
+| `EADDRINUSE: address already in use :::5001` (or `:5173`) | An old server is still running. Close it, or on Windows PowerShell: `Get-NetTCPConnection -LocalPort 5001,5173 -State Listen \| Select -Expand OwningProcess \| ForEach { Stop-Process -Id $_ -Force }` |
+| Page loads but data is blank / "Backend not running" | Make sure Terminal 1 (backend) is running on port 5001. |
+| Want to reset the demo data | Restart the backend (`Ctrl+C`, then `npm run dev`) — state is in‑memory. |
 
 ## Detection — two layers
 - **Layer 1 (regex, always on):** Malaysian IC, passport numbers, phone numbers, emails,
@@ -295,7 +320,13 @@ npm test
 | GET    | /api/stats                 | Admin KPIs — single source of truth for all screens |
 | GET    | /api/report                | One-click compliance report totals, derived from the audit log (period baseline + everything recorded since) |
 | GET/PUT| /api/settings              | Gateway policy — Mask / Warn only / Block really applies |
-| POST   | /api/reset                 | Reset demo data |
+| GET    | /api/risk                  | Organisational AI Risk Score — score, band, factors, 6-day trend, ROI metrics |
+| POST   | /api/copilot               | `{ question }` → Governance Copilot answer grounded in live data (`source`: gemini/offline) |
+| GET    | /api/copilot/suggestions   | Suggested copilot questions |
+| GET    | /api/report                | Compliance report data — risk, KPIs, framework coverage, control mapping, evidence |
+| GET    | /api/report/summary        | AI-written executive summary (`source`: gemini/offline) |
+| GET/POST| /api/simulate             | Live demo simulator — `POST { on }` toggles synthetic activity injection |
+| POST   | /api/reset                 | Reset demo data (also stops the simulator) |
 
 Demo state (audit feed, alerts, counters) is **in-memory** and reseeds on restart.
 The **durable slice** — every employee's XP, per-module training records and stamps,
