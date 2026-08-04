@@ -110,6 +110,10 @@ export default function TrainingQuiz() {
       levelUp = res?.levelUp || null
     } catch {
       /* offline — results page shows fallback, lock still starts locally */
+    if (!answered) return // wrong answers can still continue — first attempt already scored
+    if (isLast) {
+      try { await api.post('/training/complete', { module: moduleId }) } catch { /* offline — results page shows fallback */ }
+      return navigate(`/training/results/${moduleId}`)
     }
     recordCompletion(moduleId, completedAt)
     // The level-up is a one-off event, so it travels in navigation state rather
@@ -283,6 +287,17 @@ export default function TrainingQuiz() {
                 </button>
               </div>
             </div>
+          <div className="flex justify-between mt-4">
+            <button onClick={back} className="border border-navy-header text-navy-header text-[13px] font-semibold w-[130px] h-12 rounded-full cursor-pointer hover:bg-chip">
+              ←&nbsp;&nbsp;Back
+            </button>
+            <button
+              onClick={next}
+              disabled={!answered}
+              className={`text-[13px] font-semibold w-[180px] h-12 rounded-full ${answered ? 'bg-gold-brand text-navy-header cursor-pointer hover:bg-gold' : 'bg-[#d8d0b4] text-[#667085]'}`}
+            >
+              {isLast ? 'Submit answers' : 'Continue'}&nbsp;&nbsp;→
+            </button>
           </div>
         </div>
 

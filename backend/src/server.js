@@ -171,7 +171,7 @@ app.post('/api/gateway/override', (req, res) => {
 })
 
 // ---- employee data ---------------------------------------------------------
-app.get('/api/profile', (req, res) => res.json(db.profile))
+app.get('/api/profile', (req, res) => res.json({ ...db.profile, safety: safetyScore() }))
 
 app.get('/api/leaderboard', (req, res) => res.json(leaderboard()))
 
@@ -298,8 +298,36 @@ app.put('/api/settings', (req, res) => {
   res.json(db.settings)
 })
 
+// ---- organisational risk score + ROI (quantified governance) ---------------
+app.get('/api/risk', (req, res) => res.json(riskScore()))
+
+// ---- governance copilot (explainability assistant) -------------------------
+app.get('/api/copilot/suggestions', (req, res) => res.json({ suggestions: SUGGESTED_QUESTIONS }))
+app.post('/api/copilot', async (req, res) => {
+  const { question } = req.body || {}
+  res.json(await askCopilot(question))
+})
+
+// ---- one-click AI compliance report ----------------------------------------
+app.get('/api/report', (req, res) => res.json(reportData()))
+app.get('/api/report/summary', async (req, res) => res.json(await executiveSummary()))
+
+// ---- live demo simulator (pitch mode) --------------------------------------
+let simTimer = null
+app.get('/api/simulate', (req, res) => res.json({ on: sim.on, injected: sim.injected }))
+app.post('/api/simulate', (req, res) => {
+  const { on } = req.body || {}
+  const next = typeof on === 'boolean' ? on : !sim.on
+  sim.on = next
+  if (simTimer) { clearInterval(simTimer); simTimer = null }
+  if (next) simTimer = setInterval(simulateTick, 2500)
+  res.json({ on: sim.on, injected: sim.injected })
+})
+
 // ---- demo helpers ----------------------------------------------------------
 app.post('/api/reset', (req, res) => {
+  if (simTimer) { clearInterval(simTimer); simTimer = null }
+  sim.on = false
   resetStore()
   res.json({ ok: true })
 })
