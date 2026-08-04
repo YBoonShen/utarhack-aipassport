@@ -7,7 +7,7 @@
 // anything else signs in as the employee. Firebase Auth later.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login } from '../lib/api.js'
+import { login, SIGN_IN_UNAVAILABLE } from '../lib/api.js'
 import { useToast } from '../components/Toast.jsx'
 
 const panelCopy = {
@@ -121,7 +121,11 @@ export default function Auth() {
       setUser(u)
       setView('success')
     } catch {
-      setError('Backend not running — start it with: cd backend && npm run dev')
+      // Deliberately says nothing about *why*. On a sign-in form the reason is
+      // the one thing an unauthenticated visitor must not be handed — neither
+      // the state of the infrastructure nor, in a real auth backend, whether
+      // this email exists.
+      setError(SIGN_IN_UNAVAILABLE)
     } finally {
       setBusy(false)
     }
@@ -136,7 +140,7 @@ export default function Auth() {
       setUser(u)
       setView('success')
     } catch {
-      setError('Backend not running — start it with: cd backend && npm run dev')
+      setError(SIGN_IN_UNAVAILABLE)
     } finally {
       setBusy(false)
     }

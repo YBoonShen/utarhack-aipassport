@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "test": "node src/detector.test.js && node src/layer2.test.js && node src/levels.test.js",
+    "test": "node src/detector.test.js && node src/layer2.test.js && node src/levels.test.js && node src/rules.sync.test.js && node src/report.test.js",
     "benchmark": "node src/benchmark.js"
   },
   "dependencies": {

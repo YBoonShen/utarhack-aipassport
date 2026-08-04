@@ -73,6 +73,35 @@ function seed() {
 
     counters: { promptsToday: 312, maskedToday: 58, nextEventNo: 8218, nextRequestNo: 493, nextAlertNo: 2052 },
 
+    // The reporting period behind the one-click compliance report (O3). The
+    // daily counters above reset with the demo; these accumulate across the
+    // period the report covers, which is why they are tracked separately.
+    // Every field here is written by a real event — see reportSummary(). The
+    // baselines are the standing totals for 1–19 Jul before this session;
+    // anything that happens now is added on top, so the report a judge
+    // downloads is the audit log's own arithmetic, not a constant.
+    report: {
+      from: '01 Jul 2026',
+      to: '19 Jul 2026',
+      promptsProtected: 4120,
+      itemsMasked: 612,
+      humanReviewsCompleted: 11,
+      confirmedLeaks: 0,
+      // Decisions taken before this session. Live approvals/resolutions are
+      // counted from visaRequests/alerts and added to these.
+      toolsApprovedBefore: 7,
+      risksResolvedBefore: 3,
+      // Events masked on-device while the gateway was unreachable and recorded
+      // later by /api/detect/backfill — the report says so rather than quietly
+      // presenting a recovered event as a live one.
+      recoveredEvents: 0,
+    },
+
+    // Ids of offline events already backfilled, so a retried flush from the
+    // extension can never double-count. In-memory by design: the queue lives in
+    // the browser, and a backend restart reseeds the counters it protects.
+    backfilled: new Set(),
+
     quiz: { 1: {}, 2: {}, 3: {} }, // moduleId -> { [questionIndex]: { correct } } — first attempt only
     // moduleId -> attempt number, bumped by every retry. The progress record
     // remembers which attempt it already settled, so re-submitting the same
@@ -108,6 +137,7 @@ function seed() {
       },
       {
         id: 'RA-2050', severity: 'MEDIUM', status: 'open', title: 'AI-assisted decision flagged',
+        kind: 'human-review', // resolving it counts as a completed human review (O5 → report)
         meta: 'HR screening · human review requested', due: 'Due tomorrow',
         detailMeta: 'HR · Case REF-2026-041 · flagged today at 11:20',
         what: 'An affected applicant used the public transparency page to request a human review of an AI-assisted screening decision.',
@@ -153,6 +183,18 @@ function seed() {
       },
     ],
 
+    // Org-wide status of the AI tools the organisation has in circulation — the
+    // scope an admin acts on from Tool Approvals, as opposed to visaRequests,
+    // which are one employee asking for one tool. Seeded with the vendor the
+    // security team flagged; suspendToolOrgWide() flips status to SUSPENDED.
+    orgTools: [
+      {
+        name: 'Fable 5', vendor: 'Claude', model: 'Claude Fable 5',
+        status: 'ACTIVE', flag: 'Security team flagged a breach',
+        suspendedOn: null, suspendedAt: null, suspendedBy: null,
+      },
+    ],
+
     notifications: [
       {
         id: 'n-training', category: 'TRAINING', time: 'Today · 09:30', received: 'Received 17 Jul 2026 · 09:30',
@@ -187,6 +229,13 @@ function seed() {
         read: false, deleted: false,
       },
     ],
+
+    // Who is signed in right now. Set by /api/auth/login, cleared by
+    // /api/auth/logout. The web app keeps its own localStorage copy for routing,
+    // but this is the shared record — it is how the Chrome extension knows who
+    // is signed in without being able to read the dashboard's localStorage.
+    // Deliberately not persisted to disk: a restart should sign you out.
+    session: null,
 
     settings: {
       mode: 'Mask and continue', // 'Mask and continue' | 'Warn only' | 'Block'
@@ -355,10 +404,14 @@ function todayDate() {
   return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-function pushAuditEvent({ action, record }) {
+// `time` is when the event happened, `offline` marks one that happened while the
+// gateway was unreachable and reached the log later. The list stays in arrival
+// order — an append-only log records when it received an event, and the two
+// fields together are what let the admin see the difference.
+function pushAuditEvent({ action, record, time, offline = false }) {
   const event = {
     id: `EV-${db.counters.nextEventNo++}`,
-    time: nowTime(),
+    time: time || nowTime(),
     user: db.profile.id,
     dept: 'Eng',
     tool: 'AI Assistant',
@@ -366,45 +419,79 @@ function pushAuditEvent({ action, record }) {
     control: 'NIST GV.4',
     record: record.length > 60 ? record.slice(0, 57) + '…' : record,
   }
+  if (offline) {
+    event.offline = true
+    event.recordedAt = nowTime()
+  }
   db.auditEvents.unshift(event)
   db.auditEvents = db.auditEvents.slice(0, 50)
   db.counters.promptsToday += 1
   return event
 }
 
-export function recordPromptEvent({ detections, masked, tool = 'AI Assistant' }) {
+// `offline` + `time` describe an event that was masked on the employee's device
+// while the gateway was down and is only now reaching the log. Such an event is
+// recorded and counted like any other — the audit log has to be complete — but
+// `award` is false for it: XP is a reward for behaviour the gateway actually
+// witnessed, and back-dating points for events it never saw live is precisely
+// what an auditor would pull on.
+export function recordPromptEvent({ detections, masked, tool = 'AI Assistant', time, offline = false, award = true }) {
   const total = detections.reduce((n, d) => n + d.count, 0)
   const clean = total === 0
-  const event = pushAuditEvent({ action: clean ? 'CLEAN' : 'MASKED', record: masked })
+  const event = pushAuditEvent({ action: clean ? 'CLEAN' : 'MASKED', record: masked, time, offline })
   event.tool = tool
   event.control = clean ? 'NIST GV.4' : CONTROL_TAGS[detections[0].type] || 'NIST PR.DS'
+
+  db.report.promptsProtected += 1
+  if (offline) db.report.recoveredEvents += 1
 
   let levelUp = false
   if (clean) {
     // Clean prompts earn a small reward; masked prompts are protected but earn
     // nothing, so sensitive prompts can't be farmed for points.
-    if (db.settings.experience.awardPoints) levelUp = applyPoints(2)
+    if (award && db.settings.experience.awardPoints) levelUp = applyPoints(2)
   } else {
     db.counters.maskedToday += total
+    db.report.itemsMasked += total
     db.profile.promptsProtected += 1
     db.profile.itemsMasked += total
     save()
     const types = detections.map(d => `${d.type.toLowerCase()} ×${d.count}`).join(', ')
-    addNotification({
-      category: 'SMART GATEWAY',
-      title: `${total} sensitive item${total === 1 ? '' : 's'} ${total === 1 ? 'was' : 'were'} masked`,
-      body: `Detected: ${types}. Only the masked version was stored in the audit log.`,
-      what: 'The Smart Gateway detected sensitive content in your prompt and replaced it with masked tokens before it left your browser. The audit log stores only the masked version.',
-      facts: [
-        ['Items masked', detections.map(d => d.type).join(', ')],
-        ['AI tool', tool],
-        ['Stored version', 'Masked only'],
-        ['Action needed', 'None'],
-        ['Points', 'Protected · no points change'],
-      ],
-    })
+    // An offline event was already explained on-device by the checkpoint the
+    // employee confirmed. Notifying again when it reaches the log would be the
+    // same masking reported twice.
+    if (!offline) {
+      addNotification({
+        category: 'SMART GATEWAY',
+        title: `${total} sensitive item${total === 1 ? '' : 's'} ${total === 1 ? 'was' : 'were'} masked`,
+        body: `Detected: ${types}. Only the masked version was stored in the audit log.`,
+        what: 'The Smart Gateway detected sensitive content in your prompt and replaced it with masked tokens before it left your browser. The audit log stores only the masked version.',
+        facts: [
+          ['Items masked', detections.map(d => d.type).join(', ')],
+          ['AI tool', tool],
+          ['Stored version', 'Masked only'],
+          ['Action needed', 'None'],
+          ['Points', 'Protected · no points change'],
+        ],
+      })
+    }
   }
   return { event, levelUp }
+}
+
+// One offline event coming back from the extension's queue. The caller has
+// already re-run detection on it, so this is only the recording half.
+// Returns false when the id has been seen before — a flush that is retried
+// after a timeout must not count the same prompt twice.
+export function recordOfflineEvent({ id, detections, masked, tool, at }) {
+  if (!id || db.backfilled.has(id)) return false
+  db.backfilled.add(id)
+  const when = at ? new Date(at) : null
+  const time = when && !Number.isNaN(when.getTime())
+    ? when.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    : nowTime()
+  recordPromptEvent({ detections, masked, tool, time, offline: true, award: false })
+  return true
 }
 
 // Overriding the checkpoint (Warn-only mode, "Send original anyway"):
@@ -414,6 +501,10 @@ export function recordOverride({ prompt }) {
   applyPoints(-20)
   const event = pushAuditEvent({ action: 'ALERT', record: prompt })
   event.control = 'PDPA P7'
+  // The gateway found sensitive content and the employee sent the original
+  // anyway: that is sensitive data confirmed to have left the organisation, so
+  // it is what "Confirmed data leaks" on the compliance report counts.
+  db.report.confirmedLeaks += 1
   db.alerts.unshift({
     id: `RA-${db.counters.nextAlertNo++}`, severity: 'HIGH', status: 'open',
     title: 'Protected prompt overridden',
@@ -731,14 +822,39 @@ export function openAlerts() {
 
 export function resolveAlert(id) {
   const a = db.alerts.find(x => x.id === id)
-  if (a) a.status = 'resolved'
+  if (a && a.status !== 'resolved') {
+    a.status = 'resolved'
+    // Closing a human-review case is a completed human review (O5). Counted
+    // here rather than derived on read so a later re-open cannot un-complete a
+    // review that demonstrably happened.
+    if (a.kind === 'human-review') db.report.humanReviewsCompleted += 1
+  }
   return db.alerts
+}
+
+// The one-click compliance report (O3). Every number is the audit log's own
+// arithmetic: a period baseline plus what this session actually recorded. The
+// page that renders it holds no figures of its own.
+export function reportSummary() {
+  const r = db.report
+  return {
+    period: { from: r.from, to: r.to },
+    promptsProtected: r.promptsProtected,
+    itemsMasked: r.itemsMasked,
+    toolsApproved: r.toolsApprovedBefore + db.visaRequests.filter(v => v.status === 'APPROVED').length,
+    risksResolved: r.risksResolvedBefore + db.alerts.filter(a => a.status === 'resolved').length,
+    humanReviews: r.humanReviewsCompleted,
+    confirmedLeaks: r.confirmedLeaks,
+    recoveredEvents: r.recoveredEvents,
+    events: db.auditEvents.length,
+  }
 }
 
 export function addReviewRequest(ref) {
   db.alerts.unshift({
     id: `RA-${db.counters.nextAlertNo++}`, severity: 'HIGH', status: 'open',
     title: 'Human review requested',
+    kind: 'human-review',
     meta: `Public portal · ref ${ref} · just now`, due: 'Respond in 5 days',
     detailMeta: `Public transparency portal · ref ${ref} · received today at ${nowTime()}`,
     what: 'A person affected by an AI-assisted decision used the public transparency portal to request a fresh human review. The reviewer must not rely on the original AI recommendation.',
@@ -815,4 +931,46 @@ export function decideVisa(id, decision, note) {
     ],
   })
   return request
+}
+
+// Admin action: suspend one AI tool for the whole organisation. Like decideVisa
+// this is a governance decision, so it is recorded in the same audit log and
+// announced through the same notification feed — no separate action history.
+// Already-suspended tools return ok:false so a repeated click can never write a
+// second suspension or a second audit entry.
+export function suspendToolOrgWide(name, admin = { id: 'AD-001', role: 'Admin · Compliance role' }) {
+  const key = String(name || '').trim().toLowerCase()
+  const tool = db.orgTools.find(t => t.name.toLowerCase() === key)
+  if (!tool) return { ok: false, reason: 'not_found' }
+  if (tool.status === 'SUSPENDED') return { ok: false, reason: 'already_suspended', tool, tools: db.orgTools }
+
+  tool.status = 'SUSPENDED'
+  tool.suspendedOn = todayDate()
+  tool.suspendedAt = new Date().toISOString()
+  tool.suspendedBy = admin.role
+
+  // Governance decisions are themselves auditable — same append-only feed the
+  // Audit Log page reads.
+  const event = pushAuditEvent({ action: 'SUSPENDED', record: `${tool.name} · suspended organisation-wide by ${admin.role}` })
+  event.user = admin.id
+  event.dept = 'Org-wide'
+  event.tool = tool.name
+  event.control = 'AIGE 4.2'
+  db.counters.promptsToday -= 1 // suspensions aren't prompts
+
+  addNotification({
+    category: 'VISA UPDATE',
+    title: `${tool.name} suspended organisation-wide`,
+    body: `${tool.name} is suspended for every employee. It can no longer be used or requested until the suspension is lifted.`,
+    what: `An administrator suspended ${tool.name} for the whole organisation after a vendor security concern. The tool now shows as suspended on your visa list and new requests for it are not accepted.`,
+    facts: [
+      ['Tool', tool.name],
+      ['Vendor', tool.vendor],
+      ['Scope', 'Organisation-wide'],
+      ['Effective', 'Immediately'],
+      ['Recorded', `Audit log · ${event.id}`],
+    ],
+  })
+
+  return { ok: true, tool, event, tools: db.orgTools }
 }

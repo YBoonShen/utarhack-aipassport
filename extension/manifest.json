@@ -3,12 +3,17 @@
   "name": "AI Passport — Smart Gateway",
   "version": "1.0.0",
   "description": "Checks prompts for personal data before they leave your browser, using your organisation's AI Passport Smart Gateway.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting", "alarms"],
   "host_permissions": [
-    "http://localhost:5001/*",
-    "http://127.0.0.1:5001/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
     "https://chatgpt.com/*",
-    "https://chat.openai.com/*"
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://*.deepseek.com/*",
+    "https://*.kimi.com/*",
+    "https://*.moonshot.cn/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -17,10 +22,15 @@
     {
       "matches": [
         "https://chatgpt.com/*",
-        "https://chat.openai.com/*"
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://*.deepseek.com/*",
+        "https://*.kimi.com/*",
+        "https://*.moonshot.cn/*"
       ],
-      "js": ["config.js", "content.js"],
-      "run_at": "document_idle"
+      "js": ["config.js", "rules.js", "state.js", "content.js"],
+      "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
@@ -28,7 +38,12 @@
       "resources": ["styles.css"],
       "matches": [
         "https://chatgpt.com/*",
-        "https://chat.openai.com/*"
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://*.deepseek.com/*",
+        "https://*.kimi.com/*",
+        "https://*.moonshot.cn/*"
       ]
     }
   ],

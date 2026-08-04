@@ -1,12 +1,106 @@
 # AI Passport — Chrome Extension (Manifest V3)
 
-The real browser extension. It watches the composer on an approved AI tool,
-checks the prompt against the **existing** AI Passport backend, and protects it
-before it is sent.
+This is the real browser extension. While you type into ChatGPT (or Claude, Gemini,
+DeepSeek, Kimi) it quietly checks your prompt for personal data — IC numbers, phone
+numbers, customer names, money amounts — and offers to mask them **before** the prompt
+is sent. Safe prompts are never interrupted.
 
-This does **not** contain any detection rules of its own. Detection is
-`POST /api/detect` — the same `detector.js` + `layer2.js` pipeline the web
-Smart Gateway at `/gateway` uses — so both behave identically.
+New here? Follow Part 1. Everything after it is for developers.
+
+---
+
+# Part 1 — Install and use it
+
+## Before you start
+
+The extension is only the front door — the **backend does the actual detection**, so it
+must be running. From the project root:
+
+- **Windows:** double-click `start.bat` and leave the two windows open.
+- **Any OS:** `cd backend && npm install && npm run dev` (port 5001), and optionally
+  `cd frontend && npm install && npm run dev` (port 5173) for the dashboard.
+
+Check it's alive: <http://localhost:5001/api/health> should return a short JSON response.
+
+Full setup instructions, including installing Node.js, are in the [main README](../README.md).
+
+## Install the extension (2 minutes)
+
+1. Open Chrome and type `chrome://extensions` in the address bar, then press Enter.
+2. Turn on **Developer mode** using the switch at the **top right**.
+3. Click **Load unpacked** at the top left.
+4. Select this **`extension`** folder — the folder itself, not any file inside it.
+5. "AI Passport — Smart Gateway" appears in your extension list. ✅
+6. Click the puzzle-piece 🧩 icon in the toolbar and **pin** AI Passport so its icon
+   stays visible.
+
+## Sign in
+
+The extension has no login of its own — it follows your dashboard session.
+
+Open <http://localhost:5173>, sign in (any email works; `admin@abcd.com` opens the admin
+console), then click the AI Passport toolbar icon. It should say **Protected**.
+
+If it says *Sign in to protect your prompts*, you aren't signed in yet — or the extension
+hasn't noticed. It rechecks about once a minute; you never need to reload the page.
+
+## Use it
+
+1. Open <https://chatgpt.com>.
+2. Type normally. For a safe prompt like `Explain SQL joins to me in simple terms`,
+   **nothing happens** — the extension is invisible.
+3. Type something with personal data:
+   ```
+   Draft a reminder for customer Lim, IC 880505-10-5566, about RM 4,500
+   ```
+4. Stop typing. Half a second later the checkpoint panel appears, listing what it found.
+5. Choose:
+   - **Protect & continue** — the masked version replaces your text, and that is what
+     ChatGPT receives.
+   - **Edit prompt** — the panel closes and your text is still there to fix by hand.
+
+Click the toolbar icon any time to see your protection status, literacy level, prompts
+protected, items masked and the current gateway policy.
+
+## Try the interesting cases
+
+| # | Type this into ChatGPT | What should happen |
+|---|---|---|
+| 1 | `Explain SQL joins to me in simple terms` | Nothing appears. The extension is invisible for safe prompts. |
+| 2 | `Draft a reminder for customer Lim, IC 880505-10-5566, about RM 4,500` | Panel appears ~0.5s after you stop typing, listing `IC NUMBER ×1`, `FINANCIAL FIGURE ×1`, `NAME ×1`. |
+| 3 | Click **Protect & continue** | The composer text is replaced with the masked version. Click into it — ChatGPT's own state has the masked text, and sending delivers the masked prompt. |
+| 4 | Admin → Settings → set mode to **Warn only**, retype prompt 2 | Panel warns and offers *Protect prompt* / *Keep original*; nothing is rewritten automatically. |
+| 5 | Set mode to **Block**, retype prompt 2 | Panel says policy blocks it; only *Edit prompt* is offered. |
+| 6 | Stop the backend, retype prompt 2 | Checkpoint still appears, marked *Masked on your device*. Send it — the masked prompt goes through. A **clean** prompt sends with no panel at all. |
+| 7 | Click the toolbar icon | Popup shows Protected / literacy level / prompts protected / items masked / gateway policy. |
+| 8 | Admin → Audit Log | One `MASKED` event per **Protect & continue**, not one per keystroke. |
+| 9 | Sign out on the dashboard, then return to the ChatGPT tab | Within a minute the popup says *Sign in to protect your prompts* and the page stops intercepting — ChatGPT works exactly as if the extension were not installed. Sign back in and protection returns in place, no reload. |
+| 10 | Reload the extension from `chrome://extensions` with ChatGPT open | The old checkpoint tears itself down. Sending still works; open the popup once to re-arm the tab. |
+
+## If something goes wrong
+
+| Problem | Fix |
+|---|---|
+| No panel ever appears | Reload the extension at `chrome://extensions` (↻ icon), then **refresh the ChatGPT tab**. |
+| Popup says "Gateway unreachable" | The backend isn't running — start it and check <http://localhost:5001/api/health>. |
+| Popup says "Sign in to protect your prompts" | Sign in at <http://localhost:5173>. Give it up to a minute to reach an open AI tab. |
+| Short prompts aren't checked | By design — anything under 12 characters can't realistically carry an identifier (`minPromptLength` in `config.js`). |
+| Backend runs on a different port | Change `apiBase` in `config.js` **and** the matching entry in `manifest.json` → `host_permissions`. |
+| You edited a file in this folder | Reload the extension from `chrome://extensions`. Extension files are not hot-reloaded. |
+
+To watch it work, open DevTools on the AI tab (`F12` → Console): `[AI Passport]` logs
+state transitions, interception, detection start/finish and graceful fallbacks. Prompt
+text is never logged — only lengths and detection types.
+
+---
+
+# Part 2 — How it works (developers)
+
+Detection is `POST /api/detect` — the same `detector.js` + `layer2.js` pipeline
+the web Smart Gateway at `/gateway` uses — so both behave identically. The one
+exception is `rules.js`, a mirror of the Layer 1 regexes used *only* when the
+backend cannot be reached; `backend/src/rules.sync.test.js` fails if the two
+drift apart.
 
 The `/extension` page in the React app remains the polished demo of this
 concept; it is untouched and independent of this directory.
@@ -30,39 +124,48 @@ allow · mask · warn · block  (policy comes from /api/settings)
 no CORS negotiation and no mixed-content problem calling `http://localhost` from
 an `https://` page.
 
-## Run it
+### One protection state
 
-1. **Backend** (required — it is the detection engine):
-   ```
-   cd backend && npm install && npm run dev      # http://localhost:5001
-   ```
-2. **Frontend** (optional, for the dashboard link in the popup):
-   ```
-   cd frontend && npm install && npm run dev     # http://localhost:5173
-   ```
-3. **Load the extension**
-   - Open `chrome://extensions`
-   - Turn on **Developer mode** (top right)
-   - **Load unpacked** → select this `extension/` folder
-4. Open <https://chatgpt.com> and start typing.
+"Is this employee protected?" is answered in exactly one place — `state.js`
+`derive()` — and only `background.js` may call it:
 
-If the backend runs on a different port, change `apiBase` in `config.js` and the
-matching entry in `manifest.json` → `host_permissions`.
+```
+/api/auth/session + /api/profile + /api/settings
+        │  background.js  →  state.js derive()
+        ▼
+chrome.storage.local.aipProtection      ← the single record
+        │
+        ├─► popup.js       (shield card, via state.js summary())
+        └─► content.js     (whether to intercept at all)
+```
 
-## Test it
+`chrome.storage.onChanged` fires in every context at once, so signing in or out
+reaches an already-open ChatGPT tab without a reload and without a message that
+could go missing. A one-minute alarm re-resolves the record, because a dashboard
+login happens on another origin that cannot notify the extension.
 
-| # | Type this into ChatGPT | Expected |
-|---|---|---|
-| 1 | `Explain SQL joins to me in simple terms` | Nothing appears. The extension is invisible for safe prompts. |
-| 2 | `Draft a reminder for customer Lim, IC 880505-10-5566, about RM 4,500` | Panel appears ~0.5s after you stop typing, listing `IC NUMBER ×1`, `FINANCIAL FIGURE ×1`, `NAME ×1`. |
-| 3 | Click **Protect & continue** | The composer text is replaced with the masked version. Click into it — ChatGPT's own state has the masked text, and sending delivers the masked prompt. |
-| 4 | Admin → Settings → set mode to **Warn only**, retype prompt 2 | Panel warns and offers *Protect prompt* / *Keep original*; nothing is rewritten automatically. |
-| 5 | Set mode to **Block**, retype prompt 2 | Panel says policy blocks it; only *Edit prompt* is offered. |
-| 6 | Stop the backend, retype prompt 2 | "Protection unavailable" — the page keeps working, the prompt is untouched. |
-| 7 | Click the toolbar icon | Popup shows Protected / literacy level / prompts protected / items masked / gateway policy. |
-| 8 | Admin → Audit Log | One `MASKED` event per **Protect & continue**, not one per keystroke. |
+The three surfaces never derive this independently. The popup adds exactly one
+fact of its own — whether a checkpoint is running *in this tab*, which it proves
+with a ping rather than assuming.
 
-Reload the extension from `chrome://extensions` after changing any file here.
+### Failing without breaking the AI tool
+
+The checkpoint sits in front of somebody else's send button, so every
+interception must end in one of three ways: the prompt is sent, a panel is shown
+with the prompt still in the composer, or the send is handed back. Four things
+enforce that:
+
+| Guard | Stops |
+|---|---|
+| `ask()` — timeout + one retry, and it recognises an orphaned context | A sleeping MV3 worker reading as "protection failed" |
+| `rules.js` — local Layer 1 fallback | A backend blip becoming either a block or a leak |
+| `beginWork()` watchdog | One hung await turning Enter into a dead key forever |
+| Instance replacement (`globalThis.__aipCheckpoint`) | A reloaded extension leaving orphaned capture listeners in front of Send |
+
+When the Gateway cannot be reached, `rules.js` decides: nothing sensitive found
+locally → the prompt goes through; something found → the usual checkpoint, masked
+on the device and labelled as the reduced check it is. Known sensitive content is
+never sent silently, and the tool is never left unusable.
 
 ## Notes and limits
 
@@ -72,9 +175,20 @@ Reload the extension from `chrome://extensions` after changing any file here.
 - **Audit.** While-typing checks use `preview: true`, which runs detection but
   records nothing. The audit event is written only when the employee actually
   protects the prompt — one event per sent prompt, same as `/gateway`.
+- **Supported tools.** ChatGPT, Claude, Gemini, DeepSeek and Kimi.
 - **Adding a tool.** Add an entry to `TOOLS` in `config.js` and the host to
-  `content_scripts.matches` / `host_permissions` in `manifest.json`. No other
-  file hardcodes a host.
+  **three** lists in `manifest.json` — `content_scripts.matches`,
+  `host_permissions` and `web_accessible_resources.matches` (miss the last one
+  and the panel renders unstyled). No other file hardcodes a host.
+- **Checking a tool's selectors.** Upstream markup changes, so `selectors` and
+  `sendSelectors` are ordered specific → generic and the checkpoint degrades
+  rather than failing: `findComposer()` falls back to whatever the employee
+  actually typed into, and `fireSend()` falls back to dispatching Enter when no
+  send button matches. To confirm a tool: open its page with DevTools, run
+  `document.querySelector('<selector>')` for the composer, then right-click the
+  send control → Inspect and check it matches one of `sendSelectors` or
+  `sendFallback`. If the send control is missed, Enter is still intercepted —
+  only mouse clicks on Send would bypass the checkpoint.
 - **ChatGPT's composer** is a ProseMirror `contenteditable`. Masked text is
   inserted through a real edit (`execCommand('insertText')`) so the editor's
   internal document updates — setting `textContent` alone would leave ChatGPT
@@ -84,6 +198,12 @@ Reload the extension from `chrome://extensions` after changing any file here.
   visa *requests*, not an approved-tool list. `background.js` → `resolveTool()`
   already honours a `DECLINED`/`REDIRECTED` decision from that API and is the
   single function to change when the backend exposes the real list.
+- **Protection follows the dashboard session.** The extension has no login of its
+  own; it reads `/api/auth/session`. That session is in-memory on the backend, so
+  a backend restart drops it — the dashboard re-asserts it on load
+  (`frontend/src/lib/api.js` → `restoreSession()`). With nothing in the
+  dashboard's localStorage there is nothing to restore, so a genuinely fresh
+  browser still starts signed out.
 - **Local dev only.** `apiBase` is plain HTTP on localhost and the requests carry
   no auth token. Production needs HTTPS plus the employee's session token —
   added in `background.js` → `callApi()`. No secret is shipped in the extension.

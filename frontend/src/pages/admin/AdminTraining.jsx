@@ -64,7 +64,7 @@ export default function AdminTraining() {
             <div className="flex-1 min-w-0">
               <p className={`font-bold text-[15px] ${m.status === 'live' ? 'text-navy' : 'text-slate2'}`}>{m.title}</p>
               <p className="text-slate2 text-[12.5px] mt-1">
-                {m.questions} questions · +{m.points} pts{' '}
+                {m.questions} questions · +{m.points} XP{' '}
                 {m.status === 'live' ? `· assigned to ${m.assigned} · ${m.done}% done` : '· not assigned'}
               </p>
             </div>

@@ -85,7 +85,9 @@ export default function AdminOverview() {
         <div className="bg-white rounded-[14px] px-5 py-4">
           <p className="text-[#8a7d56] font-semibold text-[10px] tracking-[1px]">AVG LICENSE LEVEL</p>
           <div className="flex items-baseline gap-3 mt-2">
-            <p className="text-navy-header font-bold text-[30px]">2.1</p>
+            {/* /api/stats derives this from the employee's live level, so a
+                training completion moves it while the demo is running. */}
+            <p className="text-navy-header font-bold text-[30px]">{stats.avgLicense}</p>
             <p className="text-[#078b6c] font-medium text-[11px]">▲ from 1.6</p>
           </div>
         </div>
@@ -126,6 +128,20 @@ export default function AdminOverview() {
               )
             })}
           </div>
+          {/* The other thing waiting on an admin. /api/stats already counted it;
+              until now nothing rendered it, so pending approvals were only
+              discoverable by opening the Tool Approvals screen. */}
+          {stats.pendingApprovals > 0 && (
+            <Link
+              to="/admin/tool-approvals"
+              className="mt-3 flex items-center justify-between border-t border-[#eee6d4] pt-3 px-0.5 text-[11px]"
+            >
+              <span className="text-[#667085]">
+                {stats.pendingApprovals} tool request{stats.pendingApprovals === 1 ? '' : 's'} awaiting a decision
+              </span>
+              <span className="text-[#365fd9] font-medium">Review&nbsp;&nbsp;→</span>
+            </Link>
+          )}
         </div>
       </div>
 

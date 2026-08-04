@@ -1,6 +1,7 @@
 // 02 Employee · Prompt Protection Modal — matches Figma frame "02 Employee • Prompt Protection Modal".
 // LIVE demo: POST /api/detect really masks the prompt before the Checkpoint modal opens.
 import { useState } from 'react'
+import { SERVICE_UNAVAILABLE } from '../lib/api.js'
 
 // Render masked text with [MASKED-*] tokens as green protected chips, like the Figma
 function ProtectedText({ text }) {
@@ -47,7 +48,7 @@ export default function Gateway() {
         deliver(prompt)
       }
     } catch {
-      setError('Backend not running — start it with: cd backend && npm run dev')
+      setError(SERVICE_UNAVAILABLE)
     } finally {
       setLoading(false)
     }
