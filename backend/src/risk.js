@@ -85,6 +85,28 @@ export const TOOL_SEVERITY = {
 /** One alert per employee + tool per this long, so a session isn't a queue. */
 export const TOOL_REPEAT_WINDOW_MINUTES = 60
 
+// ---- rule 2b: unapproved model ----------------------------------------------
+// A greenlit tool is not a greenlit vendor catalogue. Platforms ship new models
+// continuously, and an organisation that reviewed Claude Sonnet has reviewed
+// neither the data handling nor the retention terms of whatever shipped last
+// week. So a model carries its own status inside an approved tool, and reaching
+// for an unreviewed one is the same class of finding as reaching for an
+// unreviewed tool — MEDIUM, because the gateway still refuses to let sensitive
+// content go there.
+//
+// A model the register has never heard of is NOT flagged. Platforms rename
+// models constantly and the extension reads a UI label, not an API id: treating
+// "could not identify" as "unapproved" would alert on the register being out of
+// date rather than on anything the employee did.
+
+export const MODEL_SEVERITY = {
+  UNAPPROVED: SEVERITY.MEDIUM,
+  SUSPENDED: SEVERITY.HIGH,
+}
+
+/** One alert per employee + tool + model per this long. */
+export const MODEL_REPEAT_WINDOW_MINUTES = 60
+
 // ---- rule 3: overriding the checkpoint -------------------------------------
 // The gateway found sensitive content and the employee sent the original
 // anyway. This is the one case where data demonstrably left the organisation,
@@ -93,6 +115,61 @@ export const TOOL_REPEAT_WINDOW_MINUTES = 60
 export const OVERRIDE_SEVERITY = SEVERITY.HIGH
 
 // ---- shared -----------------------------------------------------------------
+
+// ---- how a tool's approval changes the gateway policy ------------------------
+//
+// The proposal's answer to "an employee is on a tool nobody approved" is neither
+// a ban nor a shrug. Banning the site pushes the usage somewhere nothing can see
+// it — the failure the case study names outright — and treating the tool exactly
+// like an approved one would make the approval workflow decorative.
+//
+// So approval does not decide whether the tool opens. It decides **what the tool
+// is allowed to receive**:
+//
+//   approved tool, approved model  → the organisation's own mode (mask, warn…)
+//   unapproved tool or model       → Block: clean prompts flow, sensitive ones
+//                                    do not go there at all
+//   a category the tool is not cleared for → Block, whatever the tool's status
+//
+// Every one of those can only ever *tighten* the org's mode. A tool's own
+// settings can never loosen the policy an admin set, so this can never become
+// the reason something leaked.
+
+export const MODES = { WARN: 'Warn only', MASK: 'Mask and continue', BLOCK: 'Block' }
+
+/** Loosest → strictest. `tighten()` picks the higher of two modes, never lower. */
+export const MODE_RANK = { [MODES.WARN]: 1, [MODES.MASK]: 2, [MODES.BLOCK]: 3 }
+
+export function tighten(a, b) {
+  if (!b) return a
+  if (!a) return b
+  return (MODE_RANK[b] || 0) > (MODE_RANK[a] || 0) ? b : a
+}
+
+/**
+ * The mode that actually applies to one prompt, and why.
+ *
+ * `access` is the employee's standing on the tool (see toolAccessFor), `model`
+ * the model's status, `blockOn` the detection types this tool is not cleared to
+ * receive, and `types` what was found in the prompt.
+ */
+export function effectiveMode({ orgMode, access, modelStatus, blockOn = [], types = [] }) {
+  const refused = types.filter(t => blockOn.includes(t))
+
+  if (access === 'suspended') {
+    return { mode: MODES.BLOCK, reason: 'tool-suspended', refused: types }
+  }
+  if (access && access !== 'active') {
+    return { mode: MODES.BLOCK, reason: 'tool-unapproved', refused: types }
+  }
+  if (modelStatus === 'SUSPENDED' || modelStatus === 'UNAPPROVED') {
+    return { mode: MODES.BLOCK, reason: 'model-unapproved', refused: types }
+  }
+  if (refused.length > 0) {
+    return { mode: MODES.BLOCK, reason: 'data-scope', refused }
+  }
+  return { mode: orgMode, reason: 'org-policy', refused: [] }
+}
 
 /** Human label for a detection type, matching the employee-facing wording. */
 export const IDENTIFIER_LABELS = {

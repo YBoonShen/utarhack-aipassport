@@ -432,7 +432,7 @@
       return renderWarning(text, { detections: local.detections, mode: protection.mode, offline: true })
     }
 
-    const res = await ask({ type: 'AIP_DETECT', prompt: text, tool: tool.name })
+    const res = await ask({ type: 'AIP_DETECT', prompt: text, tool: tool.name, model: currentModel() })
     if (res.__error) {
       // Advisory only. The checkpoint re-checks on send and has its own fallback,
       // so a failed preview is logged and otherwise ignored.
@@ -454,10 +454,22 @@
     const total = countOf(res.detections)
     const plural = total === 1 ? '' : 's'
     const state = res.mode === 'Block' ? 'block' : res.mode === 'Warn only' ? 'warn' : 'ok'
+    // A Block warning has to say *which* block, because the way out differs:
+    // a policy block needs a different prompt, an unapproved tool or model needs
+    // a different destination. Saying "company policy" for all four would send
+    // the employee to edit a prompt that was never the problem.
+    const blockNote = {
+      'tool-unapproved': `${tool.name} is not approved for company data, so this prompt will not be sent from here. Remove the ${total} item${plural} above, or use an approved tool.`,
+      'tool-suspended': `${tool.name} has been suspended organisation-wide. This prompt will not be sent from here.`,
+      'model-unapproved': `${res.policy?.model?.name || 'The selected model'} has not been reviewed, so this prompt will not be sent to it.${res.policy?.approvedModels?.length ? ` Switch to ${res.policy.approvedModels.join(' or ')}.` : ''}`,
+      'data-scope': `${tool.name} is not cleared to receive ${detectedSummary(res.detections)}. Remove the ${total} item${plural} above before sending.`,
+      'org-policy': `Company policy blocks prompts containing personal data. Remove the ${total} item${plural} above before sending.`,
+    }[res.policy?.reason || 'org-policy']
+
     const note = res.offline
       ? `The Smart Gateway is unreachable, so this was checked on your device with Layer 1 rules. You will still be shown a safe version before anything is sent.`
       : res.mode === 'Block'
-        ? `Company policy blocks prompts containing personal data. Remove the ${total} item${plural} above before sending.`
+        ? blockNote
         : res.mode === 'Warn only'
           ? `Your organisation's policy is <strong>Warn only</strong>. Nothing has been changed — you will be asked what to do when you send.`
           : `When you send, the checkpoint will show you the safe version first. Nothing leaves this browser until you approve it.`
@@ -583,7 +595,14 @@
         return
       }
 
-      CFG.log('checkpoint', 'intercepted', { chars: text.length, via: origin.kind, state: protection.status })
+      // Which model this is going to, read now rather than watched. It travels
+      // with the detection call so the mode that comes back is the one that
+      // really applies to *this* prompt on *this* model.
+      const model = noteModel(currentModel())
+
+      CFG.log('checkpoint', 'intercepted', {
+        chars: text.length, via: origin.kind, state: protection.status, model: model || 'unknown',
+      })
 
       // Too short to carry an identifier: the backend is never called for it,
       // matching the same threshold the preview check uses.
@@ -609,7 +628,7 @@
           {}
         )
         CFG.log('detect', 'request started', { chars: text.length })
-        res = await ask({ type: 'AIP_DETECT', prompt: text, tool: tool.name })
+        res = await ask({ type: 'AIP_DETECT', prompt: text, tool: tool.name, model })
       }
 
       // Detection failed. The prompt is NOT sent unchecked — but it is not left
@@ -636,7 +655,7 @@
         return
       }
 
-      if (res.mode === 'Block') return showBlocked(res)
+      if (res.mode === 'Block') return showBlocked(res, origin)
       if (res.mode === 'Warn only') return showWarnOnly(text, res, origin)
       // Mask and continue: hold the prompt and show the checkpoint. Nothing is
       // submitted until the employee confirms.
@@ -654,9 +673,46 @@
   // The audit record. Fire-and-forget in every case: the mask is already decided,
   // so a failed write must never hold up the employee's prompt.
   function commit(text) {
-    ask({ type: 'AIP_COMMIT', prompt: text, tool: tool.name }).then(res => {
+    ask({ type: 'AIP_COMMIT', prompt: text, tool: tool.name, model: currentModel() }).then(res => {
       if (res.__error) CFG.logError('commit', 'audit event not recorded', res.__error)
     })
+  }
+
+  // ---- which model is selected ----------------------------------------------
+  //
+  // Read on demand rather than watched. A MutationObserver on somebody else's
+  // model picker would run for the whole session to answer a question that only
+  // matters at the instant a prompt is sent, and this file's whole design is
+  // cheap listeners over standing observers.
+  //
+  // Reading nothing is a normal answer — not every tool has a picker, and
+  // upstream markup moves. The backend treats an unidentified model as UNKNOWN
+  // and lets it through; blocking on "we could not tell" would punish the
+  // employee for the register being out of date.
+
+  let lastModel = null
+
+  function currentModel() {
+    try {
+      return CFG.readModel(tool)
+    } catch (err) {
+      CFG.logError('model', err)
+      return ''
+    }
+  }
+
+  // A change of model is worth recording even when no prompt follows it, so an
+  // admin sees the switch. Deduped on the value, so re-reading the same label
+  // costs nothing.
+  function noteModel(model) {
+    if (!model || model === lastModel) return model
+    const first = lastModel === null
+    lastModel = model
+    CFG.log('model', `selected: ${model}`)
+    // The arrival already reported the model it found, so only a genuine change
+    // is sent separately.
+    if (!first) ask({ type: 'AIP_MODEL_USE', tool: tool.name, model }).catch(() => {})
+    return model
   }
 
   // The audit record for a prompt sent while the gateway was down. Held by the
@@ -848,17 +904,75 @@
     dismissToEdit()
   }
 
-  // Block mode: the prompt is held in the composer and never sent.
-  function showBlocked(res) {
+  // Block: the prompt is held in the composer and never sent.
+  //
+  // Four different things reach this panel and they are not the same message, so
+  // it says which one happened and what to do about it. The org policy being
+  // Block is a rule about the prompt; the other three are rules about where it
+  // was heading, and each of those has a way out the employee can take right
+  // now — a different tool, a different model, or a different prompt.
+  //
+  // What none of them do is stop the employee using the site. The tool is
+  // working normally the moment they take the personal data out, which is the
+  // whole distinction between refusing the data and banning the tool.
+  function showBlocked(res, origin) {
     const total = countOf(res.detections)
+    const items = `${total} item${total === 1 ? '' : 's'}`
+    const policy = res.policy || {}
+    const reason = policy.reason || 'org-policy'
+    const alternatives = (policy.alternatives || []).slice(0, 2)
+    const models = policy.approvedModels || []
+    const modelName = policy.model?.name
+
+    const lead = {
+      'tool-unapproved': `${tool.name} is not approved for this`,
+      'tool-suspended': `${tool.name} has been suspended`,
+      'model-unapproved': `${modelName || 'This model'} is not approved`,
+      'data-scope': `${tool.name} is not cleared for this data`,
+      'org-policy': 'Prompt blocked',
+    }[reason]
+
+    const body = {
+      'tool-unapproved': `${esc(policy.explain || '')} Your prompt was not sent, and nothing was recorded from it. ${esc(tool.name)} keeps working normally — only company or customer data is held back.`,
+      'tool-suspended': `${esc(policy.explain || '')} Nothing was sent. Please move this work to an approved tool.`,
+      'model-unapproved': `${esc(tool.name)} is approved, but ${esc(modelName || 'the selected model')} has not been reviewed, so sensitive prompts are not sent to it.${models.length ? ` Switch to ${esc(models.join(' or '))} and send again.` : ''}`,
+      'data-scope': `${esc(tool.name)} is approved for ${esc(policy.dataScope || 'a narrower kind of data')}, and this prompt contains ${esc(detectedSummary(res.detections))}. That category is not sent here even masked.`,
+      'org-policy': `Company policy blocks prompts containing personal data, so this prompt was not sent. Remove the ${items} above and try again.`,
+    }[reason]
+
+    // An alternative is only offered when the register actually knows a URL for
+    // one, and the employee is approved for it. A suggestion that leads nowhere
+    // is worse than no suggestion.
+    const switchTo = alternatives.length && reason !== 'org-policy'
+      ? `<div class="aip-alt">
+           <p class="aip-alt-label">APPROVED FOR YOU</p>
+           ${alternatives.map(a => `
+             <a class="aip-alt-row" href="${esc(a.url)}" target="_blank" rel="noopener">
+               <span class="aip-alt-name">${esc(a.name)}</span>
+               <span class="aip-alt-scope">${esc(a.dataScope || '')}</span>
+               <span class="aip-alt-go">Open&nbsp;→</span>
+             </a>`).join('')}
+         </div>`
+      : ''
+
     showPanel(
       'blocked',
       `${header('block')}
-       <p class="aip-lead">Prompt blocked</p>
+       <p class="aip-lead">${esc(lead)}</p>
        <div class="aip-chips">${chipsHtml(res.detections)}</div>
-       <p class="aip-body">Company policy blocks prompts containing personal data, so this prompt was not sent. Remove the ${total} item${total === 1 ? '' : 's'} above and try again.</p>
-       <div class="aip-actions"><button class="aip-btn aip-ghost" data-edit>Edit prompt</button></div>`,
-      { '[data-edit]': dismissToEdit }
+       <p class="aip-body">${body}</p>
+       ${switchTo}
+       <div class="aip-actions">
+         <button class="aip-btn aip-gold" data-edit>Edit prompt</button>
+         ${reason === 'org-policy' ? '' : '<button class="aip-cp-link" data-request>Request access</button>'}
+       </div>`,
+      {
+        '[data-edit]': dismissToEdit,
+        '[data-request]': () => {
+          window.open(`${CFG.dashboardBase}/tools`, '_blank', 'noopener')
+        },
+      },
+      Boolean(switchTo)
     )
   }
 
@@ -1121,17 +1235,58 @@
 
   initState().catch(err => CFG.logError('init', err))
 
-  // Resolve approval once. An unapproved tool gets a standing warning instead of
-  // silent protection, matching the visa model in the dashboard.
+  // ---- arriving on a tool ----------------------------------------------------
+  //
+  // Reaching an unapproved tool is reported and answered here, and the answer is
+  // deliberately not a wall.
+  //
+  // Blocking the site outright is the one option the proposal rules out: it
+  // pushes the usage somewhere nothing can see it, which costs the audit log the
+  // very events it exists to hold, and a browser extension cannot enforce it
+  // anyway — a second profile defeats it in ten seconds. So the site opens, and
+  // what changes is what it is allowed to *receive*: the gateway policy has
+  // already tightened to Block for sensitive prompts, and this banner is the
+  // advance warning of that, not a gate in front of it.
+  //
+  // A suspended tool is the one case that earns a firmer panel. An organisation
+  // that has withdrawn a tool after a vendor incident is not asking anybody to
+  // be careful; it is asking them to stop.
+  ask({ type: 'AIP_TOOL_USE', tool: tool.name, model: noteModel(currentModel()) }).catch(() => {})
+
   ask({ type: 'AIP_TOOL', tool: tool.name }).then(res => {
-    if (res && res.approved === false && !res.__error) {
-      showPanel(
-        'notice',
-        `${header('warn')}
-         <p class="aip-lead">${esc(tool.name)} is not approved</p>
-         <p class="aip-body">This tool is not approved for you yet. Avoid entering company or customer data here, and request tool access from AI Tools.</p>
-         <div class="aip-actions"><button class="aip-btn aip-ghost" data-close>Dismiss</button></div>`
-      )
-    }
+    if (!res || res.__error || res.approved !== false) return
+    // Never over an open checkpoint: that panel is holding a prompt.
+    if (panelKind === 'checkpoint') return
+
+    const suspended = res.access === 'suspended'
+    const alternatives = (res.alternatives || []).slice(0, 2)
+    const switchTo = alternatives.length
+      ? `<div class="aip-alt">
+           <p class="aip-alt-label">APPROVED FOR YOU</p>
+           ${alternatives.map(a => `
+             <a class="aip-alt-row" href="${esc(a.url)}" target="_blank" rel="noopener">
+               <span class="aip-alt-name">${esc(a.name)}</span>
+               <span class="aip-alt-scope">${esc(a.dataScope || '')}</span>
+               <span class="aip-alt-go">Open&nbsp;→</span>
+             </a>`).join('')}
+         </div>`
+      : ''
+
+    showPanel(
+      'notice',
+      `${header(suspended ? 'block' : 'warn')}
+       <p class="aip-lead">${esc(tool.name)} ${suspended ? 'has been suspended' : 'is not approved for you'}</p>
+       <p class="aip-body">${esc(res.explain || `${tool.name} has not been reviewed for company data.`)}
+         ${suspended
+        ? 'Please move this work to an approved tool.'
+        : `You can keep using ${esc(tool.name)} for ordinary questions — company and customer data will not be sent from here.`}</p>
+       ${switchTo}
+       <div class="aip-actions">
+         <a class="aip-btn aip-ghost" href="${CFG.dashboardBase}/tools" target="_blank" rel="noopener">Request access</a>
+         <button class="aip-btn aip-ghost" data-close>Dismiss</button>
+       </div>`,
+      {},
+      Boolean(switchTo)
+    )
   })
 })()

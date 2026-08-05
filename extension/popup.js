@@ -236,8 +236,19 @@ async function render() {
     paintSite('idle', 'This tab is not an approved AI tool')
     return
   }
+  // Resolve only. This used to POST a tool-use, so opening the popup wrote an
+  // audit event and could raise a risk alert about a use that never happened.
   const resolved = await ask({ type: 'AIP_TOOL', tool: tool.name })
-  if (resolved?.approved === false) return paintSite('warn', `${tool.name} · not approved`)
+  if (resolved?.approved === false) {
+    const why = {
+      suspended: 'suspended org-wide',
+      locked: `needs Level ${resolved.minLevel ?? '—'}`,
+      review: 'access request in review',
+      declined: 'access declined',
+      unreviewed: 'not approved',
+    }[resolved.access] || 'not approved'
+    return paintSite('warn', `${tool.name} · ${why}`)
+  }
   if (!state.active) return paintSite('idle', `${tool.name} · prompts are not being checked`)
   if (!live?.ready) return paintSite('warn', `${tool.name} · checkpoint not running on this tab`)
   if (!state.online) return paintSite('warn', `${tool.name} · checking on this device only`)

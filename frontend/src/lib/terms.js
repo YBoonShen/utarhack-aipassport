@@ -22,6 +22,18 @@
 /** Where the employee manages their own tool access. */
 export const TOOL_ACCESS_PATH = '/tools'
 
+/**
+ * The product's own built-in assistant, as it is named in the tool register.
+ *
+ * It is in the register because it is the default tool on every prompt event
+ * (backend recordPromptEvent / the extension) and the Smart Gateway checks the
+ * register on every use — an unregistered name there would read as an
+ * unapproved tool. It is not, however, something an employee requests access
+ * to, so the AI Tools page leaves it out: that page is about third-party tools
+ * and the permission to send them company data.
+ */
+export const BUILT_IN_ASSISTANT = 'AI Assistant'
+
 // ---- status labels ---------------------------------------------------------
 // One label per state, used by every screen that shows that state.
 

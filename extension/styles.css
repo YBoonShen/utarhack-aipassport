@@ -340,3 +340,65 @@ a.aip-btn {
 .aip-cp-link:hover {
   color: #0c2556;
 }
+
+/* ---- approved alternatives -------------------------------------------------
+   Shown when a prompt is refused because of where it was heading rather than
+   what it says. The panel has to offer somewhere to go: a refusal with no way
+   forward is the "just block it" design this product exists to avoid. */
+
+.aip-alt {
+  background: #f7f9ff;
+  border: 1px solid #d7e0f5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 12px;
+}
+
+.aip-alt-label {
+  color: #8a7d56;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.aip-alt-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 0;
+  text-decoration: none;
+  border-top: 1px solid #e6ecf9;
+}
+
+.aip-alt-row:first-of-type {
+  border-top: none;
+}
+
+.aip-alt-name {
+  color: #0c2556;
+  font-size: 13px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.aip-alt-scope {
+  color: #667085;
+  font-size: 11px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aip-alt-go {
+  color: #2e5ccc;
+  font-size: 12px;
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.aip-alt-row:hover .aip-alt-go {
+  text-decoration: underline;
+}

@@ -271,8 +271,12 @@ npm test
 | POST   | /api/auth/login            | `{ role }` → demo session (email decides role in the UI) |
 | POST   | /api/detect                | `{ prompt }` → `{ masked, detections, layer2, mode }` — two-layer scan; logs audit + applies XP rules (clean +2, masked +0) |
 | POST   | /api/detect/backfill       | `{ events }` — audit records the extension held during a gateway outage; re-scanned, deduped by id, recorded with `offline: true`, no XP |
-| POST   | /api/gateway/tool-use      | `{ tool }` — an employee reached a tool. Approved ones answer quietly; anything else writes an audit event and raises a risk alert |
-| GET    | /api/gateway/tool-status   | `?tool=` → the approved-tool register's verdict, without recording a use |
+| POST   | /api/gateway/tool-use      | `{ tool, model? }` — an employee reached a tool. Approved ones answer quietly; anything else writes an audit event and raises a risk alert |
+| GET    | /api/gateway/tool-status   | `?tool=&model=&host=` → the whole verdict without recording anything: this employee's access, the model's status, the mode that really applies and approved alternatives |
+| POST   | /api/gateway/model-use     | `{ tool, model }` — the employee switched model inside an approved tool |
+| GET    | /api/tools                 | The approved-tool register |
+| GET    | /api/tools/mine            | The register folded for the signed-in employee — the same access verdict the gateway enforces |
+| POST   | /api/tools/model-status    | Admin — approve, unapprove or withdraw one model without touching its tool |
 | POST   | /api/gateway/override      | Warn-only mode "send original": −20 XP, streak reset, High alert |
 | GET    | /api/profile               | Employee E-217 license: total XP, level + band, per-module `trainingProgress`, streak, stamps, counters |
 | GET    | /api/progression           | Level table + the employee's XP breakdown per training module (admin view) |
@@ -319,6 +323,8 @@ screen states the rubric so the queue can be explained rather than just read.
 |---|---|---|
 | **Repeated identifiers** — the same *kind* of identifier masked repeatedly for one employee inside a 15-minute window | MEDIUM at 3 | at 5 |
 | **Unapproved tool** — an employee opens a tool with no active visa | MEDIUM | HIGH if the tool is SUSPENDED |
+| **Tool above licence level** — the tool is approved, the employee's AI License is not high enough for it | MEDIUM | — |
+| **Unapproved model** — the tool is approved, the selected model is not | MEDIUM | HIGH if the model is SUSPENDED |
 | **Checkpoint override** — Warn-only mode, "send original anyway" | HIGH immediately | — |
 | **Human review requested** — from the public transparency portal | HIGH | — |
 
@@ -334,8 +340,52 @@ Two properties hold across all of them:
 The approved-tool register (`db.orgTools`) is the single authority on what is
 approved. Approving a visa on Tool Approvals is what moves a tool into it, and that is
 what stops the gateway flagging it — the decision and its effect cannot drift apart.
-The Chrome extension asks the same register (`POST /api/gateway/tool-use`) rather than
-assuming, and falls back to local visa decisions only when the gateway is unreachable.
+The Chrome extension asks the same register (`GET /api/gateway/tool-status`) rather than
+assuming, and falls back to the last verdict it saw when the gateway is unreachable.
+
+## Unapproved tools: what actually happens
+
+Approval does **not** decide whether a tool opens. It decides what the tool is allowed
+to *receive*. Blocking the website outright is the one response the case study rules out —
+it pushes the usage somewhere nothing can see it, and a browser extension cannot enforce
+it anyway. So the site opens and ordinary work is untouched; only company data is held
+back.
+
+| | Clean prompt | Sensitive prompt |
+|---|---|---|
+| **Approved** tool + model | sent untouched | masked, then sent |
+| **Unapproved** tool or model | sent untouched | **refused**, with approved alternatives named |
+| Data the tool is **not cleared for** (`blockOn`) | sent untouched | **refused**, whatever the tool's status |
+| **Suspended** tool | sent untouched | refused — and the panel says stop, not "be careful" |
+
+`risk.js` → `effectiveMode()` is the one place this is decided, and every rule in it can
+only ever *tighten* the org's policy. A tool's own settings can never loosen what an admin
+set, so this can never become the reason something leaked.
+
+Approval is also per employee, not only per organisation: `toolAccessFor()` folds the
+register's status, the employee's AI License level (`minLevel`) and their own request
+history into one verdict — `active · locked · review · declined · suspended · unreviewed`.
+The employee's AI Tools page and the gateway both read it, so the page cannot show a tool
+as approved while the checkpoint refuses the prompt.
+
+## Model-level approval
+
+A greenlit tool is not a greenlit catalogue. Register entries carry a `models` list with
+its own status per model, so **Claude can be approved while Fable 5 on it is not**.
+Withdrawing a model is a different admin action from suspending its tool
+(`POST /api/tools/model-status` vs `/api/tools/suspend`) — the whole point being that
+refusing one model leaves every approved model on that tool working.
+
+The extension reads the selected model at send time, from the URL parameter when the tool
+has one and otherwise from the model picker's label (`modelSelectors` in
+`extension/config.js`, ordered specific → generic like every other selector there).
+
+**A model the register cannot identify is `UNKNOWN`, never unapproved.** Platforms rename
+models constantly and the extension is reading somebody else's UI label, so blocking on
+"we could not tell" would punish the employee for a register that is a week out of date.
+That means model-level restriction is best-effort by construction: it is enforced at the
+checkpoint, not at the network, and an "auto"/router mode cannot promise which model
+actually served a request.
 
 ## Training: one set of records, two views
 

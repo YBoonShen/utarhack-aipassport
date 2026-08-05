@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, currentUser } from '../lib/api.js'
-import { ACCESS_STATUS, PENDING_STATUSES } from '../lib/terms.js'
+import { ACCESS_STATUS, PENDING_STATUSES, BUILT_IN_ASSISTANT } from '../lib/terms.js'
 import { LEVELS, levelBenefit } from '../lib/levels.js'
 import InfoPopover, { InfoList, InfoNote } from '../components/InfoPopover.jsx'
 
@@ -87,7 +87,10 @@ export default function Visas() {
     let alive = true
     const load = () => {
       api.get('/visas').then(r => alive && setRequests(r)).catch(() => {})
-      api.get('/tools').then(t => { if (alive) { setRegister(t); setLoaded(true) } }).catch(() => {})
+      // /tools/mine, not /tools: the register plus where *this* employee stands
+      // on each row. The comparison used to happen here, which is how the page
+      // could show a tool as approved while the gateway refused the prompt.
+      api.get('/tools/mine').then(t => { if (alive) { setRegister(t); setLoaded(true) } }).catch(() => {})
       api.get('/profile').then(p => alive && setProfile(p)).catch(() => {})
     }
     load()
@@ -121,6 +124,11 @@ export default function Visas() {
    * use), anything suspended (what they must stop using), and every tool this
    * employee has personally asked about, whatever its state. A tool nobody has
    * reviewed and nobody has asked for is not one of "my AI tools".
+   *
+   * The one register entry left out is the built-in assistant. It is in the
+   * register for the Smart Gateway's benefit, not the employee's — it is the
+   * product itself, nobody requests access to it, and it was heading the list
+   * ahead of the third-party tools this page exists to answer for.
    */
   const tools = useMemo(() => {
     const rows = []
@@ -129,20 +137,23 @@ export default function Visas() {
     const add = (entry, request) => {
       const key = (entry?.name || request?.tool || '').toLowerCase()
       if (!key || seen.has(key)) return
+      if (key === BUILT_IN_ASSISTANT.toLowerCase()) return
       seen.add(key)
 
       const registered = entry?.status || 'UNAPPROVED'
       const pending = request && PENDING_STATUSES.includes(request.status)
       const refused = request && ['DECLINED', 'REDIRECTED'].includes(request.status)
-      const needsLevel = entry?.minLevel && level < entry.minLevel
 
-      // The register decides first: a suspension applies to everyone, and an
-      // approval is an approval however the employee got there.
-      const status = registered === 'SUSPENDED' ? 'suspended'
-        : registered === 'APPROVED' ? (needsLevel ? 'locked' : 'active')
-        : pending ? 'review'
-        : refused ? 'declined'
-        : 'unreviewed'
+      // The server has already folded the register, this employee's licence
+      // level and their own request history into one verdict — the same one the
+      // Smart Gateway enforces. The fallback below only covers a row built from
+      // a request for a tool the register has never heard of.
+      const status = entry?.access
+        || (registered === 'SUSPENDED' ? 'suspended'
+          : registered === 'APPROVED' ? 'active'
+            : pending ? 'review'
+              : refused ? 'declined'
+                : 'unreviewed')
 
       const sub = {
         suspended: entry?.suspendedOn ? `Suspended ${entry.suspendedOn}` : 'Paused — cannot be used',
@@ -153,19 +164,40 @@ export default function Visas() {
         unreviewed: 'Not reviewed — request access before using it',
       }[status]
 
+      const vendor = entry?.vendor || request?.vendor || 'Unreviewed vendor'
+      const models = entry?.models || []
+      const modelsApproved = models.filter(m => m.status === 'APPROVED').length
+
       rows.push({
         name: entry?.name || request.tool,
         // The employee's own reference for this tool is the request they
         // raised; an approved tool they never had to ask for has none.
         number: request?.id || '—',
+        // The line under the tool name. Vendor first, because "which company
+        // is actually receiving this?" is the question a tool name alone does
+        // not answer — a lookalike site has the same name as the real thing.
+        // Then, for a platform that ships a model picker, how much of that
+        // picker the org has cleared: approving ChatGPT is not approving every
+        // model on it, and the Smart Gateway enforces that distinction the
+        // moment a prompt is sent. It used to be the tool-access request
+        // number, which was "—" on every tool nobody had to ask for.
+        subtitle: models.length > 0
+          ? `${vendor} · ${modelsApproved} of ${models.length} models approved`
+          : vendor,
         model: entry?.model || request?.model || 'Vendor model',
         data: entry?.dataScope || (request?.scopes || []).join(' · ') || 'As declared in the request',
-        vendor: entry?.vendor || request?.vendor || 'Unreviewed vendor',
+        vendor,
         status,
         sub,
         request: request || null,
         flag: entry?.flag || null,
         minLevel: entry?.minLevel || null,
+        explain: entry?.explain || null,
+        // Approving a tool is not approving every model on it. A tool with a
+        // model list carries it here so the row can say which ones the employee
+        // may actually pick — the distinction the Smart Gateway enforces, so it
+        // has to be visible before they hit it.
+        models: entry?.models || [],
       })
     }
 
@@ -181,7 +213,7 @@ export default function Visas() {
       add(register.find(e => e.name.toLowerCase() === String(request.tool).toLowerCase()), request)
     }
     return rows
-  }, [register, myRequests, level])
+  }, [register, myRequests])
 
   const count = s => tools.filter(t => t.status === s).length
 
@@ -292,7 +324,7 @@ export default function Visas() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-[#0a204f] font-bold text-base truncate">{t.name}</p>
-                      <p className="text-[#667085] text-[11px] mt-0.5">No. {t.number}</p>
+                      <p className="text-[#667085] text-[11px] mt-0.5 truncate">{t.subtitle}</p>
                     </div>
                     <span className={`inline-flex items-center font-semibold text-[12px] rounded-full px-3 h-[28px] shrink-0 ${st.chip}`}>{st.label}</span>
                   </div>
@@ -338,7 +370,7 @@ export default function Visas() {
                     <div className={`${cols} items-center pl-7 pr-5 min-h-[88px] py-4`}>
                       <div>
                         <p className="text-[#0a204f] font-bold text-base">{t.name}</p>
-                        <p className="text-[#667085] text-[11px] mt-1">No. {t.number}</p>
+                        <p className="text-[#667085] text-[11px] mt-1">{t.subtitle}</p>
                       </div>
                       <p className="text-[#0a204f] font-semibold text-sm">{t.model}</p>
                       <p className="text-[#667085] text-sm">{t.data}</p>
@@ -425,7 +457,12 @@ export default function Visas() {
             <span className={`inline-flex items-center font-semibold text-[13px] rounded-full px-3 h-[30px] mt-4 ${statusStyle[detail.status].chip}`}>
               {statusStyle[detail.status].label}
             </span>
-            <p className="text-[#667085] text-[13.5px] mt-3 leading-relaxed">{statusExplainer[detail.status]}</p>
+            {/* The server's own sentence when it has one — it is the reason the
+                gateway will act on, so it must be the reason the employee is
+                given. The static copy stays as the fallback. */}
+            <p className="text-[#667085] text-[13.5px] mt-3 leading-relaxed">
+              {detail.explain || statusExplainer[detail.status]}
+            </p>
 
             <dl className="mt-5 flex flex-col gap-3">
               {[
@@ -444,11 +481,49 @@ export default function Visas() {
               ))}
             </dl>
 
+            {/* Which models on this tool the employee may actually pick.
+                Approving a tool is not approving everything the vendor ships on
+                it, and that distinction is enforced at the checkpoint — so it
+                has to be readable here rather than discovered when a prompt is
+                refused. */}
+            {detail.models.length > 0 && (
+              <div className="mt-5">
+                <p className="text-[#8a7d56] font-semibold text-[11px]">MODELS ON THIS TOOL</p>
+                <div className="flex flex-col gap-1.5 mt-2">
+                  {detail.models.map(m => {
+                    const ok = m.status === 'APPROVED'
+                    return (
+                      <div key={m.id} className="flex items-baseline gap-2.5">
+                        <span className={`text-[13px] shrink-0 ${ok ? 'text-[#078b6c]' : 'text-[#c72929]'}`}>
+                          {ok ? '●' : '■'}
+                        </span>
+                        <p className="text-[#0a204f] text-[13.5px] font-semibold min-w-0 break-words">{m.label}</p>
+                        <p className={`text-[11.5px] ml-auto shrink-0 ${ok ? 'text-[#078b6c]' : 'text-[#c72929]'}`}>
+                          {ok ? 'Approved' : m.status === 'SUSPENDED' ? 'Suspended' : 'Not approved'}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+                {detail.models.some(m => m.status !== 'APPROVED') && (
+                  <p className="text-[#667085] text-[12px] mt-2 leading-relaxed">
+                    {detail.name} itself is approved. Prompts containing company or customer data are not sent to the
+                    models marked above — pick an approved one and everything works as normal.
+                  </p>
+                )}
+              </div>
+            )}
+
             {detail.flag && (
               <div className="bg-[#fae5e5] border border-[#c72929] rounded-[10px] px-3.5 py-3 mt-4">
                 <p className="text-[#c72929] font-semibold text-[12.5px]">{detail.flag}</p>
               </div>
             )}
+            {detail.models.filter(m => m.flag).map(m => (
+              <div key={m.id} className="bg-[#fae5e5] border border-[#c72929] rounded-[10px] px-3.5 py-3 mt-4">
+                <p className="text-[#c72929] font-semibold text-[12.5px]">{m.label} · {m.flag}</p>
+              </div>
+            ))}
 
             <div className="flex flex-col sm:flex-row gap-3 mt-6">
               <button

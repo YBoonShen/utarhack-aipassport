@@ -6,12 +6,21 @@
 // outside). Nothing about the visual language is new — this is the safety-score
 // popover, reused rather than re-drawn.
 //
+// The panel is always `position: fixed`, never absolute. An absolutely
+// positioned panel is part of the page's scrollable area, so opening one near
+// the bottom of a card — the AI Passport card on Home, for instance — stretched
+// the document and left a band of empty background under the page for as long as
+// the panel was open. Fixed takes it out of that flow entirely, at the cost of
+// having to place it ourselves: `place()` measures the ⓘ and puts the panel
+// beside it, flipping above when there is no room below and clamping to the
+// window on every side.
+//
 // `side` follows the card the icon sits in: 'left' opens rightwards from the
 // icon (a full-width card), 'right' opens leftwards (a right-hand rail, where
 // opening rightwards would run off the window). Below sm it is always a centred
 // sheet over a dimmed page, because a 380px panel cannot be anchored usefully
 // to a 24px icon on a phone.
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 // Hovering is only offered to devices that actually hover. On a touch screen
 // a tap synthesises mouseenter, which would open the panel and then leave it
@@ -20,16 +29,74 @@ import { useEffect, useRef, useState } from 'react'
 const canHover = () =>
   typeof window !== 'undefined' && window.matchMedia?.('(hover: hover)').matches === true
 
+// Tailwind's `sm`. Above it the panel is anchored to the ⓘ, below it a sheet.
+const SM = '(min-width: 640px)'
+
+const PANEL_W = 380 // the designed width; narrowed only if the window is smaller
+const GAP = 8       // between the ⓘ and the panel
+const EDGE = 16     // smallest gap the panel keeps from any window edge
+const MIN_H = 180   // below this a drop-down is too short to read — flip instead
+
 export default function InfoPopover({ label, title, children, side = 'left', tone = 'dark' }) {
   // Two independent reasons to be open, so a pointer leaving cannot dismiss a
   // panel the user deliberately clicked open, and a click cannot leave one
   // stuck open after the pointer has gone.
   const [hovering, setHovering] = useState(false)
   const [pinned, setPinned] = useState(false)
+  // null = the centred phone sheet; an object = anchored to the ⓘ.
+  const [anchor, setAnchor] = useState(null)
   const wrap = useRef(null)
   const open = hovering || pinned
 
   const close = () => { setHovering(false); setPinned(false) }
+
+  // Measure the ⓘ and decide where the panel goes. Everything is in viewport
+  // coordinates because the panel is fixed.
+  const place = useCallback(() => {
+    const el = wrap.current
+    if (!el) return
+    if (!window.matchMedia(SM).matches) { setAnchor(null); return }
+
+    const r = el.getBoundingClientRect()
+    const vw = document.documentElement.clientWidth
+    const vh = document.documentElement.clientHeight
+
+    const width = Math.min(PANEL_W, vw - EDGE * 2)
+    // 'right' hangs the panel back off the icon; then clamp so neither edge of
+    // the window can cut it off, whichever side it opens towards.
+    const wanted = side === 'right' ? r.right - width : r.left
+    const left = Math.min(Math.max(wanted, EDGE), Math.max(EDGE, vw - EDGE - width))
+
+    const below = vh - r.bottom - GAP - EDGE
+    const above = r.top - GAP - EDGE
+    // Prefer dropping down, as designed — flip up only when down is genuinely
+    // cramped and up is roomier.
+    const down = below >= MIN_H || below >= above
+
+    setAnchor({
+      left,
+      width,
+      top: down ? r.bottom + GAP : undefined,
+      bottom: down ? undefined : vh - r.top + GAP,
+      maxHeight: Math.max(MIN_H, down ? below : above),
+    })
+  }, [side])
+
+  // Layout effect: placed before the browser paints, so the panel never appears
+  // centred for a frame and then jumps to the icon.
+  useLayoutEffect(() => {
+    if (!open) { setAnchor(null); return undefined }
+    place()
+    // Capture, because the page scrolls on the window but cards elsewhere in
+    // the app scroll inside their own containers.
+    const onScroll = () => place()
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    window.addEventListener('resize', place)
+    return () => {
+      window.removeEventListener('scroll', onScroll, { capture: true })
+      window.removeEventListener('resize', place)
+    }
+  }, [open, place])
 
   useEffect(() => {
     if (!open) return undefined
@@ -46,6 +113,8 @@ export default function InfoPopover({ label, title, children, side = 'left', ton
   // The panel is a DOM child of this wrapper, so mouseleave does not fire while
   // the pointer is over the panel itself — the explanation stays put while it is
   // being read, and closes once the pointer leaves icon and panel together.
+  // Fixed positioning does not change that: it moves where the panel paints,
+  // not where it sits in the tree.
   const hoverProps = canHover()
     ? { onMouseEnter: () => setHovering(true), onMouseLeave: () => setHovering(false) }
     : {}
@@ -55,7 +124,7 @@ export default function InfoPopover({ label, title, children, side = 'left', ton
     ? 'border-[#4a6bb0] text-[#cdd7ee] hover:bg-[#173976] hover:text-white'
     : 'border-[#a9b0bf] text-[#667085] hover:bg-chip hover:text-navy-header'
 
-  const anchor = side === 'right' ? 'sm:left-auto sm:right-0' : 'sm:left-0 sm:right-auto'
+  const sheet = anchor === null
 
   return (
     <span className="relative inline-flex" ref={wrap} {...hoverProps}>
@@ -72,13 +141,20 @@ export default function InfoPopover({ label, title, children, side = 'left', ton
 
       {open && (
         <>
-          <div className="fixed inset-0 bg-navy-dark/50 z-40 sm:hidden" aria-hidden="true" />
+          {sheet && <div className="fixed inset-0 bg-navy-dark/50 z-40" aria-hidden="true" />}
           <div
             role="dialog"
             aria-label={label}
-            className={`fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[380px] max-h-[80vh] overflow-y-auto z-50
-                        sm:absolute sm:top-8 sm:translate-x-0 sm:translate-y-0 sm:w-[380px] sm:max-w-none sm:max-h-[70vh] ${anchor}
-                        bg-white border-[1.5px] border-navy-header rounded-[16px] shadow-[0px_10px_30px_rgba(0,0,0,0.22)] p-5`}
+            style={sheet ? undefined : {
+              left: anchor.left,
+              width: anchor.width,
+              top: anchor.top,
+              bottom: anchor.bottom,
+              maxHeight: anchor.maxHeight,
+            }}
+            className={`fixed z-50 overflow-y-auto overscroll-contain
+                        bg-white border-[1.5px] border-navy-header rounded-[16px] shadow-[0px_10px_30px_rgba(0,0,0,0.22)] p-5
+                        ${sheet ? 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[380px] max-h-[80vh]' : ''}`}
           >
             <div className="flex items-start justify-between gap-3">
               <p className="text-navy-header font-bold text-[15px]">{title}</p>

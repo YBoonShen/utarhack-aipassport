@@ -34,7 +34,8 @@ import {
 import { MAX_QUESTIONS, moduleIssue, normaliseQuestions, seedLibrary } from './training.js'
 import {
   SEVERITY, OVERRIDE_SEVERITY, TOOL_SEVERITY, TOOL_REPEAT_WINDOW_MINUTES,
-  REPEAT_WINDOW_MINUTES, REPEAT_ESCALATE_AT,
+  MODEL_SEVERITY, MODEL_REPEAT_WINDOW_MINUTES,
+  REPEAT_WINDOW_MINUTES, REPEAT_ESCALATE_AT, MODES, effectiveMode,
   pruneRepeats, repeatCounts, repeatVerdict, identifierLabel, dueAtFor, dueLabel,
 } from './risk.js'
 
@@ -223,7 +224,7 @@ function seed() {
         scopes: ['Internal', 'Voice + text', 'No customer data'],
       },
       {
-        id: 'A-0488', tool: 'CodePilot Pro', status: 'APPROVED', dept: 'Engineering',
+        id: 'A-0488', tool: 'GitHub Copilot', status: 'APPROVED', dept: 'Engineering',
         requester: 'E-217', owner: 'A. Rahman', submitted: '10 Jul 2026', decided: '12 Jul 2026',
         purpose: 'Assist with code review and refactoring on internal repositories.',
         scopes: ['Source code', 'Internal repos', 'Level 3 only'],
@@ -250,25 +251,101 @@ function seed() {
     // fields rather than presentation, because the employee's AI Tools page was
     // carrying its own hard-coded copy of all three — so a tool the admin
     // suspended still read "approved · renews in 45 days" to the employee.
+    //
+    // Three fields carry the enforcement:
+    //
+    // `hosts` / `url` — where the tool actually lives. The extension used to
+    // hold the only copy of this, which meant the register could approve a tool
+    // the browser could not recognise, and nothing could name an approved
+    // alternative because no record knew a URL. Admin-set only: it is a
+    // navigation target, so it must never come from a request form.
+    //
+    // `models` — a greenlit tool is not a greenlit catalogue. Platforms ship
+    // models continuously and an organisation that reviewed Sonnet has reviewed
+    // nothing about whatever shipped last week, so a model carries its own
+    // status. `aliases` exist because the extension reads a UI label ("Sonnet
+    // 5") rather than an API id. A model not listed here is UNKNOWN, never
+    // unapproved — see modelStatus().
+    //
+    // `blockOn` — the detection types this tool may not receive **at all**, even
+    // masked. This is what makes "which data may go to which class of tool" a
+    // rule rather than a sentence: a code assistant has no business receiving
+    // customer IC numbers however well they are masked. It can only ever tighten
+    // the org's mode, never loosen it.
     orgTools: [
-      { name: 'AI Assistant', vendor: 'Internal', model: 'AI Passport Assistant', dataScope: 'Internal · non-personal', status: 'APPROVED' },
-      { name: 'ChatGPT', vendor: 'OpenAI', model: 'GPT-5.1', dataScope: 'Internal · non-personal', status: 'APPROVED' },
-      { name: 'Claude', vendor: 'Anthropic', model: 'Claude Sonnet 5', dataScope: 'Internal · non-personal', status: 'APPROVED' },
-      { name: 'Gemini', vendor: 'Google', model: 'Gemini 3 Flash', dataScope: 'Internal · non-personal', status: 'APPROVED' },
-      { name: 'CodePilot Pro', vendor: 'Copilot Labs', model: 'GPT-5.1-Codex', dataScope: 'Source code · internal repos', status: 'APPROVED', minLevel: 3 },
+      {
+        name: 'AI Assistant', vendor: 'Internal', model: 'AI Passport Assistant',
+        dataScope: 'Internal · non-personal', status: 'APPROVED',
+        hosts: [], url: null, blockOn: [],
+      },
+      {
+        name: 'ChatGPT', vendor: 'OpenAI', model: 'GPT-5.6 Terra',
+        dataScope: 'Internal · non-personal', status: 'APPROVED',
+        hosts: ['chatgpt.com', 'chat.openai.com'], url: 'https://chatgpt.com', blockOn: [],
+        // The GPT-5.6 family: Sol (highest capability), Terra (the balanced
+        // default) and Luna (fastest, cheapest). The org has cleared the two
+        // everyday tiers; Sol is the one still in review.
+        models: [
+          { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', aliases: ['gpt-5.6 terra', 'terra', 'auto'], status: 'APPROVED' },
+          { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', aliases: ['gpt-5.6 luna', 'luna'], status: 'APPROVED' },
+          { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', aliases: ['gpt-5.6 sol', 'sol'], status: 'UNAPPROVED' },
+        ],
+      },
+      {
+        name: 'Claude', vendor: 'Anthropic', model: 'Claude Sonnet 5',
+        dataScope: 'Internal · non-personal', status: 'APPROVED',
+        hosts: ['claude.ai'], url: 'https://claude.ai', blockOn: [],
+        // The case-study scenario: the platform is approved, one model on it is
+        // not. Fable 5 was previously registered as a *tool* whose vendor was
+        // "Claude", which is the tool/model conflation this list removes.
+        models: [
+          { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', aliases: ['sonnet 5', 'sonnet'], status: 'APPROVED' },
+          { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', aliases: ['haiku 4.5', 'haiku'], status: 'APPROVED' },
+          {
+            id: 'claude-fable-5', label: 'Claude Fable 5', aliases: ['fable 5', 'fable'],
+            status: 'UNAPPROVED', flag: 'Security team flagged a breach',
+          },
+        ],
+      },
+      {
+        name: 'Gemini', vendor: 'Google', model: 'Gemini 3.6 Flash',
+        dataScope: 'Internal · non-personal', status: 'APPROVED',
+        hosts: ['gemini.google.com'], url: 'https://gemini.google.com', blockOn: [],
+        models: [
+          { id: 'gemini-3-6-flash', label: 'Gemini 3.6 Flash', aliases: ['3.6 flash', 'flash'], status: 'APPROVED' },
+          { id: 'gemini-3-5-flash-lite', label: 'Gemini 3.5 Flash-Lite', aliases: ['flash-lite', 'lite'], status: 'APPROVED' },
+          { id: 'gemini-3-5-pro', label: 'Gemini 3.5 Pro', aliases: ['3.5 pro', 'pro'], status: 'UNAPPROVED' },
+        ],
+      },
+      {
+        // GitHub's coding assistant is "GitHub Copilot" — this entry used to
+        // read "CodePilot Pro · Copilot Labs", which is not a product that
+        // exists and read as a typo for the real one. levelBenefit(3) already
+        // named GitHub Copilot, so the register was the odd one out.
+        name: 'GitHub Copilot', vendor: 'GitHub', model: 'GPT-5.3-Codex',
+        dataScope: 'Source code · internal repos', status: 'APPROVED', minLevel: 3,
+        hosts: [], url: null,
+        // Cleared for source code, never for customer identity. Masked is not
+        // good enough here: the tool has no business holding the shape of a
+        // customer record at all.
+        blockOn: ['IC', 'PASSPORT', 'CARD', 'CUSTOMER_RECORD'],
+      },
       // Real tools nobody has put through a review. The extension recognises
       // these hosts, so opening one is a demonstrable unapproved-tool event.
-      { name: 'DeepSeek', vendor: 'DeepSeek', model: 'DeepSeek-V3', dataScope: 'Not reviewed', status: 'UNAPPROVED' },
-      { name: 'Kimi', vendor: 'Moonshot AI', model: 'Kimi k2', dataScope: 'Not reviewed', status: 'UNAPPROVED' },
+      {
+        name: 'DeepSeek', vendor: 'DeepSeek', model: 'DeepSeek-V4',
+        dataScope: 'Not reviewed', status: 'UNAPPROVED',
+        hosts: ['deepseek.com'], url: 'https://deepseek.com',
+      },
+      {
+        name: 'Kimi', vendor: 'Moonshot AI', model: 'Kimi K3',
+        dataScope: 'Not reviewed', status: 'UNAPPROVED',
+        hosts: ['kimi.com', 'moonshot.cn'], url: 'https://kimi.com',
+      },
       // Requested but still in review — a visa in flight is not an approval.
       { name: 'SummarizerX', vendor: 'Summarize Inc.', model: 'Vendor model', dataScope: 'Meeting notes', status: 'UNAPPROVED' },
       { name: 'MeetingMind', vendor: 'MeetingMind', model: 'MeetingMind Pro v2', dataScope: 'Voice + text · no customer data', status: 'UNAPPROVED' },
       { name: 'TranslateAI', vendor: 'TranslateAI', model: 'TranslateAI v4', dataScope: 'Marketing copy · no personal data', status: 'UNAPPROVED' },
-      {
-        name: 'Fable 5', vendor: 'Claude', model: 'Claude Fable 5', dataScope: 'General',
-        status: 'APPROVED', flag: 'Security team flagged a breach',
-        suspendedOn: null, suspendedAt: null, suspendedBy: null,
-      },
     ],
 
     // Rolling window behind the repeated-identifier rule: { employeeId, type, at }.
@@ -613,6 +690,22 @@ function todayDate() {
   return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+// A strictly increasing ISO timestamp.
+//
+// "The training you were last working on" is answered by sorting these stamps,
+// and Date.now() has millisecond resolution — two answers submitted in the same
+// millisecond produced identical strings, so the sort fell back to library order
+// and named the wrong module as current. Rare by hand, routine under a fast
+// client or a test.
+//
+// Never more than a few milliseconds ahead of the wall clock in practice, since
+// it only advances when two events genuinely land in the same tick.
+let lastStampMs = 0
+function stampNow() {
+  lastStampMs = Math.max(Date.now(), lastStampMs + 1)
+  return new Date(lastStampMs).toISOString()
+}
+
 /**
  * Records one auditable event.
  *
@@ -829,14 +922,179 @@ function noteMaskedIdentifiers(detections) {
   return alert
 }
 
+/** The register's record for a tool, by name. */
+export function registerEntry(name) {
+  const key = String(name || '').trim().toLowerCase()
+  return db.orgTools.find(t => t.name.toLowerCase() === key) || null
+}
+
 /** APPROVED · UNAPPROVED · SUSPENDED — the register's word on a tool. */
 export function toolStatus(name) {
-  const key = String(name || '').trim().toLowerCase()
-  return db.orgTools.find(t => t.name.toLowerCase() === key)?.status || 'UNAPPROVED'
+  return registerEntry(name)?.status || 'UNAPPROVED'
 }
 
 export function toolRegister() {
   return db.orgTools
+}
+
+/** The register record for whichever host the browser is on, or null. */
+export function toolForHost(hostname) {
+  const host = String(hostname || '').trim().toLowerCase()
+  if (!host) return null
+  return db.orgTools.find(t =>
+    (t.hosts || []).some(h => host === h || host.endsWith(`.${h}`))
+  ) || null
+}
+
+// ---- model-level policy ------------------------------------------------------
+// A tool being approved says nothing about every model on it. These resolve the
+// second level, and they are deliberately forgiving in one direction: a model
+// the register does not list is UNKNOWN, never UNAPPROVED. The extension reads a
+// label out of somebody else's UI, and platforms rename models constantly —
+// blocking on "we could not identify this" would punish the employee for the
+// register being a week out of date.
+
+const normaliseModel = s => String(s || '').trim().toLowerCase().replace(/[_\s]+/g, ' ')
+
+export function modelsFor(toolName) {
+  return registerEntry(toolName)?.models || []
+}
+
+/** The model record a UI label refers to, or null when nothing matches. */
+export function matchModel(toolName, label) {
+  const observed = normaliseModel(label)
+  if (!observed) return null
+  const models = modelsFor(toolName)
+
+  // Longest candidate first, across every model on the tool: "gpt-5.1-mini"
+  // must win over "gpt-5.1" when both would match the same label.
+  const candidates = models.flatMap(m =>
+    [m.id, m.label, ...(m.aliases || [])].map(a => ({ model: m, alias: normaliseModel(a) }))
+  ).filter(c => c.alias).sort((a, b) => b.alias.length - a.alias.length)
+
+  return candidates.find(c => observed.includes(c.alias) || c.alias.includes(observed))?.model || null
+}
+
+/** APPROVED · UNAPPROVED · SUSPENDED · UNKNOWN for one model on one tool. */
+export function modelStatus(toolName, label) {
+  if (modelsFor(toolName).length === 0) return 'UNKNOWN' // no model policy on this tool
+  return matchModel(toolName, label)?.status || 'UNKNOWN'
+}
+
+/** The models an employee may use on this tool — what a block panel offers. */
+export function approvedModels(toolName) {
+  return modelsFor(toolName).filter(m => m.status === 'APPROVED').map(m => m.label)
+}
+
+// ---- per-employee tool access ------------------------------------------------
+//
+// The register is organisation-wide, but "approved" is a question about a person:
+// a Level-3 tool is not approved for a Trainee, and a request this employee had
+// declined is not reopened by the tool being on somebody else's list. That fold
+// used to happen in the browser (frontend Visas.jsx), which meant the gateway
+// and the employee's own AI Tools page could — and did — hold different opinions
+// about the same tool. It happens here now, and both read the result.
+//
+// The vocabulary is the one the AI Tools page already renders:
+//   active · locked · review · declined · suspended · unreviewed
+
+const REFUSED_VISA = ['DECLINED', 'REDIRECTED']
+const PENDING_VISA = ['SECURITY REVIEW', 'COMPLIANCE']
+
+export function toolAccessFor(employeeId, toolName) {
+  const entry = registerEntry(toolName)
+  const name = entry?.name || String(toolName || '').trim()
+  const profile = db.employees[employeeId]
+  const level = profile?.level || 0
+  const registered = entry?.status || 'UNAPPROVED'
+
+  const request = db.visaRequests.find(
+    r => String(r.tool).toLowerCase() === name.toLowerCase() && r.requester === employeeId
+  ) || null
+
+  const needsLevel = Boolean(entry?.minLevel) && level < entry.minLevel
+
+  // Same precedence the AI Tools page applies: a suspension beats everything,
+  // and an approval is an approval however the employee got there.
+  const access = registered === 'SUSPENDED' ? 'suspended'
+    : registered === 'APPROVED' ? (needsLevel ? 'locked' : 'active')
+    : request && PENDING_VISA.includes(request.status) ? 'review'
+    : request && REFUSED_VISA.includes(request.status) ? 'declined'
+    : 'unreviewed'
+
+  const explain = {
+    active: `${name} is approved for you.`,
+    locked: `${name} is approved for the organisation but needs AI License Level ${entry?.minLevel}. You are Level ${level}.`,
+    review: `Your request for ${name} is still with IT and Compliance.`,
+    declined: `Your request for ${name} was not approved.`,
+    suspended: `${name} was suspended organisation-wide after a security concern.`,
+    unreviewed: `${name} has not been through security and compliance review, so there are no agreed terms covering what it does with company data.`,
+  }[access]
+
+  return {
+    tool: name,
+    entry,
+    status: registered,
+    access,
+    approved: access === 'active',
+    explain,
+    minLevel: entry?.minLevel || null,
+    level,
+    blockOn: entry?.blockOn || [],
+    request,
+  }
+}
+
+/**
+ * Approved tools this employee could use instead, newest-friendly first.
+ * Only tools with a URL are offered: an alternative nobody can open is not an
+ * alternative. Admin-set URLs only — see the register comment.
+ */
+export function alternativesFor(employeeId, toolName) {
+  const exclude = String(toolName || '').toLowerCase()
+  return db.orgTools
+    .filter(t => t.url && t.name.toLowerCase() !== exclude)
+    .filter(t => toolAccessFor(employeeId, t.name).approved)
+    .map(t => ({ name: t.name, url: t.url, model: t.model, dataScope: t.dataScope }))
+}
+
+/**
+ * The whole gateway verdict for one prompt: which mode really applies, why, and
+ * what to offer instead. One call so the extension, the web Gateway and the
+ * audit log cannot reach three different answers.
+ */
+export function gatewayPolicyFor({ employeeId, tool, model, types = [] }) {
+  const access = toolAccessFor(employeeId, tool)
+  const status = model ? modelStatus(access.tool, model) : 'UNKNOWN'
+  const verdict = effectiveMode({
+    orgMode: db.settings.mode,
+    access: access.access,
+    modelStatus: status,
+    blockOn: access.blockOn,
+    types,
+  })
+
+  return {
+    tool: access.tool,
+    access: access.access,
+    approved: access.approved,
+    toolStatus: access.status,
+    explain: access.explain,
+    minLevel: access.minLevel,
+    level: access.level,
+    model: model ? { name: model, status, approved: status === 'APPROVED' || status === 'UNKNOWN' } : null,
+    approvedModels: approvedModels(access.tool),
+    blockOn: access.blockOn,
+    // The human sentence behind blockOn, so a refusal can say what the tool *is*
+    // cleared for rather than only what it is not.
+    dataScope: access.entry?.dataScope || null,
+    orgMode: db.settings.mode,
+    mode: verdict.mode,
+    reason: verdict.reason,
+    refused: verdict.refused,
+    tightened: verdict.mode !== db.settings.mode,
+    alternatives: alternativesFor(employeeId, access.tool),
+  }
 }
 
 /**
@@ -851,11 +1109,57 @@ export function recordToolUse({ tool }) {
   const name = String(tool || '').trim()
   if (!name) return { ok: false, reason: 'no_tool' }
 
-  const status = toolStatus(name)
-  if (status === 'APPROVED') return { ok: true, status, alert: null }
-
   const employeeId = db.profile.id
   const dept = db.profile.dept
+  const resolved = toolAccessFor(employeeId, name)
+  const status = resolved.status
+
+  // Approved *for this employee* is the only quiet answer. A tool the
+  // organisation cleared but this employee's licence does not reach is not the
+  // same finding as an unreviewed vendor — nothing unknown is receiving data —
+  // but it is still someone working outside what they are cleared for, and it
+  // used to pass silently because approval was only ever asked org-wide.
+  if (resolved.access === 'active') return { ok: true, status, access: resolved.access, alert: null }
+
+  if (resolved.access === 'locked') {
+    const { alert, isNew, escalated } = raiseAlert({
+      key: `level:${employeeId}:${name.toLowerCase()}:${Math.floor(Date.now() / (TOOL_REPEAT_WINDOW_MINUTES * 60_000))}`,
+      severity: SEVERITY.MEDIUM,
+      employeeId,
+      dept,
+      title: 'Tool used above licence level',
+      meta: `${departmentName(dept)} · ${name} · needs Level ${resolved.minLevel}`,
+      detailMeta: `${departmentName(dept)} · User ${employeeId} · detected today at ${nowTime()}`,
+      what: `${name} is approved for the organisation but requires AI License Level ${resolved.minLevel}, and this employee is Level ${resolved.level}. The tool itself has been reviewed, so this is a training gap rather than a vendor risk.`,
+      evidence: `${name} opened at Level ${resolved.level} · Level ${resolved.minLevel} required`,
+      evidenceNote: 'Licence level check · no prompt content recorded',
+      recommend: 'Assign the training that raises this employee to the required level.',
+      primary: 'Assign training',
+    })
+    if (isNew || escalated) {
+      recordAudit({
+        action: 'RESTRICTED', resource: name, tool: name,
+        record: `Tool above licence level · ${name} · Level ${resolved.minLevel} required · alert ${alert.id}`,
+        control: 'AIGE 4.2', status: 'FLAGGED', risk: SEVERITY.MEDIUM,
+      })
+      addNotification({
+        category: 'TOOL ACCESS',
+        title: `${name} needs AI License Level ${resolved.minLevel}`,
+        body: `${name} is approved here, but it sits above your current level. Sensitive prompts will not be sent there until you reach Level ${resolved.minLevel}.`,
+        what: `${name} has been reviewed and cleared for the organisation, but it handles data that needs a higher AI License level than you hold. Finishing your assigned training is what raises it.`,
+        facts: [
+          ['Tool', name],
+          ['Required level', `Level ${resolved.minLevel}`],
+          ['Your level', `Level ${resolved.level}`],
+          ['Your prompts', 'Protected — sensitive content is held back'],
+          ['Next step', 'Complete your assigned training'],
+        ],
+        action: { label: 'Open my training', to: '/training' },
+      })
+    }
+    return { ok: true, status, access: resolved.access, alert, isNew }
+  }
+
   const severity = TOOL_SEVERITY[status] || SEVERITY.MEDIUM
   const suspended = status === 'SUSPENDED'
 
@@ -906,6 +1210,81 @@ export function recordToolUse({ tool }) {
         ['Status', status],
         ['Your prompts', 'Still protected by the Smart Gateway'],
         ['Next step', suspended ? 'Switch to an approved tool' : 'Request tool access from AI Tools'],
+        ['Recorded', `Audit log · alert ${alert.id}`],
+      ],
+      action: { label: 'Open AI Tools', to: '/tools' },
+    })
+  }
+  return { ok: true, status, access: resolved.access, alert, isNew }
+}
+
+/**
+ * Rule 2b — an unreviewed model on a reviewed tool.
+ *
+ * The website is greenlit; the model the employee picked is not. Same shape as
+ * recordToolUse, and the same restraint: a model the register cannot identify
+ * raises nothing at all, because that is the register being out of date rather
+ * than the employee doing anything.
+ */
+export function recordModelUse({ tool, model }) {
+  const toolName = String(tool || '').trim()
+  const label = String(model || '').trim()
+  if (!toolName || !label) return { ok: false, reason: 'no_model' }
+
+  const entry = registerEntry(toolName)
+  const matched = matchModel(toolName, label)
+  const status = modelStatus(toolName, label)
+  if (status === 'APPROVED' || status === 'UNKNOWN') {
+    return { ok: true, status, alert: null }
+  }
+
+  const name = matched?.label || label
+  const employeeId = db.profile.id
+  const dept = db.profile.dept
+  const severity = MODEL_SEVERITY[status] || SEVERITY.MEDIUM
+  const suspended = status === 'SUSPENDED'
+  const cleared = approvedModels(toolName)
+
+  const bucket = Math.floor(Date.now() / (MODEL_REPEAT_WINDOW_MINUTES * 60_000))
+  const { alert, isNew, escalated } = raiseAlert({
+    key: `model:${employeeId}:${toolName.toLowerCase()}:${name.toLowerCase()}:${bucket}`,
+    severity,
+    employeeId,
+    dept,
+    title: suspended ? 'Suspended model used' : 'Unapproved model detected',
+    meta: `${departmentName(dept)} · ${entry?.name || toolName} · ${name}`,
+    detailMeta: `${departmentName(dept)} · User ${employeeId} · detected today at ${nowTime()}`,
+    what: `${entry?.name || toolName} is an approved tool, but the employee selected ${name}, which has not been reviewed${matched?.flag ? ` — ${matched.flag.toLowerCase()}` : ''}. The gateway held sensitive content back, so nothing protected reached it.`,
+    evidence: `${name} selected on ${entry?.name || toolName} · sensitive prompts refused`,
+    evidenceNote: 'Model check · no prompt content recorded',
+    recommend: cleared.length
+      ? `Point the employee at ${cleared.join(' or ')} on the same tool.`
+      : `Review whether ${name} should be added to the approved model list.`,
+    primary: 'Review tool request',
+  })
+
+  if (isNew || escalated) {
+    recordAudit({
+      action: suspended ? 'SUSPENDED' : 'UNAPPROVED',
+      resource: `${entry?.name || toolName} · ${name}`,
+      tool: entry?.name || toolName,
+      record: `${suspended ? 'Suspended' : 'Unapproved'} model selected · ${name} on ${entry?.name || toolName} · alert ${alert.id}`,
+      control: 'AIGE 4.2',
+      status: 'FLAGGED',
+      risk: severity,
+    })
+    addNotification({
+      category: 'TOOL ACCESS',
+      title: `${name} is not an approved model`,
+      body: cleared.length
+        ? `${entry?.name || toolName} is approved, but ${name} is not. Switch to ${cleared.join(' or ')} — sensitive prompts will not be sent to ${name}.`
+        : `${entry?.name || toolName} is approved, but ${name} has not been reviewed. Sensitive prompts will not be sent to it.`,
+      what: `Approving a tool is not the same as approving every model on it. ${name} has not been through review, so there are no agreed terms for what it does with company data. You can keep using ${entry?.name || toolName} on an approved model.`,
+      facts: [
+        ['Tool', entry?.name || toolName],
+        ['Model selected', name],
+        ['Approved models', cleared.length ? cleared.join(', ') : 'None listed yet'],
+        ['Your prompts', 'Protected — sensitive content is held back'],
         ['Recorded', `Audit log · alert ${alert.id}`],
       ],
       action: { label: 'Open AI Tools', to: '/tools' },
@@ -1487,7 +1866,8 @@ export function answerQuiz(moduleId, question, correct, selected) {
     bucket[question] = {
       correct,
       selected: Number.isInteger(selected) ? selected : null,
-      at: new Date().toISOString(),
+      // Monotonic: two answers in the same millisecond must still order.
+      at: stampNow(),
     }
     save()
   }
@@ -1602,7 +1982,8 @@ export function completeTraining(moduleId) {
     record.pointsEarned = Math.max(previousPoints, earnedNow)
     record.lastXpGained = record.pointsEarned - previousPoints
     record.lastOutcome = firstCompletion ? 'first' : record.lastXpGained > 0 ? 'improved' : 'unchanged'
-    record.lastAttemptAt = new Date().toISOString()
+    // Same monotonic stamp as the answers it is sorted against.
+    record.lastAttemptAt = stampNow()
     record.firstCompletedAt ??= record.lastAttemptAt
     // Every evaluation (first pass or a later retry) restarts the 24h lock.
     db.profile.moduleCompletions[moduleId] = record.lastAttemptAt
@@ -1885,6 +2266,15 @@ export function decideVisa(id, decision, note) {
     // A tool nobody had registered before. It joins with what the requester
     // declared about it, so an approved tool describes itself on their AI Tools
     // list instead of appearing as a bare name.
+    //
+    // Note what is deliberately NOT copied across: `hosts` and `url`. Those two
+    // are the only register fields the browser ever acts on — the extension
+    // matches a page against `hosts` and can navigate to `url` — and everything
+    // in `request` is free text an employee typed into a form. Letting a request
+    // populate them would turn the approval queue into an open-redirect vector,
+    // where approving a request is what makes the extension trust a URL a
+    // stranger chose. An admin sets them on the register directly or not at all,
+    // which is also why alternativesFor() only ever offers a tool that has one.
     db.orgTools.push({
       name: request.tool,
       vendor: request.vendor || 'Unreviewed vendor',
@@ -1979,6 +2369,76 @@ export function suspendToolOrgWide(name, admin = ADMIN_ACTOR) {
   }
 
   return { ok: true, tool, event, tools: db.orgTools }
+}
+
+/**
+ * Admin action: change one model's standing inside a tool that stays approved.
+ *
+ * This is the control the case study's scenario needs — the website is fine, one
+ * model on it is not — and it is deliberately a different action from suspending
+ * the tool. Suspending Claude would stop an organisation using Claude; refusing
+ * Fable 5 leaves every approved model on it working.
+ */
+export function setModelStatus(toolName, modelId, status, admin = ADMIN_ACTOR) {
+  const entry = registerEntry(toolName)
+  if (!entry) return { ok: false, reason: 'tool_not_found' }
+  if (!['APPROVED', 'UNAPPROVED', 'SUSPENDED'].includes(status)) {
+    return { ok: false, reason: 'bad_status' }
+  }
+
+  const key = String(modelId || '').trim().toLowerCase()
+  const model = (entry.models || []).find(m => m.id.toLowerCase() === key)
+  if (!model) return { ok: false, reason: 'model_not_found' }
+  if (model.status === status) {
+    return { ok: false, reason: 'unchanged', tool: entry, model, tools: db.orgTools }
+  }
+
+  const before = model.status
+  model.status = status
+  if (status === 'SUSPENDED') {
+    model.suspendedOn = todayDate()
+    model.suspendedBy = admin.id
+  } else {
+    model.suspendedOn = null
+    model.suspendedBy = null
+  }
+
+  const event = adminAudit({
+    action: status === 'APPROVED' ? 'APPROVAL' : 'RESTRICTED',
+    resource: `${entry.name} · ${model.label}`,
+    record: `Model ${model.label} on ${entry.name} · ${before} → ${status} by Admin`,
+    control: 'AIGE 4.2',
+    status: status === 'APPROVED' ? 'SUCCESS' : 'BLOCKED',
+    risk: status === 'APPROVED' ? 'LOW' : 'MEDIUM',
+  })
+
+  const cleared = approvedModels(entry.name)
+  for (const id of EMPLOYEES.map(e => e.id)) {
+    addNotification({
+      employeeId: id,
+      key: `model:${entry.name}:${model.id}:${status}`,
+      category: 'TOOL ACCESS',
+      title: status === 'APPROVED'
+        ? `${model.label} is now approved`
+        : `${model.label} is no longer approved`,
+      body: status === 'APPROVED'
+        ? `${model.label} on ${entry.name} has been reviewed and cleared for use.`
+        : `${entry.name} is still approved, but ${model.label} is not. ${cleared.length ? `Use ${cleared.join(' or ')} instead.` : ''}`.trim(),
+      what: status === 'APPROVED'
+        ? `IT and Compliance reviewed ${model.label} and added it to the approved model list for ${entry.name}.`
+        : `Approving a tool is not the same as approving every model on it. ${model.label} has been withdrawn from the approved list for ${entry.name}; the tool itself is unaffected and every other approved model keeps working.`,
+      facts: [
+        ['Tool', entry.name],
+        ['Model', model.label],
+        ['Status', status],
+        ['Approved models', cleared.length ? cleared.join(', ') : 'None listed'],
+        ['Decided by', 'Admin · Compliance role'],
+      ],
+      action: { label: 'View AI tools', to: '/tools' },
+    })
+  }
+
+  return { ok: true, tool: entry, model, event, tools: db.orgTools }
 }
 
 // ---- settings --------------------------------------------------------------

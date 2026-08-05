@@ -13,6 +13,7 @@ import {
   db, resetStore, recordPromptEvent, recordOfflineEvent, recordOverride, recordAudit, recordSession,
   answerQuiz, quizResults, completeTraining, retryTraining, applyForVisa, decideVisa,
   suspendToolOrgWide, recordToolUse, toolStatus, openAlerts, alertsView, resolveAlert,
+  recordModelUse, gatewayPolicyFor, toolForHost, setModelStatus, toolRegister, toolAccessFor,
   addReviewRequest, leaderboard, progressionSummary,
   allProgressionSummaries, reportSummary, updateSettings,
   setSessionEmployee, notificationsFor, updateNotification, activityFor, publicProfile,
@@ -151,7 +152,7 @@ async function runDetection(prompt) {
 }
 
 app.post('/api/detect', async (req, res) => {
-  const { prompt, tool, preview } = req.body || {}
+  const { prompt, tool, model, preview } = req.body || {}
   if (typeof prompt !== 'string' || prompt.length === 0) {
     return res.status(400).json({ error: 'Body must be { "prompt": "..." }' })
   }
@@ -164,12 +165,27 @@ app.post('/api/detect', async (req, res) => {
   const { masked, detections, layer2 } = await runDetection(prompt)
   setSessionEmployee(employeeId)
 
+  // Where this prompt is heading decides what may happen to it. `mode` is no
+  // longer the org setting read straight off the record: an unapproved tool, an
+  // unapproved model, or a data category this tool is not cleared for each
+  // tighten it to Block, and none of them can ever loosen it.
+  //
+  // This is the whole answer to "an employee is on a tool nobody approved".
+  // Nothing stops them opening it and a clean prompt is untouched — the register
+  // only decides what the tool is allowed to *receive*.
+  const policy = gatewayPolicyFor({
+    employeeId,
+    tool: tool || 'AI Assistant',
+    model: model || null,
+    types: detections.map(d => d.type),
+  })
+
   // Preview = while-typing check: same result, no audit event, no counters, no
   // points. Only the masked/detection outcome is returned.
   if (preview) {
     return res.json({
       masked, detections, layer2, levelUp: false, preview: true,
-      mode: db.settings.mode, explain: db.settings.experience,
+      mode: policy.mode, policy, explain: db.settings.experience,
     })
   }
 
@@ -177,7 +193,7 @@ app.post('/api/detect', async (req, res) => {
   const audit = await logDetection({ detections, masked })
   res.json({
     masked, detections, layer2, levelUp,
-    mode: db.settings.mode, explain: db.settings.experience, event: event.id, audit,
+    mode: policy.mode, policy, explain: db.settings.experience, event: event.id, audit,
   })
 })
 
@@ -216,23 +232,77 @@ app.post('/api/detect/backfill', async (req, res) => {
 // Approved tools answer quietly — only a tool the organisation has not reviewed
 // (or has withdrawn) produces an audit event and a risk alert.
 app.post('/api/gateway/tool-use', (req, res) => {
-  const { tool } = req.body || {}
+  const { tool, model } = req.body || {}
   if (typeof tool !== 'string' || !tool.trim()) {
     return res.status(400).json({ error: 'Body must be { "tool": "..." }' })
   }
   const result = recordToolUse({ tool })
+  // A model was named, so the second level is resolved and recorded in the same
+  // call. Silent unless the model is one the register refuses — see
+  // recordModelUse for why an unrecognised model raises nothing.
+  const modelResult = typeof model === 'string' && model.trim()
+    ? recordModelUse({ tool, model })
+    : null
+
+  const employeeId = req.actor.role === 'employee' ? req.actor.id : db.sessionEmployeeId
   res.json({
+    // `approved` stays the org-wide answer the first clients were written
+    // against; `access` is the per-employee one they should move to.
     status: result.status,
     approved: result.status === 'APPROVED',
+    access: result.access,
     alert: result.alert ? { id: result.alert.id, severity: result.alert.severity } : null,
+    model: modelResult
+      ? {
+        status: modelResult.status,
+        alert: modelResult.alert ? { id: modelResult.alert.id, severity: modelResult.alert.severity } : null,
+      }
+      : null,
+    policy: gatewayPolicyFor({ employeeId, tool, model }),
   })
 })
 
-// What the register says about one tool, without recording a use. The extension
-// reads this to decide whether to show its standing "not approved" banner.
+// Everything the checkpoint needs about where a prompt is heading, without
+// recording anything: this employee's standing on the tool, the selected model's
+// standing, the mode that really applies, and which approved tools to offer
+// instead. One call, because three separate ones is how the extension and the
+// dashboard came to hold different opinions about the same tool.
+//
+// GET on purpose — resolving is not an event. Opening the popup used to POST a
+// tool-use and write an audit record for a question nobody asked.
 app.get('/api/gateway/tool-status', (req, res) => {
   const tool = String(req.query.tool || '')
-  res.json({ tool, status: toolStatus(tool), approved: toolStatus(tool) === 'APPROVED' })
+  const model = String(req.query.model || '')
+  const host = String(req.query.host || '')
+  const employeeId = req.actor.role === 'employee' ? req.actor.id : db.sessionEmployeeId
+
+  // The extension knows the hostname for certain and the tool name only by its
+  // own local table. Resolving the host against the register when one is given
+  // keeps the register the authority on what a page is.
+  const resolved = host ? toolForHost(host)?.name || tool : tool
+
+  res.json({
+    ...gatewayPolicyFor({ employeeId, tool: resolved, model: model || null }),
+    // Kept so callers written against the old shape keep working.
+    status: toolStatus(resolved),
+  })
+})
+
+// The employee changed model inside an approved tool. Recorded on its own so an
+// admin sees the switch even when no prompt follows it.
+app.post('/api/gateway/model-use', (req, res) => {
+  const { tool, model } = req.body || {}
+  if (typeof tool !== 'string' || !tool.trim() || typeof model !== 'string' || !model.trim()) {
+    return res.status(400).json({ error: 'Body must be { "tool": "...", "model": "..." }' })
+  }
+  const result = recordModelUse({ tool, model })
+  const employeeId = req.actor.role === 'employee' ? req.actor.id : db.sessionEmployeeId
+  res.json({
+    status: result.status,
+    approved: result.status === 'APPROVED' || result.status === 'UNKNOWN',
+    alert: result.alert ? { id: result.alert.id, severity: result.alert.severity } : null,
+    policy: gatewayPolicyFor({ employeeId, tool, model }),
+  })
 })
 
 // Warn-only mode: employee insists on sending the original — penalised + logged
@@ -437,7 +507,42 @@ app.post('/api/visas/:id/decision', requireAdmin, (req, res) => {
 // Org-wide tool status (Tool Approvals' vendor security card). Suspending is an
 // admin action: it updates the tool here, writes one audit event and notifies
 // employees — 409 if the tool is already suspended, so a repeat click is a no-op.
-app.get('/api/tools', (req, res) => res.json(db.orgTools))
+app.get('/api/tools', (req, res) => res.json(toolRegister()))
+
+// The register folded for the signed-in employee: the same rows, plus where
+// *they* stand on each one and which models they may use.
+//
+// The fold used to live in the browser (Visas.jsx compared minLevel against the
+// profile), which meant the page and the gateway could reach different answers
+// about the same tool — the page would say "approved" while the checkpoint
+// refused the prompt. One function answers it now and both read the result.
+app.get('/api/tools/mine', (req, res) => {
+  const employeeId = req.actor.role === 'employee' ? req.actor.id : db.sessionEmployeeId
+  res.json(toolRegister().map(entry => {
+    const access = toolAccessFor(employeeId, entry.name)
+    return {
+      ...entry,
+      access: access.access,
+      approved: access.approved,
+      explain: access.explain,
+      request: access.request,
+    }
+  }))
+})
+
+// Per-model decision inside a tool that stays approved — the case-study
+// scenario where the website is greenlit and one model on it is not. Separate
+// from /api/tools/suspend on purpose: suspending Claude stops an organisation
+// using Claude, whereas refusing one model leaves every approved one working.
+app.post('/api/tools/model-status', requireAdmin, (req, res) => {
+  const { tool, model, status } = req.body || {}
+  const result = setModelStatus(tool, model, status)
+  if (!result.ok) {
+    const code = result.reason === 'unchanged' ? 409 : result.reason === 'bad_status' ? 400 : 404
+    return res.status(code).json({ error: result.reason, tools: result.tools })
+  }
+  res.json({ tool: result.tool, model: result.model, event: result.event, tools: result.tools })
+})
 app.post('/api/tools/suspend', requireAdmin, (req, res) => {
   const { tool } = req.body || {}
   const result = suspendToolOrgWide(tool)

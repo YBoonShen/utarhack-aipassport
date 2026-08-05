@@ -12,10 +12,12 @@ import assert from 'node:assert/strict'
 import {
   db, resetStore, setSessionEmployee, recordPromptEvent, recordOfflineEvent, recordOverride,
   recordToolUse, toolStatus, alertsView, resolveAlert, decideVisa, suspendToolOrgWide,
-  notificationsFor, openAlerts,
+  notificationsFor, openAlerts, updateSettings,
+  toolAccessFor, toolForHost, alternativesFor, modelStatus, recordModelUse, setModelStatus,
+  gatewayPolicyFor,
   REPEAT_WARN_AT, REPEAT_ESCALATE_AT, REPEAT_WINDOW_MINUTES,
 } from './store.js'
-import { dueLabel, pruneRepeats, repeatCounts, repeatVerdict, SEVERITY } from './risk.js'
+import { dueLabel, pruneRepeats, repeatCounts, repeatVerdict, SEVERITY, MODES, tighten } from './risk.js'
 
 let passed = 0
 function test(name, fn) {
@@ -155,8 +157,8 @@ test('re-opening the same tool does not fill the queue', () => {
 })
 
 test('a suspended tool is HIGH, not MEDIUM', () => {
-  suspendToolOrgWide('Fable 5')
-  const result = recordToolUse({ tool: 'Fable 5' })
+  suspendToolOrgWide('ChatGPT')
+  const result = recordToolUse({ tool: 'ChatGPT' })
   assert.equal(result.status, 'SUSPENDED')
   assert.equal(result.alert.severity, SEVERITY.HIGH)
   assert.equal(result.alert.title, 'Suspended tool used')
@@ -186,6 +188,157 @@ test('declining tool access leaves the tool unapproved', () => {
 test('a tool nobody has heard of is treated as unapproved', () => {
   assert.equal(toolStatus('SomeRandomAI'), 'UNAPPROVED')
   assert.equal(recordToolUse({ tool: 'SomeRandomAI' }).alert.severity, SEVERITY.MEDIUM)
+})
+
+// ---- per-employee access ------------------------------------------------------
+// "Approved" is a question about a person, not only about the organisation. This
+// fold used to happen in the browser, so the gateway and the employee's own AI
+// Tools page could hold different opinions about the same tool.
+
+test('a tool above the employee licence level is not approved for them', () => {
+  // GitHub Copilot is APPROVED org-wide and needs Level 3; E-217 is Level 2.
+  assert.equal(toolStatus('GitHub Copilot'), 'APPROVED')
+  const access = toolAccessFor('E-217', 'GitHub Copilot')
+  assert.equal(access.access, 'locked')
+  assert.equal(access.approved, false)
+  assert.match(access.explain, /Level 3/)
+})
+
+test('using a tool above your level is a training gap, not a vendor risk', () => {
+  const result = recordToolUse({ tool: 'GitHub Copilot' })
+  assert.equal(result.access, 'locked')
+  assert.equal(result.alert.severity, SEVERITY.MEDIUM)
+  assert.equal(result.alert.title, 'Tool used above licence level')
+  // The employee is pointed at the thing that actually fixes it.
+  const told = notificationsFor('E-217').filter(n => n.title.includes('needs AI License Level'))
+  assert.equal(told[0].action.to, '/training')
+})
+
+test('a declined request is refused for that employee only', () => {
+  // A-0486 TranslateAI was REDIRECTED, requested by M-083.
+  assert.equal(toolAccessFor('M-083', 'TranslateAI').access, 'declined')
+  assert.equal(toolAccessFor('E-217', 'TranslateAI').access, 'unreviewed')
+})
+
+test('the register is the authority on what a page is', () => {
+  assert.equal(toolForHost('claude.ai').name, 'Claude')
+  assert.equal(toolForHost('www.deepseek.com').name, 'DeepSeek')
+  assert.equal(toolForHost('example.com'), null)
+})
+
+test('an alternative is only offered if it is approved and openable', () => {
+  const alts = alternativesFor('E-217', 'DeepSeek')
+  assert.ok(alts.some(a => a.name === 'ChatGPT'))
+  assert.ok(alts.every(a => a.url), 'every alternative can actually be opened')
+  assert.ok(!alts.some(a => a.name === 'DeepSeek'), 'never offers the tool being left')
+  // GitHub Copilot is approved org-wide but locked for E-217, and has no URL.
+  assert.ok(!alts.some(a => a.name === 'GitHub Copilot'))
+})
+
+// ---- rule 2b: unapproved model -------------------------------------------------
+// The website is greenlit, one model on it is not.
+
+test('an approved tool can still hold an unapproved model', () => {
+  assert.equal(toolStatus('Claude'), 'APPROVED')
+  assert.equal(modelStatus('Claude', 'Claude Sonnet 5'), 'APPROVED')
+  assert.equal(modelStatus('Claude', 'Claude Fable 5'), 'UNAPPROVED')
+})
+
+test('a model label is matched the way a UI writes it', () => {
+  assert.equal(modelStatus('Claude', 'Fable 5'), 'UNAPPROVED')
+  assert.equal(modelStatus('Claude', 'fable'), 'UNAPPROVED')
+  assert.equal(modelStatus('Claude', 'Sonnet'), 'APPROVED')
+})
+
+test('a model nobody has registered is UNKNOWN, never unapproved', () => {
+  // The register being a week out of date is not the employee's doing.
+  assert.equal(modelStatus('Claude', 'Claude Opus 9'), 'UNKNOWN')
+  assert.equal(recordModelUse({ tool: 'Claude', model: 'Claude Opus 9' }).alert, null)
+  // A tool with no model policy at all never blocks on a model.
+  assert.equal(modelStatus('DeepSeek', 'anything'), 'UNKNOWN')
+})
+
+test('selecting an unapproved model raises MEDIUM and names the way out', () => {
+  const result = recordModelUse({ tool: 'Claude', model: 'Fable 5' })
+  assert.equal(result.status, 'UNAPPROVED')
+  assert.equal(result.alert.severity, SEVERITY.MEDIUM)
+  assert.equal(result.alert.title, 'Unapproved model detected')
+  assert.match(result.alert.recommend, /Claude Sonnet 5/)
+})
+
+test('re-selecting the same model does not fill the queue', () => {
+  recordModelUse({ tool: 'Claude', model: 'Fable 5' })
+  recordModelUse({ tool: 'Claude', model: 'Fable 5' })
+  recordModelUse({ tool: 'Claude', model: 'Fable 5' })
+  assert.equal(alertsFor('Unapproved model detected').filter(a => a.employeeId === 'E-217').length, 1)
+})
+
+test('approving a model is what stops it being flagged', () => {
+  assert.equal(recordModelUse({ tool: 'Claude', model: 'Fable 5' }).alert.severity, SEVERITY.MEDIUM)
+  setModelStatus('Claude', 'claude-fable-5', 'APPROVED')
+  assert.equal(modelStatus('Claude', 'Fable 5'), 'APPROVED')
+  assert.equal(recordModelUse({ tool: 'Claude', model: 'Fable 5' }).alert, null)
+})
+
+test('refusing a model leaves the tool itself approved', () => {
+  setModelStatus('Claude', 'claude-fable-5', 'SUSPENDED')
+  assert.equal(toolStatus('Claude'), 'APPROVED')
+  assert.equal(toolAccessFor('E-217', 'Claude').approved, true)
+  assert.equal(modelStatus('Claude', 'Sonnet 5'), 'APPROVED')
+})
+
+// ---- the effective mode --------------------------------------------------------
+// Approval decides what a tool may RECEIVE, never whether it opens. Every rule
+// below can only tighten the org's mode; none can loosen it.
+
+const modeFor = (tool, model, types = ['IC']) =>
+  gatewayPolicyFor({ employeeId: 'E-217', tool, model, types }).mode
+
+test('an approved tool on an approved model keeps the org policy', () => {
+  assert.equal(db.settings.mode, MODES.MASK)
+  assert.equal(modeFor('Claude', 'Claude Sonnet 5'), MODES.MASK)
+})
+
+test('an unapproved tool cannot receive sensitive data at all', () => {
+  assert.equal(modeFor('DeepSeek', null), MODES.BLOCK)
+  const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC'] })
+  assert.equal(policy.reason, 'tool-unapproved')
+  assert.ok(policy.alternatives.length > 0, 'the employee is told where to go instead')
+})
+
+test('a clean prompt is untouched wherever it is going', () => {
+  // No detections means nothing to refuse: the tool is never the reason an
+  // ordinary prompt cannot be sent.
+  const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: [] })
+  assert.equal(policy.mode, MODES.BLOCK)
+  assert.deepEqual(policy.refused, [], 'nothing sensitive was found, so nothing is refused')
+})
+
+test('an unapproved model blocks on an approved tool', () => {
+  assert.equal(modeFor('Claude', 'Claude Fable 5'), MODES.BLOCK)
+  assert.equal(
+    gatewayPolicyFor({ employeeId: 'E-217', tool: 'Claude', model: 'Fable 5', types: ['IC'] }).reason,
+    'model-unapproved'
+  )
+  // …and the approved model on the same tool is unaffected.
+  assert.equal(modeFor('Claude', 'Claude Sonnet 5'), MODES.MASK)
+})
+
+test('a tool refuses the data categories it was never cleared for', () => {
+  setSessionEmployee('E-217')
+  // GitHub Copilot is cleared for source code, never for customer identity.
+  const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'GitHub Copilot', types: ['IC'] })
+  assert.equal(policy.mode, MODES.BLOCK)
+  // E-217 is Level 2, so the licence check answers first — both refuse it.
+  assert.ok(['tool-unapproved', 'data-scope'].includes(policy.reason))
+})
+
+test('tool policy can only ever tighten the org mode', () => {
+  updateSettings({ mode: MODES.BLOCK })
+  // Already the strictest: an approved tool cannot loosen it back to masking.
+  assert.equal(modeFor('Claude', 'Claude Sonnet 5'), MODES.BLOCK)
+  assert.equal(tighten(MODES.BLOCK, MODES.WARN), MODES.BLOCK)
+  assert.equal(tighten(MODES.WARN, MODES.MASK), MODES.MASK)
 })
 
 // ---- rule 3: override --------------------------------------------------------
