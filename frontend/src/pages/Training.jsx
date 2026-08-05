@@ -277,7 +277,7 @@ export default function Training() {
       )}
 
       <p className="text-slate2 text-[13px] mt-6">
-        Training is assigned by role and risk signals. Completed modules add a stamp to your AI Passport. Each module
+        Training is assigned by role and risk signals. Completed modules add a certification to your AI Passport. Each module
         contributes its best result to your safety points once — retaking one can raise that result, never duplicate it.
       </p>
     </div>

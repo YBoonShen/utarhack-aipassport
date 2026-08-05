@@ -31,7 +31,7 @@ export default function TrainingModules() {
       <BackLink to="/training">Back to Training</BackLink>
       <h1 className="text-[26px] lg:text-[30px] font-bold text-navy-header mt-3">All Training Modules</h1>
       <p className="text-[#667085] text-sm mt-2 max-w-[900px]">
-        Every module assigned to you, upcoming and completed. Complete modules to earn safety points, stamps and unlock AI tools.
+        Every module assigned to you, upcoming and completed. Complete modules to earn safety points, certifications and unlock AI tools.
         Each module contributes its best result to your total safety points — retaking one can only raise that contribution.
       </p>
       {modules.length > 0 && (

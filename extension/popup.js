@@ -241,12 +241,13 @@ async function render() {
   const resolved = await ask({ type: 'AIP_TOOL', tool: tool.name })
   if (resolved?.approved === false) {
     const why = {
+      banned: 'banned — nothing is sent from here',
       suspended: 'suspended org-wide',
       locked: `needs Level ${resolved.minLevel ?? '—'}`,
       review: 'access request in review',
       declined: 'access declined',
-      unreviewed: 'not approved',
-    }[resolved.access] || 'not approved'
+      unreviewed: 'not approved by your organisation',
+    }[resolved.access] || 'not approved by your organisation'
     return paintSite('warn', `${tool.name} · ${why}`)
   }
   if (!state.active) return paintSite('idle', `${tool.name} · prompts are not being checked`)

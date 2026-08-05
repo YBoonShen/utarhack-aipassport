@@ -29,8 +29,10 @@ const alertStyle = {
 
 const cols = 'grid grid-cols-[72px_90px_100px_110px_112px_1fr]'
 // Rows in the Overview's audit preview. The full log is one click away, so this
-// is capped at what fits rather than at what exists.
-const AUDIT_PREVIEW = 5
+// is capped at what fits rather than at what exists — and three is what the
+// header above it costs. Three newest rows still show the log moving, which is
+// the only job this preview has; reading it is what /admin/audit-log is for.
+const AUDIT_PREVIEW = 3
 
 export default function AdminOverview() {
   const [stats, setStats] = useState({ promptsToday: 312, maskedToday: 58, openAlerts: 3, avgLicense: 2.1 })
@@ -63,7 +65,21 @@ export default function AdminOverview() {
       <div className="flex items-start justify-between shrink-0">
         <div>
           <h1 className="text-[28px] font-bold text-navy-header">Overview</h1>
-          <p className="text-[#667085] text-xs mt-1">Company-wide AI usage · refreshed live</p>
+          {/* The page's thesis, in the slot the old "Company-wide AI usage"
+              caption already occupied — so it states what the system is FOR and
+              proves it with the live count, without costing a pixel of height.
+              An admin landing here reads the outcome before the instruments.
+
+              One line, and the same `text-sm mt-1.5` every other admin page
+              uses: it was the only subtitle in the console set in text-xs and
+              the only one capped at 560px, so it wrapped to two lines and sat a
+              size below its neighbours — on the one page whose whole layout is
+              built to fit a single screen. */}
+          <p className="text-[#667085] text-sm mt-1.5">
+            Every prompt is checked before it leaves the browser —{' '}
+            <span className="text-navy-header font-semibold">{stats.maskedToday} sensitive items</span> masked today
+            across {stats.promptsToday} prompts.
+          </p>
         </div>
         <Link to="/admin/audit-report" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-11 h-[46px] rounded-full flex items-center cursor-pointer">
           Export audit report&nbsp;&nbsp;↓
@@ -94,7 +110,9 @@ export default function AdminOverview() {
           </div>
         </div>
         <div className="bg-white rounded-[14px] px-5 py-4">
-          <p className="text-[#8a7d56] font-semibold text-[10px] tracking-[1px]">AVG LICENSE LEVEL</p>
+          {/* Same number the credential card calls ACCESS LEVEL — one label for
+              one thing, whichever side of the product is reading it. */}
+          <p className="text-[#8a7d56] font-semibold text-[10px] tracking-[1px]">AVG ACCESS LEVEL</p>
           <div className="flex items-baseline gap-3 mt-2">
             {/* /api/stats derives this from the employee's live level, so a
                 training completion moves it while the demo is running. */}

@@ -113,8 +113,7 @@ export default function AssignTraining() {
     <div>
       <h1 className="text-[28px] font-bold text-[#17213a]">Assign Training</h1>
       <p className="text-[#667085] text-sm mt-1.5">
-        Start from a training that already exists, or create a new one. Then choose the employees or department that
-        should receive it and confirm.
+        Pick an existing module or create one, then choose the employees or department that should receive it.
       </p>
       {presetEmployee && (
         <div className="bg-[#eef2ff] border border-[#c7d4f5] rounded-[12px] px-4 py-3 mt-4">

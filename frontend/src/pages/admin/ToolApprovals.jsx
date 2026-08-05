@@ -225,7 +225,13 @@ export default function ToolApprovals() {
 
   // The vendor-flagged tool *or model* the security card acts on.
   const flagged = findFlagged(tools) || FALLBACK_FLAGGED
-  const flaggedSuspended = flagged.status === 'SUSPENDED'
+  // Withdrawn covers both endings this card can produce: SUSPENDED (pending a
+  // review that may lift it) and BANNED (the organisation has decided nothing
+  // may be sent there, so even a harmless prompt is refused). Either way the
+  // action is done and the button is spent — but the card has to say which,
+  // because they are not the same instruction to the employee.
+  const flaggedBanned = flagged.status === 'BANNED'
+  const flaggedSuspended = flagged.status === 'SUSPENDED' || flaggedBanned
   const flaggedIsModel = flagged.kind === 'model'
 
   const visible = requests.filter(r => !archived.has(r.id))
@@ -315,8 +321,7 @@ export default function ToolApprovals() {
       <div>
         <h1 className="text-[28px] font-bold text-[#17213a]">Tool Approvals</h1>
         <p className="text-[#667085] text-sm mt-1.5">
-          Tool approval is the decision on an employee&rsquo;s request for tool access. Approving one adds the tool to
-          their AI Tools list; declining it suggests an alternative. Either way they are notified.
+          Decide employee requests for tool access — approving one adds it to their AI Tools list, and either way they are notified.
         </p>
       </div>
 
@@ -338,21 +343,23 @@ export default function ToolApprovals() {
             Flips to the suspended state once the tool is suspended org-wide. */}
         <div className={`rounded-[14px] px-3.5 py-2.5 border-[1.5px] flex flex-col ${flaggedSuspended ? 'bg-[#f3f4f6] border-[#98a2b3]' : 'bg-[#fceded] border-[#c72929]'}`}>
           <p className={`font-bold text-[11px] ${flaggedSuspended ? 'text-[#667085]' : 'text-[#c72929]'}`}>
-            {flaggedSuspended
-
-              ? (flaggedIsModel ? "■  MODEL WITHDRAWN" : "■  ORG-WIDE STATUS: SUSPENDED")
-
-              : (flaggedIsModel ? "⚠  MODEL SECURITY ALERT · ACTIVE" : "⚠  VENDOR SECURITY ALERT · ACTIVE")}
+            {flaggedBanned
+              ? (flaggedIsModel ? '■  MODEL BANNED · NO PROMPTS SENT' : '■  ORG-WIDE STATUS: BANNED')
+              : flaggedSuspended
+                ? (flaggedIsModel ? '■  MODEL WITHDRAWN' : '■  ORG-WIDE STATUS: SUSPENDED')
+                : (flaggedIsModel ? '⚠  MODEL SECURITY ALERT · ACTIVE' : '⚠  VENDOR SECURITY ALERT · ACTIVE')}
           </p>
           <p className="font-bold text-[16px] text-[#0a204f] mt-1">{flagged.name} · {flagged.vendor}</p>
           <p className={`text-[9px] mt-0.5 ${flaggedSuspended ? 'text-[#667085]' : 'text-[#804d4d]'}`}>
-            {flaggedSuspended
-              ? `${flaggedIsModel ? `Withdrawn · ${flagged.vendor} still approved` : 'Suspended for all employees'}${flagged.suspendedOn ? ` · ${flagged.suspendedOn}` : ''}`
-              : flagged.flag}
+            {flaggedBanned
+              ? `${flaggedIsModel ? `Every prompt refused · ${flagged.vendor} still approved` : 'Every prompt refused, org-wide'}${flagged.suspendedOn ? ` · ${flagged.suspendedOn}` : ''}`
+              : flaggedSuspended
+                ? `${flaggedIsModel ? `Withdrawn · ${flagged.vendor} still approved` : 'Suspended for all employees'}${flagged.suspendedOn ? ` · ${flagged.suspendedOn}` : ''}`
+                : flagged.flag}
           </p>
           {flaggedSuspended ? (
             <button disabled className="bg-[#e4e7ec] text-[#667085] font-semibold text-[12px] rounded-full h-[30px] px-4 mt-1.5 self-end flex items-center justify-center cursor-default">
-              {flaggedIsModel ? 'Withdrawn' : 'Suspended'}
+              {flaggedBanned ? 'Banned' : flaggedIsModel ? 'Withdrawn' : 'Suspended'}
             </button>
           ) : (
             <button

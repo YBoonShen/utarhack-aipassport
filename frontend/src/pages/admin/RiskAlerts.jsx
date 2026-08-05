@@ -135,7 +135,7 @@ export default function RiskAlerts() {
       <div className="flex items-start justify-between shrink-0">
         <div>
           <h1 className="text-[28px] font-bold text-[#17213a]">Risk Alerts</h1>
-          <p className="text-[#667085] text-sm mt-1">Review high-risk AI activity with context, evidence and accountable next steps.</p>
+          <p className="text-[#667085] text-sm mt-1.5">Review high-risk AI activity with context, evidence and accountable next steps.</p>
         </div>
         <Link to="/admin/audit-report" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] w-40 h-11 rounded-full flex items-center justify-center cursor-pointer shrink-0">Create Report</Link>
       </div>

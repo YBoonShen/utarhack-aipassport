@@ -14,8 +14,9 @@ import {
   recordToolUse, toolStatus, alertsView, resolveAlert, decideVisa, suspendToolOrgWide,
   notificationsFor, openAlerts, updateSettings,
   toolAccessFor, toolForHost, alternativesFor, modelStatus, recordModelUse, setModelStatus,
-  gatewayPolicyFor,
-  REPEAT_WARN_AT, REPEAT_ESCALATE_AT, REPEAT_WINDOW_MINUTES,
+  gatewayPolicyFor, recordBlockedAttempt, requestableTools, applyForVisa,
+  toolModelsFor, freeModelFor, modelAccessFor, approvedModels,
+  REPEAT_WARN_AT, REPEAT_ESCALATE_AT, REPEAT_WINDOW_MINUTES, REQUEST_MIN_LEVEL,
 } from './store.js'
 import { dueLabel, pruneRepeats, repeatCounts, repeatVerdict, SEVERITY, MODES, tighten } from './risk.js'
 
@@ -238,15 +239,15 @@ test('an alternative is only offered if it is approved and openable', () => {
 // ---- rule 2b: unapproved model -------------------------------------------------
 // The website is greenlit, one model on it is not.
 
-test('an approved tool can still hold an unapproved model', () => {
+test('an approved tool can still hold a refused model', () => {
   assert.equal(toolStatus('Claude'), 'APPROVED')
   assert.equal(modelStatus('Claude', 'Claude Sonnet 5'), 'APPROVED')
-  assert.equal(modelStatus('Claude', 'Claude Fable 5'), 'UNAPPROVED')
+  assert.equal(modelStatus('Claude', 'Claude Fable 5'), 'BANNED')
 })
 
 test('a model label is matched the way a UI writes it', () => {
-  assert.equal(modelStatus('Claude', 'Fable 5'), 'UNAPPROVED')
-  assert.equal(modelStatus('Claude', 'fable'), 'UNAPPROVED')
+  assert.equal(modelStatus('Claude', 'Fable 5'), 'BANNED')
+  assert.equal(modelStatus('Claude', 'fable'), 'BANNED')
   assert.equal(modelStatus('Claude', 'Sonnet'), 'APPROVED')
 })
 
@@ -258,33 +259,237 @@ test('a model nobody has registered is UNKNOWN, never unapproved', () => {
   assert.equal(modelStatus('DeepSeek', 'anything'), 'UNKNOWN')
 })
 
-test('selecting an unapproved model raises MEDIUM and names the way out', () => {
-  const result = recordModelUse({ tool: 'Claude', model: 'Fable 5' })
+test('selecting an unreviewed model raises MEDIUM and names the way out', () => {
+  // Sol is approved; withdrawing it is what makes this the unreviewed case,
+  // rather than the banned one Fable 5 now covers.
+  setModelStatus('ChatGPT', 'gpt-5.6-sol', 'UNAPPROVED')
+  const result = recordModelUse({ tool: 'ChatGPT', model: 'GPT-5.6 Sol' })
   assert.equal(result.status, 'UNAPPROVED')
   assert.equal(result.alert.severity, SEVERITY.MEDIUM)
   assert.equal(result.alert.title, 'Unapproved model detected')
-  assert.match(result.alert.recommend, /Claude Sonnet 5/)
+  assert.match(result.alert.recommend, /GPT-5.5 Instant/)
+})
+
+test('selecting a banned model is HIGH on its first occurrence', () => {
+  const result = recordModelUse({ tool: 'Claude', model: 'Fable 5' })
+  assert.equal(result.status, 'BANNED')
+  assert.equal(result.access, 'banned')
+  assert.equal(result.alert.severity, SEVERITY.HIGH)
+  assert.equal(result.alert.title, 'Banned model used')
+  assert.match(result.alert.recommend, /Claude Sonnet 5|Claude Haiku 4.5|Claude Opus 5/)
 })
 
 test('re-selecting the same model does not fill the queue', () => {
   recordModelUse({ tool: 'Claude', model: 'Fable 5' })
   recordModelUse({ tool: 'Claude', model: 'Fable 5' })
   recordModelUse({ tool: 'Claude', model: 'Fable 5' })
-  assert.equal(alertsFor('Unapproved model detected').filter(a => a.employeeId === 'E-217').length, 1)
+  assert.equal(alertsFor('Banned model used').filter(a => a.employeeId === 'E-217').length, 1)
 })
 
 test('approving a model is what stops it being flagged', () => {
-  assert.equal(recordModelUse({ tool: 'Claude', model: 'Fable 5' }).alert.severity, SEVERITY.MEDIUM)
+  assert.equal(recordModelUse({ tool: 'Claude', model: 'Fable 5' }).alert.severity, SEVERITY.HIGH)
   setModelStatus('Claude', 'claude-fable-5', 'APPROVED')
   assert.equal(modelStatus('Claude', 'Fable 5'), 'APPROVED')
   assert.equal(recordModelUse({ tool: 'Claude', model: 'Fable 5' }).alert, null)
 })
 
 test('refusing a model leaves the tool itself approved', () => {
-  setModelStatus('Claude', 'claude-fable-5', 'SUSPENDED')
+  setModelStatus('Claude', 'claude-sonnet-5', 'SUSPENDED')
   assert.equal(toolStatus('Claude'), 'APPROVED')
   assert.equal(toolAccessFor('E-217', 'Claude').approved, true)
-  assert.equal(modelStatus('Claude', 'Sonnet 5'), 'APPROVED')
+  assert.equal(modelStatus('Claude', 'Haiku 4.5'), 'APPROVED')
+})
+
+// ---- banning a model ----------------------------------------------------------
+// "Unapproved" holds company data back and lets ordinary work continue.
+// "Banned" is the organisation saying nothing may go there at all — so it has to
+// refuse a prompt with nothing in it, which is the one thing no other rule does.
+
+test('a banned model refuses a prompt with nothing sensitive in it', () => {
+  const clean = gatewayPolicyFor({ employeeId: 'E-217', tool: 'Claude', model: 'Fable 5', types: [] })
+  assert.equal(clean.banned, true)
+  assert.equal(clean.mode, MODES.BLOCK)
+  assert.equal(clean.reason, 'model-banned')
+
+  // …while an unreviewed model lets the same harmless prompt through.
+  setModelStatus('ChatGPT', 'gpt-5.6-sol', 'UNAPPROVED')
+  const unreviewed = gatewayPolicyFor({ employeeId: 'E-217', tool: 'ChatGPT', model: 'GPT-5.6 Sol', types: [] })
+  assert.equal(unreviewed.banned, false)
+})
+
+test('banning one model leaves every other model on the tool working', () => {
+  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'Claude', model: 'Sonnet 5', types: ['IC'] }).mode, MODES.MASK)
+  assert.equal(toolAccessFor('E-217', 'Claude').approved, true)
+  // And the employee is told where to go instead.
+  assert.ok(gatewayPolicyFor({ employeeId: 'E-217', tool: 'Claude', model: 'Fable 5' }).approvedModels.includes('Claude Sonnet 5'))
+})
+
+test('an admin can ban any model, including a free one', () => {
+  // The test the ban has to survive: it is a status on the register, not a
+  // special case for one model somebody hard-coded.
+  assert.equal(setModelStatus('Claude', 'claude-haiku-4-5', 'BANNED').ok, true)
+  const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'Claude', model: 'Haiku 4.5', types: [] })
+  assert.equal(policy.banned, true)
+  assert.equal(policy.reason, 'model-banned')
+  // Lifting it puts the model straight back.
+  setModelStatus('Claude', 'claude-haiku-4-5', 'APPROVED')
+  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'Claude', model: 'Haiku 4.5', types: [] }).banned, false)
+})
+
+test('a refused send is an incident, and the queue holds one per hour', () => {
+  const before = openAlerts().length
+  recordBlockedAttempt({ tool: 'Claude', model: 'Fable 5', reason: 'model-banned', types: [] })
+  recordBlockedAttempt({ tool: 'Claude', model: 'Fable 5', reason: 'model-banned', types: [] })
+  const raised = openAlerts().filter(a => a.title === 'Prompt sent to a banned destination')
+  assert.equal(raised.length, 1)
+  assert.equal(raised[0].severity, SEVERITY.HIGH)
+  assert.equal(openAlerts().length, before + 1)
+  // Every attempt reaches the audit log even though only one card is raised.
+  const logged = db.auditEvents.filter(e => e.action === 'BLOCKED' && e.resource === 'Claude · Claude Fable 5')
+  assert.equal(logged.length, 2)
+  assert.ok(logged.every(e => !/prompt/i.test(e.record.replace('Prompt refused', ''))), 'no prompt text is recorded')
+})
+
+test('an unapproved tool refusing a prompt is logged as its own incident', () => {
+  recordBlockedAttempt({ tool: 'DeepSeek', reason: 'tool-unapproved', types: ['IC', 'NAME'] })
+  const raised = openAlerts().filter(a => a.title === 'Prompt refused by the gateway')
+  assert.equal(raised.length, 1)
+  assert.equal(raised[0].severity, SEVERITY.MEDIUM)
+  assert.match(raised[0].what, /not approved by the organisation/)
+  assert.match(raised[0].evidence, /IC number, personal name/)
+})
+
+// ---- AI License levels decide which models and tools are reachable -------------
+
+test('level 1 reaches the free models and nothing else', () => {
+  db.employees['E-217'].level = 1
+  const models = toolModelsFor('E-217', 'ChatGPT')
+  assert.deepEqual(
+    models.filter(m => m.approved).map(m => m.label),
+    ['GPT-5.5 Instant'],
+    'only the free tier is available at Level 1'
+  )
+  assert.equal(freeModelFor('E-217', 'ChatGPT').label, 'GPT-5.5 Instant')
+  assert.equal(modelAccessFor('E-217', 'ChatGPT', 'GPT-5.6 Sol'), 'locked')
+  // A paid model above the licence holds sensitive content back, under its own
+  // reason — the model is reviewed, this employee is not cleared for it.
+  const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'ChatGPT', model: 'Sol', types: ['IC'] })
+  assert.equal(policy.mode, MODES.BLOCK)
+  assert.equal(policy.reason, 'model-level')
+  assert.equal(policy.banned, false)
+})
+
+test('level 2 opens the paid models on an approved tool', () => {
+  assert.equal(db.employees['E-217'].level, 2)
+  assert.equal(modelAccessFor('E-217', 'ChatGPT', 'GPT-5.6 Sol'), 'active')
+  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'ChatGPT', model: 'Sol', types: ['IC'] }).mode, MODES.MASK)
+  // A Trainee is never offered a model they would then be refused for.
+  db.employees['E-217'].level = 1
+  assert.deepEqual(approvedModels('ChatGPT', 'E-217'), ['GPT-5.5 Instant'])
+})
+
+// The register names models an employee will actually meet in a picker, and a
+// model it has never heard of stays UNKNOWN rather than inheriting a sibling's
+// approval. Both are pinned here because both were wrong: the ChatGPT entry
+// listed API-only tiers as if they were selectable in chat, and a bare "opus"
+// alias would have quietly approved every future Opus release.
+test('the register names the models each picker really offers', () => {
+  assert.equal(freeModelFor('E-217', 'ChatGPT').label, 'GPT-5.5 Instant')
+  assert.equal(freeModelFor('E-217', 'Claude').label, 'Claude Sonnet 5')
+  assert.equal(freeModelFor('E-217', 'Gemini').label, 'Gemini 3.6 Flash')
+  // Tiers that exist in the API but not in the ChatGPT picker are not listed.
+  assert.equal(modelStatus('ChatGPT', 'GPT-5.6 Terra'), 'UNKNOWN')
+  assert.equal(modelStatus('ChatGPT', 'GPT-5.6 Luna'), 'UNKNOWN')
+  // A family alias must not adopt the next model in that family.
+  assert.equal(modelStatus('Claude', 'Claude Opus 5'), 'APPROVED')
+  assert.equal(modelStatus('Claude', 'Claude Opus 9'), 'UNKNOWN')
+})
+
+test('level 4 unlocks the development tools', () => {
+  assert.equal(toolAccessFor('E-217', 'Codex').access, 'locked')
+  assert.equal(toolAccessFor('E-217', 'Claude Code').access, 'locked')
+  db.employees['E-217'].level = 4
+  assert.equal(toolAccessFor('E-217', 'Codex').access, 'active')
+  assert.equal(toolAccessFor('E-217', 'Claude Code').access, 'active')
+  // Level 3's tool comes with it rather than being skipped.
+  assert.equal(toolAccessFor('E-217', 'GitHub Copilot').access, 'active')
+})
+
+// ---- the guided tool access request -------------------------------------------
+// The form used to be four text boxes, so the approval queue took whatever an
+// employee typed. It is a list now, and the list is the register.
+
+test('level 1 has no tool request feature at all', () => {
+  db.employees['E-217'].level = 1
+  assert.deepEqual(requestableTools('E-217'), [])
+  const refused = applyForVisa({ tool: 'DeepSeek', purpose: 'testing' })
+  assert.equal(refused.ok, false)
+  assert.match(refused.error, new RegExp(`Level ${REQUEST_MIN_LEVEL}`))
+})
+
+test('level 2 can request the tools the register offers', () => {
+  const offered = requestableTools('E-217')
+  assert.deepEqual(offered.map(t => t.name), ['DeepSeek'])
+  // Every field the admin queue will show comes from the register, not the form.
+  assert.equal(offered[0].vendor, 'DeepSeek')
+  assert.equal(offered[0].model, 'DeepSeek-V4-Pro')
+
+  const result = applyForVisa({ tool: 'DeepSeek', purpose: 'Summarise public research notes.' })
+  assert.equal(result.ok, true)
+  assert.equal(result.request.vendor, 'DeepSeek')
+  assert.equal(result.request.status, 'SECURITY REVIEW')
+  // Asking again while it is in review offers nothing — one request, one queue entry.
+  assert.deepEqual(requestableTools('E-217'), [])
+})
+
+test('a request naming anything else is refused, however it was made', () => {
+  // Requestable, but above this employee's level (Kimi opens at Level 3).
+  const early = applyForVisa({ tool: 'Kimi', purpose: 'x' })
+  assert.equal(early.ok, false)
+  assert.match(early.error, /Level 3/)
+  // Already approved for them, and a tool nobody has ever registered.
+  assert.equal(applyForVisa({ tool: 'ChatGPT', purpose: 'x' }).ok, false)
+  assert.equal(applyForVisa({ tool: 'A tool I invented', purpose: 'x' }).ok, false)
+})
+
+// Each tool states the level at which it can be asked for, and each model on it
+// states the level that reaches it. Kimi is the case that needs both: an
+// Ambassador may request it and use the free models, a Guardian also gets K3.
+test('a tool can open for requests at its own level', () => {
+  db.employees['E-217'].level = 2
+  assert.deepEqual(requestableTools('E-217').map(t => t.name), ['DeepSeek'])
+
+  db.employees['E-217'].level = 3
+  assert.deepEqual(requestableTools('E-217').map(t => t.name), ['DeepSeek', 'Kimi'])
+})
+
+test('level 3 reaches the Kimi free models, level 4 reaches K3', () => {
+  const { request } = applyForVisa({ tool: 'DeepSeek', purpose: 'x' }) // keep the queue realistic
+  assert.ok(request)
+
+  db.employees['E-217'].level = 3
+  decideVisa(applyForVisa({ tool: 'Kimi', purpose: 'Agentic research.' }).request.id, 'approve')
+  assert.equal(toolAccessFor('E-217', 'Kimi').access, 'active')
+  assert.deepEqual(approvedModels('Kimi', 'E-217'), ['Kimi K2.6', 'Kimi K2.7 Code'])
+  assert.equal(modelAccessFor('E-217', 'Kimi', 'Kimi K3'), 'locked')
+  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'Kimi', model: 'K3', types: ['IC'] }).reason, 'model-level')
+
+  db.employees['E-217'].level = 4
+  assert.deepEqual(approvedModels('Kimi', 'E-217'), ['Kimi K2.6', 'Kimi K2.7 Code', 'Kimi K3'])
+  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'Kimi', model: 'K3', types: ['IC'] }).mode, MODES.MASK)
+})
+
+test('approving the request is what makes the tool usable', () => {
+  const { request } = applyForVisa({ tool: 'DeepSeek', purpose: 'Research summaries.' })
+  assert.equal(toolAccessFor('E-217', 'DeepSeek').access, 'review')
+  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC'] }).mode, MODES.BLOCK)
+
+  decideVisa(request.id, 'approve')
+  assert.equal(toolStatus('DeepSeek'), 'APPROVED')
+  assert.equal(toolAccessFor('E-217', 'DeepSeek').access, 'active')
+  // The same prompt the gateway refused a moment ago is now masked and sent.
+  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC'] }).mode, MODES.MASK)
+  assert.equal(recordToolUse({ tool: 'DeepSeek' }).alert, null)
 })
 
 // ---- the effective mode --------------------------------------------------------
@@ -314,10 +519,15 @@ test('a clean prompt is untouched wherever it is going', () => {
   assert.deepEqual(policy.refused, [], 'nothing sensitive was found, so nothing is refused')
 })
 
-test('an unapproved model blocks on an approved tool', () => {
+test('a model the register refuses blocks on an approved tool', () => {
   assert.equal(modeFor('Claude', 'Claude Fable 5'), MODES.BLOCK)
   assert.equal(
     gatewayPolicyFor({ employeeId: 'E-217', tool: 'Claude', model: 'Fable 5', types: ['IC'] }).reason,
+    'model-banned'
+  )
+  setModelStatus('ChatGPT', 'gpt-5.6-sol', 'UNAPPROVED')
+  assert.equal(
+    gatewayPolicyFor({ employeeId: 'E-217', tool: 'ChatGPT', model: 'Sol', types: ['IC'] }).reason,
     'model-unapproved'
   )
   // …and the approved model on the same tool is unaffected.
@@ -334,11 +544,24 @@ test('a tool refuses the data categories it was never cleared for', () => {
 })
 
 test('tool policy can only ever tighten the org mode', () => {
-  updateSettings({ mode: MODES.BLOCK })
-  // Already the strictest: an approved tool cannot loosen it back to masking.
-  assert.equal(modeFor('Claude', 'Claude Sonnet 5'), MODES.BLOCK)
+  updateSettings({ mode: MODES.WARN })
+  // Warn only is the loosest mode there is, and an unapproved destination still
+  // tightens past it — a tool's own standing can never loosen the org's policy.
+  assert.equal(modeFor('Claude', 'Claude Sonnet 5'), MODES.WARN)
+  assert.equal(modeFor('DeepSeek', null), MODES.BLOCK)
   assert.equal(tighten(MODES.BLOCK, MODES.WARN), MODES.BLOCK)
   assert.equal(tighten(MODES.WARN, MODES.MASK), MODES.MASK)
+})
+
+test('Block is not an organisation-wide mode an admin can set', () => {
+  // The Settings card is gone, and so is the ability to reach it from a stale
+  // client: blocking every sensitive prompt everywhere is the posture that
+  // moves the work to a personal laptop, which is the one thing the gateway
+  // exists to prevent.
+  updateSettings({ mode: MODES.BLOCK })
+  assert.equal(db.settings.mode, MODES.MASK, 'the request is ignored, not accepted')
+  updateSettings({ mode: MODES.WARN })
+  assert.equal(db.settings.mode, MODES.WARN, 'the two real modes still apply')
 })
 
 // ---- rule 3: override --------------------------------------------------------

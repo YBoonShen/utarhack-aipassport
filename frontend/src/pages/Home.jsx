@@ -247,7 +247,7 @@ export default function Home() {
                 items={[
                   ['AI License', 'your level (Trainee → Guardian) and which AI tools it unlocks.'],
                   ['Safety points', 'earned by finishing training and using AI safely. They are what move your level.'],
-                  ['Training stamps', 'one per module you complete, added to your licence.'],
+                  ['Certifications', 'one per module you complete, added to your record.'],
                   ['AI Safety Score', 'your safe-use standing — prompts protected, items masked, safe streak.'],
                 ]}
               />

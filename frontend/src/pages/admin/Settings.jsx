@@ -24,11 +24,24 @@ const sectionMeta = {
   integrations: { title: 'Integrations', subtitle: 'Connect trusted enterprise systems while keeping sync health and ownership visible.', badge: 'HEALTHY' },
 }
 
-const modes = [
-  ['Mask and continue', 'Recommended · keeps work moving'],
-  ['Warn only', 'Employee decides'],
-  ['Block', 'Stops the prompt'],
-]
+// The protection modes an admin may set organisation-wide.
+//
+// "Block access" is deliberately not one of them. Blocking every sensitive
+// prompt across the whole organisation is the "just say no" posture the case
+// study rules out: it does not stop the work, it moves it to a personal laptop
+// where nothing can see it. Blocking still happens — for a tool or model the
+// organisation has not cleared — but that is a verdict the gateway derives per
+// destination (backend/src/risk.js, effectiveMode), never a switch that turns
+// the whole workforce off. The server ignores a request to set it, so a stale
+// client cannot reach it either.
+//
+// The sub-line for each mode is presentation; the list itself comes from
+// GET /api/settings so adding or removing an org-wide mode is a backend change.
+const MODE_HINTS = {
+  'Mask and continue': 'Recommended · keeps work moving',
+  'Warn only': 'Employee decides',
+}
+const FALLBACK_MODES = ['Mask and continue', 'Warn only']
 
 const dataControls = [
   { key: 'personalIdentifiers', title: 'Personal identifiers', sub: 'Names, IC, phone and email' },
@@ -45,6 +58,7 @@ const experienceItems = [
 
 const defaultSettings = {
   mode: 'Mask and continue',
+  modes: FALLBACK_MODES,
   controls: { personalIdentifiers: true, customerRecords: true, financialFigures: true, sourceCode: false },
   experience: { explainMask: true, showSafeVersion: true, awardPoints: true },
   escalate: true,
@@ -221,9 +235,16 @@ export default function Settings() {
                 <button
                   key={c.key}
                   onClick={() => setSection(c.key)}
-                  className={`text-left rounded-[10px] px-4 py-2.5 relative cursor-pointer ${active ? 'bg-[#eef2ff]' : 'hover:bg-chip'}`}
+                  className={`text-left rounded-[10px] px-4 py-2.5 relative overflow-hidden cursor-pointer ${active ? 'bg-[#eef2ff]' : 'hover:bg-chip'}`}
                 >
-                  {active && <span className="absolute left-0 top-2.5 bottom-2.5 w-1 rounded-[2px] bg-[#365fd9]" />}
+                  {/* The selected-section accent. It runs the full height and is
+                      clipped by the button's own 10px radius (overflow-hidden
+                      above), so it reads as the edge of the highlight rather
+                      than a separate bar floating over it: inset by 10px with
+                      its own 2px radius, it ended at exactly the point where
+                      the pill starts curving away, leaving both its ends
+                      hanging over the white background. */}
+                  {active && <span className="absolute left-0 inset-y-0 w-1 bg-[#365fd9]" />}
                   <p className={`font-semibold text-[13px] ${active ? 'text-[#365fd9]' : 'text-[#17213a]'}`}>{c.title}</p>
                   <p className="text-[#667085] text-[10px] mt-0.5">{c.sub}</p>
                 </button>
@@ -251,8 +272,9 @@ export default function Settings() {
           {section === 'gateway' && (
             <>
               <p className="text-[#667085] font-semibold text-[10px]">PROTECTION MODE</p>
-              <div className="grid grid-cols-3 gap-4 mt-2.5 max-w-[776px]">
-                {modes.map(([title, sub]) => {
+              <div className="grid grid-cols-2 gap-4 mt-2.5 max-w-[520px]">
+                {(draft.modes || FALLBACK_MODES).map(title => {
+                  const sub = MODE_HINTS[title] || ''
                   const selected = mode === title
                   return (
                     <button
@@ -337,10 +359,13 @@ export default function Settings() {
               </Card>
 
               <div className="grid grid-cols-2 gap-5 mt-5">
+                {/* The gates the register actually enforces (minLevel on a tool
+                    and on each model), not a separate description of them. */}
                 <Card title="License-level access">
-                  <InfoRow i={0} title="Level 1 · Explorer" sub="Public data only" />
-                  <InfoRow i={1} title="Level 2 · Navigator" sub="Internal non-personal data" />
+                  <InfoRow i={0} title="Level 1 · Trainee" sub="Free models on approved assistants" />
+                  <InfoRow i={1} title="Level 2 · Navigator" sub="Paid models · may request new tools" />
                   <InfoRow i={2} title="Level 3 · Ambassador" sub="Approved code and repositories" />
+                  <InfoRow i={3} title="Level 4 · Guardian" sub="Development tools · Codex and Claude Code" />
                 </Card>
                 <Card title="Review safeguards">
                   <ToggleRow i={0} title="Vendor security review" sub="Required before approval" on={safeguards.vendorReview} onToggle={() => setSafeguards(s => ({ ...s, vendorReview: !s.vendorReview }))} />

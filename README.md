@@ -146,8 +146,10 @@ Sign out, sign in as `admin@abcd.com`, and look at:
 - **Overview** — live counters of prompts protected and items masked
 - **Audit Log** — one `MASKED` entry for the prompt you just protected (the masked text
   is stored, never the original)
-- **Settings** — switch the policy between **Mask**, **Warn only** and **Block**, then
-  retype the prompt in ChatGPT to see the extension behave differently
+- **Settings** — switch the policy between **Mask** and **Warn only**, then retype the
+  prompt in ChatGPT to see the extension behave differently. (There is no org-wide
+  "Block" mode: blocking every sensitive prompt everywhere is the posture that moves the
+  work to a personal laptop. Blocking is decided per destination instead — see below.)
 
 ### D. Earn XP as an employee
 
@@ -274,9 +276,11 @@ npm test
 | POST   | /api/gateway/tool-use      | `{ tool, model? }` — an employee reached a tool. Approved ones answer quietly; anything else writes an audit event and raises a risk alert |
 | GET    | /api/gateway/tool-status   | `?tool=&model=&host=` → the whole verdict without recording anything: this employee's access, the model's status, the mode that really applies and approved alternatives |
 | POST   | /api/gateway/model-use     | `{ tool, model }` — the employee switched model inside an approved tool |
+| POST   | /api/gateway/blocked       | `{ tool, model?, reason, types[] }` — the checkpoint refused a send on-device. Writes the incident (audit + one alert per hour); never accepts prompt text |
 | GET    | /api/tools                 | The approved-tool register |
-| GET    | /api/tools/mine            | The register folded for the signed-in employee — the same access verdict the gateway enforces |
-| POST   | /api/tools/model-status    | Admin — approve, unapprove or withdraw one model without touching its tool |
+| GET    | /api/tools/mine            | The register folded for the signed-in employee — the same access verdict the gateway enforces, plus each model's standing and the free model to display |
+| GET    | /api/tools/requestable     | The tools this employee may ask for, and whether their licence lets them ask at all |
+| POST   | /api/tools/model-status    | Admin — approve, unapprove, withdraw or **ban** one model without touching its tool |
 | POST   | /api/gateway/override      | Warn-only mode "send original": −20 XP, streak reset, High alert |
 | GET    | /api/profile               | Employee E-217 license: total XP, level + band, per-module `trainingProgress`, streak, stamps, counters |
 | GET    | /api/progression           | Level table + the employee's XP breakdown per training module (admin view) |
@@ -298,7 +302,7 @@ npm test
 | GET    | /api/audit                 | Live audit log (masked records only) |
 | GET    | /api/stats                 | Admin KPIs — single source of truth for all screens |
 | GET    | /api/report                | One-click compliance report totals, derived from the audit log (period baseline + everything recorded since) |
-| GET/PUT| /api/settings              | Gateway policy — Mask / Warn only / Block really applies |
+| GET/PUT| /api/settings              | Gateway policy — **Mask** or **Warn only** really applies. Block is not an org-wide mode (see below); a request naming it is ignored |
 | POST   | /api/reset                 | Reset demo data |
 
 Demo state (audit feed, alerts, counters) is **in-memory** and reseeds on restart.
@@ -322,9 +326,11 @@ screen states the rubric so the queue can be explained rather than just read.
 | Rule | Raises | Escalates to HIGH |
 |---|---|---|
 | **Repeated identifiers** — the same *kind* of identifier masked repeatedly for one employee inside a 15-minute window | MEDIUM at 3 | at 5 |
-| **Unapproved tool** — an employee opens a tool with no active visa | MEDIUM | HIGH if the tool is SUSPENDED |
+| **Unapproved tool** — an employee opens a tool with no active visa | MEDIUM | HIGH if the tool is SUSPENDED or BANNED |
 | **Tool above licence level** — the tool is approved, the employee's AI License is not high enough for it | MEDIUM | — |
-| **Unapproved model** — the tool is approved, the selected model is not | MEDIUM | HIGH if the model is SUSPENDED |
+| **Unapproved model** — the tool is approved, the selected model is not | MEDIUM | HIGH if the model is SUSPENDED or BANNED |
+| **Model above licence level** — the model is approved, the employee's licence does not reach it | MEDIUM | — |
+| **Prompt refused** — they tried to send to a destination the gateway would not allow | MEDIUM | HIGH if the destination is banned |
 | **Checkpoint override** — Warn-only mode, "send original anyway" | HIGH immediately | — |
 | **Human review requested** — from the public transparency portal | HIGH | — |
 
@@ -355,8 +361,26 @@ back.
 |---|---|---|
 | **Approved** tool + model | sent untouched | masked, then sent |
 | **Unapproved** tool or model | sent untouched | **refused**, with approved alternatives named |
+| Model above the employee's **licence level** | sent untouched | refused — the way out is training, not a request |
 | Data the tool is **not cleared for** (`blockOn`) | sent untouched | **refused**, whatever the tool's status |
 | **Suspended** tool | sent untouched | refused — and the panel says stop, not "be careful" |
+| **Banned** tool or model | **refused** | **refused** |
+
+**Banned is the one status that refuses a clean prompt.** "Unapproved" means nobody
+has agreed what this destination may receive, so company data is held back and
+ordinary work continues — that is the whole "mask, don't block" posture. "Banned"
+means the organisation has already decided nothing may go there: a model withdrawn
+after a breach is not made safe by the prompt happening to be harmless. So a ban is
+carried as its own flag (`policy.banned`) rather than folded into `mode`, and every
+caller that decides whether to send reads it *before* it looks at detections. The
+seed register bans **Claude Fable 5**; `POST /api/tools/model-status` with
+`status: "BANNED"` bans any other model, including a free one.
+
+Because a refused prompt is never sent, it produces no prompt event — so the
+refusal itself is what reaches the admin. `/api/detect` records it server-side;
+the Chrome extension, whose while-typing check records nothing, posts it to
+`/api/gateway/blocked`. Every attempt lands in the audit log; the alert queue takes
+one per employee + destination + reason per hour. No prompt text either way.
 
 `risk.js` → `effectiveMode()` is the one place this is decided, and every rule in it can
 only ever *tighten* the org's policy. A tool's own settings can never loosen what an admin
@@ -375,6 +399,20 @@ its own status per model, so **Claude can be approved while Fable 5 on it is not
 Withdrawing a model is a different admin action from suspending its tool
 (`POST /api/tools/model-status` vs `/api/tools/suspend`) — the whole point being that
 refusing one model leaves every approved model on that tool working.
+
+Each model also carries a `tier` (`free` / `paid`) and its own `minLevel`, which is what
+makes "Level 1 gets the free models" a rule the gateway enforces rather than a sentence
+in a brochure. The employee's AI Tools page shows the tool's newest **free** model in the
+MODEL column at every level and puts the paid ones behind an expandable section on the
+detail sheet; `GET /api/tools/mine` returns both, already folded, so the page and the
+checkpoint cannot disagree about which models a person may pick.
+
+The register names the models each **product's own picker** offers, not the vendor's
+whole lineup — GPT-5.6 Terra and Luna are API and Codex tiers that cannot be selected in
+a standard ChatGPT conversation, so ChatGPT lists GPT-5.5 Instant (free) and GPT-5.6 Sol
+(paid) and Terra appears on the Codex entry where it is genuinely reachable. Model
+aliases avoid bare family words for the same reason `UNKNOWN` exists: a lone `opus` would
+adopt every future Opus release and hand it the current one's approval.
 
 The extension reads the selected model at send time, from the URL parameter when the tool
 has one and otherwise from the model picker's label (`modelSelectors` in
@@ -421,6 +459,18 @@ XP is earned, accumulated and turned into a level in exactly one place:
 | 2 | Navigator | 501 – 2,000 |
 | 3 | Ambassador | 2,001 – 4,000 |
 | 4 | Guardian | 4,001 – 8,000 (maximum — there is no Level 5) |
+
+A level is **earned by accumulated XP and nothing else** — there is no nomination,
+approval or manual promotion anywhere in the system. What each level opens is stated by
+the register rather than by copy, so the AI Tools page cannot promise something the
+gateway then refuses:
+
+| Level | Reaches |
+|---|---|
+| 1 | The **free** model on each approved assistant — ChatGPT (GPT-5.5 Instant), Claude (Sonnet 5), Gemini (3.6 Flash). No tool request feature at all. |
+| 2 | The **paid** models on those tools, and the tool access request form (`REQUEST_MIN_LEVEL`) |
+| 3 | GitHub Copilot (`minLevel: 3`), and Kimi becomes requestable (`requestMinLevel: 3`) with its free models |
+| 4 | Codex and Claude Code (`minLevel: 4`), and Kimi K3 (`minLevel: 4` on the model) |
 
 `totalXP = activityXP + Σ trainingProgress[moduleId].pointsEarned`
 
