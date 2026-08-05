@@ -9,6 +9,16 @@ const cases = [
   ['Passport A12345678 expires next year', '[MASKED-PASSPORT]'],
   ['Invoice of RM 4,500 due last month', '[MASKED-AMOUNT]'],
   ['Explain SQL joins to me', null], // clean prompt: nothing masked
+  // Presidio-style validation: a real (Luhn-valid) card is masked, a random
+  // 16-digit number is not — precision comes from the checksum, not the regex.
+  ['Charge card 4111 1111 1111 1111 today', '[MASKED-CARD]'],
+  // A card whose middle digits look like a mobile number must still mask as a
+  // card (CARD runs before PHONE) — regression for the "4012 8888…" overlap.
+  ['Refund to Visa 4012 8888 8888 1881 now', '[MASKED-CARD]'],
+  ['Track parcel 1234567890123456 tomorrow', null], // fails Luhn → not a card
+  // IC is confirmed by date + state code, so a random 12-digit run is left alone.
+  ['New hire IC 990101-05-1234 on file', '[MASKED-IC]'],
+  ['The counter reached 123456789012 today', null], // month "34" is impossible → not an IC
 ]
 
 let pass = 0

@@ -12,22 +12,50 @@
 //
 // backend/src/rules.sync.test.js fails if this table drifts from detector.js.
 
+// Validators mirror backend/src/detector.js — a match is only masked when it
+// passes (Luhn for cards, date+state for the IC), so the offline fallback does
+// not mask a tracking number as a card or a random 12-digit run as an IC.
+function luhnValid(value) {
+  const digits = String(value).replace(/\D/g, '')
+  if (digits.length < 13 || digits.length > 19) return false
+  let sum = 0
+  let double = false
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let n = digits.charCodeAt(i) - 48
+    if (double) { n *= 2; if (n > 9) n -= 9 }
+    sum += n
+    double = !double
+  }
+  return sum % 10 === 0
+}
+function malaysianICValid(value) {
+  const d = String(value).replace(/\D/g, '')
+  if (d.length !== 12) return false
+  const mm = +d.slice(2, 4)
+  const dd = +d.slice(4, 6)
+  const pb = +d.slice(6, 8)
+  if (mm < 1 || mm > 12) return false
+  if (dd < 1 || dd > 31) return false
+  return (pb >= 1 && pb <= 59) || (pb >= 82 && pb <= 99)
+}
+
 globalThis.AIP_RULES = {
   RULES: [
-    // Malaysian IC: 990101-14-5678 (with or without dashes)
-    { type: 'IC', regex: /\b\d{6}-?\d{2}-?\d{4}\b/g, token: '[MASKED-IC]' },
+    // Malaysian IC: 990101-14-5678 (with or without dashes). Validated by date+state.
+    { type: 'IC', regex: /\b\d{6}-?\d{2}-?\d{4}\b/g, token: '[MASKED-IC]', validate: malaysianICValid },
     // Malaysian passport: letter + 8 digits, e.g. A12345678
     { type: 'PASSPORT', regex: /\b[A-Z]\d{8}\b/g, token: '[MASKED-PASSPORT]' },
     // Financial figures: RM 4,500 / RM4500.00 / USD 1,000,000
     { type: 'FINANCIAL', regex: /\b(?:RM|MYR|USD|SGD)\s?\d[\d,]*(?:\.\d{1,2})?\b/g, token: '[MASKED-AMOUNT]' },
+    // Credit/debit card numbers (13-16 digits, optionally spaced/dashed). Luhn-confirmed.
+    // MUST run before PHONE — a card's middle digits can look like a mobile number.
+    { type: 'CARD', regex: /\b(?:\d[ -]?){13,16}\b/g, token: '[MASKED-CARD]', validate: luhnValid },
     // Malaysian phone numbers: 012-3456789, +60123456789, 03-12345678 etc.
     { type: 'PHONE', regex: /(?:\+?60|0)1\d[- ]?\d{3,4}[- ]?\d{4}\b/g, token: '[MASKED-PHONE]' },
     // Email addresses. Every quantifier is bounded (RFC limits: 64-char local
     // part, 63-char labels) so a near-miss like "a.a.a…@" costs constant work per
     // start position instead of backtracking quadratically over the whole prompt.
     { type: 'EMAIL', regex: /\b[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,8}\b/g, token: '[MASKED-EMAIL]' },
-    // Credit/debit card numbers (13-16 digits, optionally spaced/dashed)
-    { type: 'CARD', regex: /\b(?:\d[ -]?){13,16}\b/g, token: '[MASKED-CARD]' },
     // Simple credential patterns: password: xxxx / apikey=xxxx
     { type: 'CREDENTIAL', regex: /\b(?:password|pwd|api[_-]?key|token|secret)\s*[:=]\s*\S+/gi, token: '[MASKED-CREDENTIAL]' },
     // Source code & secrets: private-key blocks, DB connection strings, cloud/service keys
@@ -68,11 +96,13 @@ globalThis.AIP_RULES.mask = function mask(text, controls) {
   let masked = String(text)
   for (const rule of globalThis.AIP_RULES.RULES) {
     if (!allowed.has(rule.type)) continue
-    const matches = masked.match(rule.regex)
-    if (matches && matches.length > 0) {
-      detections.push({ type: rule.type, count: matches.length })
-      masked = masked.replace(rule.regex, rule.token)
-    }
+    let count = 0
+    masked = masked.replace(rule.regex, match => {
+      if (rule.validate && !rule.validate(match)) return match // not confirmed
+      count++
+      return rule.token
+    })
+    if (count > 0) detections.push({ type: rule.type, count })
   }
   return { masked, detections }
 }

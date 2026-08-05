@@ -10,6 +10,19 @@ const cases = [
   ['Send the report to Ms Sarah Tan by Friday', '[MASKED-NAME]', 'Sarah Tan'],
   ['Explain SQL joins to me', null, '[MASKED-NAME]'], // clean: no names invented
   ['The customer database needs indexing', null, '[MASKED-NAME]'], // "customer" + lowercase word: not a name
+  // Gazetteer pass: a known name is caught with no context word in front of it.
+  ['Rahman flagged a discrepancy in the ledger.', '[MASKED-NAME]', 'Rahman'],
+  ['The escalation from Kumar still needs sign-off.', '[MASKED-NAME]', 'Kumar'],
+  // Stop-list + verb removal: role-noun phrases and "Contact X" are not people.
+  ['Outline a Customer Success onboarding plan.', null, '[MASKED-NAME]'],
+  ['Contact Support if the build fails again.', null, '[MASKED-NAME]'],
+  // Arbitrary names (not in the gazetteer) — the multi-word / person-frame passes.
+  ['John Smith will attend the review.', '[MASKED-NAME]', 'John Smith'],
+  ['Please email Xavier before noon.', '[MASKED-NAME]', 'Xavier'],
+  ['The proposal from Emily Watson is ready.', '[MASKED-NAME]', 'Emily Watson'],
+  // Capitalised non-people that a naive two-word matcher would wrongly mask.
+  ['Explain Machine Learning to the team.', null, '[MASKED-NAME]'],
+  ['Summarise Google Sheets shortcuts.', null, '[MASKED-NAME]'],
 ]
 
 let pass = 0
