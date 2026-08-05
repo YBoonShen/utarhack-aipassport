@@ -19,6 +19,15 @@ const cases = [
   // IC is confirmed by date + state code, so a random 12-digit run is left alone.
   ['New hire IC 990101-05-1234 on file', '[MASKED-IC]'],
   ['The counter reached 123456789012 today', null], // month "34" is impossible → not an IC
+  // Bank accounts (name / acc word context) and SWIFT codes.
+  ['Transfer to Maybank 512345678901 today', '[MASKED-BANK]'],
+  ['My bank acc 90887766554 is overdue', '[MASKED-BANK]'],
+  ['Wire it, SWIFT MBBEMYKL, by Friday', '[MASKED-BANK]'],
+  ['He has an account here somewhere', null], // no number → not flagged
+  // Case-insensitive money, landline phone, and a glued IC prefix.
+  ['Please pay rm500 to the vendor', '[MASKED-AMOUNT]'],
+  ['Call the office at 03-12345678', '[MASKED-PHONE]'],
+  ['Verify IC900101051234 against records', '[MASKED-IC]'],
 ]
 
 let pass = 0

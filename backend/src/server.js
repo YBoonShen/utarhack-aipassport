@@ -121,7 +121,7 @@ async function runDetection(prompt) {
   // it can never run — CUSTOMER_RECORD and SECRET were previously unreachable.
   const enabledTypes = new Set([
     ...(c.personalIdentifiers ? ['IC', 'PASSPORT', 'PHONE', 'EMAIL'] : []),
-    ...(c.customerRecords ? ['CARD', 'CUSTOMER_RECORD'] : []),
+    ...(c.customerRecords ? ['CARD', 'CUSTOMER_RECORD', 'BANK'] : []),
     ...(c.financialFigures ? ['FINANCIAL'] : []),
     ...(c.sourceCode ? ['CREDENTIAL', 'SECRET'] : []),
   ])
