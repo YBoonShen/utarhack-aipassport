@@ -73,7 +73,7 @@ export const MODULES = {
         ],
         correct: 0,
         correctMsg: '✓  Correct — request approval before any company data reaches an unapproved tool.',
-        incorrectMsg: '×  Not quite — unapproved tools need a visa before they see company data.',
+        incorrectMsg: '×  Not quite — unapproved tools need approval before they see company data.',
       },
       {
         type: 'mcq', stepTitle: 'Judge tool safety',

@@ -41,13 +41,27 @@ globalThis.AIP_CONFIG = {
   // detection types and state transitions.
   debug: true,
 
-  // Approved AI tools. `hosts` are matched as suffixes of location.hostname.
+  // AI tools this extension can run a checkpoint on. `hosts` are matched as
+  // suffixes of location.hostname.
   //
-  // NOTE — isolation seam: the backend's /api/visas returns visa *requests*, not
-  // the employee's approved-tool list, so approval falls back to this table.
-  // background.js resolveTool() already consults /api/visas first and honours a
-  // DECLINED/REDIRECTED decision, so when the API grows an approved-tools
-  // endpoint only that function changes.
+  // This table says what the extension can *operate*, never what the employee is
+  // *allowed* to use. Approval is the backend register's answer and nothing here
+  // may second-guess it: background.js resolveTool() asks
+  // GET /api/gateway/tool-status, which folds the org register, this employee's
+  // licence level and their own request history into one verdict.
+  //
+  // `modelSelectors` name the model picker, in the same specific → generic order
+  // as the composer and send selectors, and for the same reason: upstream markup
+  // changes, and reading no model must degrade to "unknown" rather than to a
+  // wrong answer. An unidentified model is never treated as unapproved — see
+  // modelStatus() in the backend store.
+  //
+  // `modelParam` is a URL query parameter that names the model when present. It
+  // is the cheapest and most reliable signal there is, so it is tried first.
+  //
+  // Verifying a picker: open the tool with DevTools and run
+  //   document.querySelector('<selector>')?.innerText
+  // It should print the model name the UI is showing.
   TOOLS: [
     {
       name: 'ChatGPT',
@@ -56,6 +70,12 @@ globalThis.AIP_CONFIG = {
       // actually types into, so a selector change upstream is not fatal.
       selectors: ['#prompt-textarea', 'div[contenteditable="true"]', 'form textarea'],
       sendSelectors: ['#composer-submit-button', 'button[data-testid="send-button"]', 'form button[type="submit"]'],
+      modelParam: 'model',
+      modelSelectors: [
+        '[data-testid="model-switcher-dropdown-button"]',
+        'button[aria-label*="model" i]',
+        'button[aria-haspopup="menu"][id*="model" i]',
+      ],
     },
     {
       name: 'Claude',
@@ -63,6 +83,11 @@ globalThis.AIP_CONFIG = {
       // Also a ProseMirror contenteditable, so writeText()'s insertText path applies.
       selectors: ['div[contenteditable="true"].ProseMirror', 'div[contenteditable="true"]'],
       sendSelectors: ['button[aria-label="Send message"]', 'button[aria-label*="Send" i]', 'fieldset button[type="submit"]'],
+      modelSelectors: [
+        '[data-testid="model-selector-dropdown"]',
+        'button[aria-label*="model" i]',
+        'button[aria-haspopup="listbox"]',
+      ],
     },
     {
       name: 'Gemini',
@@ -70,6 +95,11 @@ globalThis.AIP_CONFIG = {
       // Composer lives inside a <rich-textarea> custom element.
       selectors: ['rich-textarea div[contenteditable="true"]', 'div[contenteditable="true"]'],
       sendSelectors: ['button.send-button', 'button[aria-label*="Send" i]', 'button[mattooltip*="Send" i]'],
+      modelSelectors: [
+        '.gds-mode-switch-button',
+        'button[aria-label*="model" i]',
+        'bard-mode-switcher button',
+      ],
     },
     {
       name: 'DeepSeek',
@@ -115,6 +145,42 @@ globalThis.AIP_CONFIG.matchTool = function matchTool(hostname = '') {
       t.hosts.some(h => host === h || host.endsWith(`.${h}`))
     ) || null
   )
+}
+
+// Which model the tool currently has selected, as the UI writes it — or '' when
+// it cannot be told. Read lazily, at the moment a prompt is about to be sent,
+// rather than watched: a MutationObserver on somebody else's picker would run
+// all session for a value that only matters at send time.
+//
+// Returning '' is a legitimate answer and the common one on tools with no
+// picker. The backend treats an unidentified model as UNKNOWN and lets it
+// through, because the alternative — blocking whenever the register cannot name
+// what it is looking at — punishes the employee for a stale register.
+globalThis.AIP_CONFIG.readModel = function readModel(tool, doc = document, url = location.href) {
+  if (!tool) return ''
+
+  // A model named in the URL is stated rather than inferred, so it wins.
+  if (tool.modelParam) {
+    try {
+      const value = new URL(url).searchParams.get(tool.modelParam)
+      if (value) return String(value).trim()
+    } catch {
+      /* not a parseable URL — fall through to the picker */
+    }
+  }
+
+  for (const sel of tool.modelSelectors || []) {
+    const el = doc.querySelector(sel)
+    // innerText, not textContent: the picker's accessible label and its hidden
+    // menu items are all textContent, and concatenating them produces a string
+    // that matches several models at once.
+    const text = (el?.innerText || '').trim()
+    if (!text) continue
+    // Pickers are short labels. Anything long is the menu, not the selection.
+    const firstLine = text.split('\n')[0].trim()
+    if (firstLine && firstLine.length <= 40) return firstLine
+  }
+  return ''
 }
 
 // Development tracing. Scoped so the three contexts (page, worker, popup) are

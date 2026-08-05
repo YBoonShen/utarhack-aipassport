@@ -3,9 +3,12 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api.js'
-import { MODULES, MODULE_LIST } from '../lib/trainingModules.js'
+import { MODULE_LIST } from '../lib/trainingModules.js'
 import { retryStatus } from '../lib/retryLock.js'
-import { levelState, barXP, nextLevelLabel } from '../lib/levels.js'
+import { levelState, barXP, nextLevelLabel, levelBenefit } from '../lib/levels.js'
+import { useAssignedModules } from '../lib/useTraining.js'
+import { pickCurrentModule } from '../lib/trainingProgress.js'
+import InfoPopover, { InfoList, InfoNote } from '../components/InfoPopover.jsx'
 
 // Stamp title -> module id, used for any stamp that doesn't carry a moduleId of
 // its own, so every stamp's "View training" still opens a real module at Q1.
@@ -22,25 +25,23 @@ function stampModuleId(s) {
   return s.moduleId ?? STAMP_MODULE[s.title] ?? null
 }
 
+// What the card shows before /api/profile answers, and if it never does.
+//
+// This was previously the demo employee's whole passport — their name, licence
+// number, 1,240 points, 21-day streak and three earned stamps — which every
+// other employee's licence rendered until the real one arrived, and kept if the
+// call failed. A licence showing somebody else's stamps is worse than a licence
+// showing none, so the blank state is now genuinely blank: em-dashes where a
+// value is not known yet, and no stamps at all.
 const fallbackProfile = {
-  name: 'Tan Jia Yin', dept: 'Engineering', licenseNo: 'AIP-2026-004173', issued: '02 Jan 2026',
-  level: 2, levelName: 'Navigator', points: 1240, target: 2000, streakDays: 21,
-  promptsProtected: 47, itemsMasked: 12, trainingCompleted: false, moduleCompletions: {}, trainingProgress: {},
-  promptsProtected: 47, itemsMasked: 12, trainingCompleted: false,
-  safety: {
-    score: 80, grade: 'Excellent',
-    factors: [
-      { key: 'streak', label: 'Safe prompt streak', value: 18, detail: '21 days clean' },
-      { key: 'habit', label: 'Clean handling', value: 30, detail: 'No gateway overrides' },
-      { key: 'training', label: 'Training completed', value: 15, detail: '3 verified stamps' },
-      { key: 'progress', label: 'License progress', value: 12, detail: '1,240 / 2,000 pts' },
-    ],
-  },
-  stamps: [
-    { title: 'AI BASICS', moduleId: 3, score: 'PASSED · 100%', date: '04 JAN 2026', shape: 'circle', color: '#078b6c' },
-    { title: 'DATA PRIVACY', moduleId: 1, score: 'PASSED · 100%', date: '11 JAN 2026', shape: 'square', color: '#d92d20' },
-    { title: 'SAFE PROMPTS', moduleId: 2, score: 'PASSED · 92%', date: '25 JAN 2026', shape: 'circle', color: '#365fd9' },
-  ],
+  name: '—', dept: '—', licenseNo: '—', issued: '—',
+  level: 0, points: 0, streakDays: 0,
+  promptsProtected: 0, itemsMasked: 0, trainingCompleted: false,
+  moduleCompletions: {}, trainingProgress: {}, completedModules: [],
+  // Derived by the server (safetyFor in backend/src/store.js) — never a literal
+  // here, which is what made every passport read 80 · Excellent.
+  safety: { score: 0, grade: 'Good' },
+  stamps: [],
 }
 
 const stampRotations = ['rotate-3', '-rotate-6', 'rotate-2', 'rotate-1', '-rotate-2']
@@ -80,10 +81,17 @@ function InkStamp({ s, onClick }) {
 // Matches Figma "Active Overlay / Stamp detail popover" (2nd/3rd stamp variants)
 // "View training" opens this stamp's own module at Question 1 — never a shared
 // default — unless that module's 24h retry lock is still running.
-function StampPopover({ s, completions, progress, onClose }) {
+function StampPopover({ s, completions, progress, assigned, onClose }) {
   const moduleId = stampModuleId(s)
-  const mod = moduleId ? MODULES[moduleId] : null
-  const hasQuestions = Boolean(mod?.questions?.length)
+  // The module as the SERVER describes it for this employee, not the static
+  // lesson content that ships with the frontend. Deciding "can this be opened"
+  // from lib/trainingModules.js meant a stamp earned on an admin-authored
+  // module always said "not available yet" — the module had questions, they
+  // just were not in a file the browser was compiled with. It also offered
+  // "View training" for modules the employee is no longer assigned, which the
+  // server then refused with a 403.
+  const mod = assigned?.find(m => m.id === moduleId) || null
+  const hasQuestions = (mod?.questionCount || 0) > 0
   const lock = retryStatus(moduleId, completions?.[moduleId])
   const record = progress?.[moduleId] || null
   return (
@@ -105,7 +113,7 @@ function StampPopover({ s, completions, progress, onClose }) {
         <p className="text-[#667085] text-sm mt-4">{s.score.replace('PASSED · ', 'Passed ')}&nbsp;&nbsp;·&nbsp;&nbsp;Completed {s.date}</p>
         <p className="text-gold-brand font-medium text-sm mt-2">
           {record
-            ? `${record.pointsEarned} of ${record.modulePoints} XP earned  ·  best result counts`
+            ? `${record.pointsEarned} of ${record.modulePoints} points earned  ·  best result counts`
             : 'Safety points earned  ·  Added to ongoing safety score'}
         </p>
         <p className="text-[#667085] text-[13.5px] mt-3">
@@ -113,11 +121,16 @@ function StampPopover({ s, completions, progress, onClose }) {
             ? lock.locked
               ? `Retaking ${mod.title} unlocks in ${lock.remainingLabel} — available ${lock.availableLabel}.`
               : `Opens ${mod.title} at Question 1.`
-            : 'This module is not available yet — browse the full training list instead.'}
+            // A stamp outlives the assignment that earned it: the module can be
+            // unpublished, or reassigned to somebody else, after it was passed.
+            // The stamp stays on the passport either way — it records something
+            // that happened — but the button has to stop offering a module the
+            // server will refuse.
+            : 'This module is not on your training list at the moment, so it cannot be reopened. Your stamp and its points stay on your passport.'}
         </p>
         {record && record.pointsEarned >= record.modulePoints && (
           <p className="text-[#667085] text-[12px] mt-1.5">
-            You already hold the full {record.modulePoints} XP for this module — retaking it is revision, not extra XP.
+            You already hold the full {record.modulePoints} points for this module — retaking it is revision, not extra points.
           </p>
         )}
         <div className="flex flex-wrap gap-3 mt-6">
@@ -172,6 +185,57 @@ function SafetyRing({ safety }) {
   )
 }
 
+// What the safety card is explaining, in the employee's words.
+//
+// Every line below is a statement the code actually supports, and nothing else:
+//   • the three figures      — db.profile.promptsProtected / itemsMasked /
+//                              streakDays, moved by recordPromptEvent()
+//   • what gets masked       — the detector rules the admin's controls enable
+//                              (server.js runDetection)
+//   • the override penalty   — recordOverride(): streak reset to 0 and 20
+//                              safety points deducted, which is already the
+//                              wording of the notification it sends
+//   • training               — completeTraining(): XP plus a passport stamp
+//
+// There is deliberately no formula, weighting, threshold or percentage here:
+// the codebase does not define one, so stating one would be inventing it.
+const SAFETY_INFO = [
+  {
+    heading: 'What the system records',
+    lines: [
+      ['Prompts protected', 'every prompt the Smart Gateway checked before it left your browser.'],
+      ['Items masked', 'the personal, customer or financial details it replaced with masked tokens — which categories are checked is set by your administrator.'],
+      ['Safe streak', 'consecutive days with no unsafe prompt.'],
+    ],
+  },
+  {
+    heading: 'What moves them',
+    lines: [
+      ['Letting the gateway mask and send', 'costs you nothing — a protected prompt is the system working.'],
+      ['Sending the original anyway', 'at a checkpoint resets your safe streak to zero and deducts 20 safety points. You are notified when this happens.'],
+      ['Completing assigned training', 'adds safety points and a training stamp to your passport.'],
+    ],
+  },
+]
+
+function SafetyInfo() {
+  return (
+    <InfoPopover label="About your AI Safety Score" title="About your AI Safety Score" side="right">
+      <p className="text-[#667085] text-[13px] mt-2 leading-relaxed">
+        It stands for how safely you have been using AI at work. It is your own record only — nothing about your
+        colleagues or your department goes into it.
+      </p>
+      {SAFETY_INFO.map(section => (
+        <InfoList key={section.heading} heading={section.heading} items={section.lines} />
+      ))}
+      <InfoNote title="Keeping it healthy">
+        Send through the Smart Gateway and let it mask what it finds, don&rsquo;t override a checkpoint, and finish the
+        training assigned to you.
+      </InfoNote>
+    </InfoPopover>
+  )
+}
+
 function LockedStamp({ s }) {
   const round = s.shape === 'circle' ? 'rounded-full' : 'rounded-[12px]'
   const size = s.shape === 'circle' ? 'w-[180px] h-[180px]' : 'w-[180px] h-[150px]'
@@ -185,6 +249,9 @@ function LockedStamp({ s }) {
 export default function License() {
   const [profile, setProfile] = useState(fallbackProfile)
   const [openStamp, setOpenStamp] = useState(null)
+  // The same cached snapshot the Training pages read — only the modules an
+  // admin has actually published and assigned to THIS employee.
+  const { modules: assigned, loaded: assignedLoaded } = useAssignedModules()
 
   useEffect(() => {
     let alive = true
@@ -197,23 +264,62 @@ export default function License() {
   // One level calculation for the whole card — band, bar and labels all come
   // from lib/levels.js, so the passport can never disagree with the backend.
   const lvl = levelState(profile)
+  // The passport's own initials — profile.initials for a signed-in employee,
+  // otherwise derived from the name rather than defaulting to the demo one.
+  const initials = profile.initials
+    || String(profile.name || '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+    || '—'
+
+  // Picked with the shared helper, so the licence names the same module the
+  // Training dashboard and the Home card are showing — and, like them, prefers
+  // an attempt already in progress over an untouched one further down the list.
+  const nextTraining = pickCurrentModule(assigned)
+  const trainingPointsEarned = Object.values(profile.trainingProgress || {})
+    .reduce((sum, r) => sum + (r.pointsEarned || 0), 0)
+
   const identityFields = [
     ['NAME', profile.name],
     ['DEPARTMENT', profile.dept],
     ['LICENSE NO.', profile.licenseNo],
     ['DATE ISSUED', profile.issued],
     ['LICENSE CLASS', `Level ${lvl.level} · ${lvl.levelName}`],
-    ['TOTAL XP', `${lvl.totalXP.toLocaleString()} XP`],
+    ['SAFETY POINTS', `${lvl.totalXP.toLocaleString()} pts`],
   ]
   const earnedStamps = profile.stamps.map((s, i) => ({ ...s, rotate: stampRotations[i % stampRotations.length] }))
   const safety = profile.safety || fallbackProfile.safety
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-10 py-6 lg:py-8">
-      <h1 className="text-[26px] lg:text-[30px] font-bold text-navy-header">My AI License</h1>
+      <div className="flex items-center gap-2">
+        <h1 className="text-[26px] lg:text-[30px] font-bold text-navy-header">My AI License</h1>
+        <InfoPopover label="About your AI License" title="About your AI License" tone="light">
+          <p className="text-[#667085] text-[13px] mt-2 leading-relaxed">
+            Your AI License is your level in the AI Passport — how far your safe-use record has taken you, and which AI
+            tools that level lets you request.
+          </p>
+          <InfoList
+            heading="The four levels"
+            items={[
+              ['Level 1 · Trainee', levelBenefit(1)],
+              ['Level 2 · Navigator', levelBenefit(2)],
+              ['Level 3 · Ambassador', levelBenefit(3)],
+              ['Level 4 · Guardian', levelBenefit(4)],
+            ]}
+          />
+          <InfoNote title="How you move up">
+            Safety points, earned by completing assigned training and using AI safely. Enough points move you to the
+            next level; a level you have reached is never taken away.
+          </InfoNote>
+        </InfoPopover>
+      </div>
       <p className="text-[#667085] text-sm mt-1.5 mb-6">Your access, training and safe-use progress — in one trusted record.</p>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_436px] gap-4 lg:gap-6 items-stretch">
+      {/* The side rail was a flat 436px from lg up, which left the passport card
+          about 480px on a 1280 laptop — not enough for its two-column identity
+          grid, so the licence number and dates wrapped mid-value. The rail now
+          takes a narrower share until xl, and minmax(0,1fr) lets the left column
+          actually shrink instead of being held open by its own content. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_436px] gap-4 lg:gap-6 items-stretch">
         {/* Digital AI Passport */}
         <div className="bg-white border-2 border-navy-header rounded-[18px] overflow-hidden flex flex-col">
           <div className="bg-navy-header min-h-14 sm:h-14 flex items-center justify-between gap-3 px-4 sm:px-6 py-2 sm:py-0 shrink-0">
@@ -221,15 +327,20 @@ export default function License() {
             <p className="text-white font-semibold text-[11px] shrink-0">MYS&nbsp;&nbsp;·&nbsp;&nbsp;AIP</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-6 sm:gap-7 px-4 sm:px-7 py-6 flex-1">
+            {/* The photo panel is the same passport it sits on: it was showing
+                JY / TAN JIA YIN / E-217 for every employee, beside a NAME field
+                two columns away that was already correct. */}
             <div className="bg-[#f1eddf] border border-gold-brand rounded-[14px] w-[170px] shrink-0 mx-auto sm:mx-0 flex flex-col items-center pt-12 pb-6">
               <div className="w-[88px] h-[88px] rounded-full bg-[#d8d0b4] flex items-center justify-center">
-                <p className="text-navy-header font-bold text-2xl">JY</p>
+                <p className="text-navy-header font-bold text-2xl">{initials}</p>
               </div>
-              <p className="text-navy-header font-semibold text-sm mt-2.5">TAN JIA YIN</p>
-              <p className="text-[#667085] font-medium text-[10px] tracking-[0.8px] mt-1.5">EMPLOYEE · E-217</p>
+              <p className="text-navy-header font-semibold text-sm mt-2.5 text-center px-2 break-words">{String(profile.name || '—').toUpperCase()}</p>
+              <p className="text-[#667085] font-medium text-[10px] tracking-[0.8px] mt-1.5">EMPLOYEE · {profile.id || '—'}</p>
             </div>
             <div className="flex-1 min-w-0 pt-2">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 lg:gap-x-14 gap-y-4 max-w-[606px]">
+              {/* The 56px column gap only once there is width for it (xl), so a
+                  laptop spends that space on the values themselves. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 xl:gap-x-14 gap-y-4 max-w-[606px]">
                 {identityFields.map(([label, value]) => (
                   <div key={label}>
                     <p className="text-[#8a7d56] font-semibold text-[10px] tracking-[1px]">{label}</p>
@@ -237,8 +348,13 @@ export default function License() {
                   </div>
                 ))}
               </div>
-              <div className="inline-block bg-[#eef2ff] rounded-[8px] px-3 py-1.5 mt-5">
-                <p className="text-[#365fd9] font-medium text-xs">✓&nbsp;&nbsp;Unlocked: ChatGPT, Gemini · Internal non-personal data</p>
+              {/* One fixed line per level, from lib/levels.js — the same
+                  sentence the level-up notification announces. Everyone holding
+                  this level reads exactly this; nothing here is personalised. */}
+              <div className="bg-[#eef2ff] rounded-[8px] px-3 py-1.5 mt-5 inline-block max-w-full">
+                <p className="text-[#365fd9] font-medium text-xs">
+                  ✓&nbsp;&nbsp;Level {lvl.level} unlocked: {levelBenefit(lvl.level)}
+                </p>
               </div>
             </div>
           </div>
@@ -256,33 +372,28 @@ export default function License() {
             </div>
             <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 mt-2">
               <p className="text-navy-header font-medium text-[11px]">Level {lvl.level} · {lvl.levelName}</p>
-              <p className="text-navy-header font-semibold text-xs">{barXP(lvl).toLocaleString()} / {lvl.nextLevelXP.toLocaleString()} XP</p>
+              <p className="text-navy-header font-semibold text-xs">{barXP(lvl).toLocaleString()} / {lvl.nextLevelXP.toLocaleString()} safety points</p>
             </div>
           </div>
         </div>
 
         {/* Side rail */}
         <div className="flex flex-col gap-4">
-          <div className="bg-navy-header rounded-[16px] p-5 sm:p-6">
-            <p className="text-gold-brand font-bold text-[11px] tracking-[1.32px]">THIS MONTH</p>
-            <div className="flex gap-10 sm:gap-16 mt-3">
-              <div>
-                <p className="text-white font-bold text-[30px]">{profile.promptsProtected}</p>
-                <p className="text-[#cbd5e1] text-xs mt-1">prompts protected</p>
-              </div>
-              <div>
-                <p className="text-white font-bold text-[30px]">{profile.itemsMasked}</p>
-                <p className="text-[#cbd5e1] text-xs mt-1">items masked</p>
           <div className="bg-navy-header rounded-[16px] p-6">
-            <div className="flex items-center justify-between">
-              <p className="text-gold-brand font-bold text-[11px] tracking-[1.32px]">AI SAFETY SCORE</p>
-              <span className="text-[#9fb0d4] text-[10px] flex items-center gap-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <p className="text-gold-brand font-bold text-[11px] tracking-[1.32px] truncate">AI SAFETY SCORE</p>
+                <SafetyInfo />
+              </div>
+              <span className="text-[#9fb0d4] text-[10px] flex items-center gap-1.5 shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#34d399]" />live
               </span>
             </div>
-            <div className="flex items-center gap-5 mt-4">
+            {/* 8dp grid: 24px between the ring and the figures beside it, 16px
+                between the figures and the streak chip under them. */}
+            <div className="flex items-center gap-6 mt-4">
               <SafetyRing safety={safety} />
-              <div className="flex-1 flex flex-col gap-3">
+              <div className="flex-1 flex flex-col gap-4">
                 <div className="flex gap-8">
                   <div>
                     <p className="text-white font-bold text-[28px] leading-none">{profile.promptsProtected}</p>
@@ -298,44 +409,64 @@ export default function License() {
                 </div>
               </div>
             </div>
-
-            {/* What builds the score */}
-            <div className="mt-4 pt-4 border-t border-[#1f3b7a] grid grid-cols-2 gap-x-5 gap-y-3">
-              {safety.factors.map(f => (
-                <div key={f.key}>
-                  <div className="flex justify-between items-baseline">
-                    <p className="text-[#cdd7ee] text-[10.5px] font-medium">{f.label}</p>
-                    <p className="text-white text-[10px] font-semibold">+{f.value}</p>
-                  </div>
-                  <div className="h-1.5 bg-[#1f3b7a] rounded-full mt-1.5 overflow-hidden">
-                    <div className="h-full rounded-full bg-gold-brand transition-all duration-700" style={{ width: `${Math.min(100, (f.value / 32) * 100)}%` }} />
-                  </div>
-                  <p className="text-[#8fa1c7] text-[9px] mt-1">{f.detail}</p>
-                </div>
-              ))}
-            </div>
           </div>
+          {/* Next training — this employee's own next outstanding module.
+              The card was hard-wired to module 1: it announced "Spotting
+              personal data in prompts · 5-minute lesson · 3-question quiz" and
+              "Next: Safe AI Tool Selection · available 18 Jul" on every
+              passport, including employees assigned neither, and its button
+              opened the Training dashboard rather than the module it had just
+              named. It now reads the same assigned-module snapshot the Training
+              pages read, and opens that module. */}
           <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-6 flex-1 flex flex-col">
-            {profile.trainingCompleted ? (
+            {nextTraining ? (
+              <>
+                <p className="text-[#8a7d56] font-bold text-[11px] tracking-[1.1px]">NEXT TRAINING · +{nextTraining.points} POINTS</p>
+                <p className="text-navy-header font-semibold text-[19px] mt-2">{nextTraining.title}</p>
+                <p className="text-[#667085] text-[13px] mt-2">
+                  {nextTraining.minutes}-minute lesson&nbsp;&nbsp;·&nbsp;&nbsp;{nextTraining.questionCount}-question quiz
+                </p>
+                <div className="flex-1" />
+                {/* flex-1 above only donates height the card actually has
+                    spare; this margin guarantees the action is never crowded
+                    against the text when the card is short. */}
+                <Link
+                  to={nextTraining.questionCount > 0 ? `/training/quiz/${nextTraining.id}` : '/training'}
+                  className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-full sm:w-[188px] h-12 rounded-full flex items-center justify-center ml-auto lg:ml-0 mt-7"
+                >
+                  Start lesson&nbsp;&nbsp;→
+                </Link>
+              </>
+            ) : assignedLoaded && assigned.length > 0 ? (
               <>
                 <p className="text-[#078b6c] font-bold text-[11px] tracking-[1.1px]">
-                  ✓ TRAINING COMPLETE · {(profile.trainingProgress?.[1]?.pointsEarned ?? MODULES[1].points)} XP EARNED
+                  ✓ TRAINING COMPLETE · {trainingPointsEarned} POINTS EARNED
                 </p>
-                <p className="text-navy-header font-semibold text-[19px] mt-2">Spotting personal data in prompts</p>
-                <p className="text-[#667085] text-[13px] mt-2">Next: Safe AI Tool Selection&nbsp;&nbsp;·&nbsp;&nbsp;available 18 Jul</p>
+                <p className="text-navy-header font-semibold text-[19px] mt-2">
+                  {assigned.length} module{assigned.length === 1 ? '' : 's'} finished
+                </p>
+                <p className="text-[#667085] text-[13px] mt-2">
+                  Nothing outstanding. New training appears here as soon as it is assigned to you.
+                </p>
                 <div className="flex-1" />
-                <Link to="/training" className="border border-navy-header text-navy-header font-semibold text-sm w-[188px] h-12 rounded-full flex items-center justify-center hover:bg-chip ml-auto lg:ml-0">
+                <Link to="/training" className="border border-navy-header text-navy-header font-semibold text-sm w-full sm:w-[188px] h-12 rounded-full flex items-center justify-center hover:bg-chip ml-auto lg:ml-0 mt-7">
                   View training
                 </Link>
               </>
             ) : (
               <>
-                <p className="text-[#8a7d56] font-bold text-[11px] tracking-[1.1px]">NEXT TRAINING · +{MODULES[1].points} XP</p>
-                <p className="text-navy-header font-semibold text-[19px] mt-2">Spotting personal data in prompts</p>
-                <p className="text-[#667085] text-[13px] mt-2">5-minute lesson&nbsp;&nbsp;·&nbsp;&nbsp;3-question quiz</p>
+                <p className="text-[#8a7d56] font-bold text-[11px] tracking-[1.1px]">NEXT TRAINING</p>
+                <p className="text-navy-header font-semibold text-[19px] mt-2">
+                  {assignedLoaded ? 'No training assigned yet' : 'Loading your training…'}
+                </p>
+                <p className="text-[#667085] text-[13px] mt-2">
+                  {assignedLoaded
+                    ? 'Modules appear here as soon as your administrator assigns one to you or to your department.'
+                    : 'Fetching the modules assigned to you.'}
+                </p>
                 <div className="flex-1" />
-                <Link to="/training" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[188px] h-12 rounded-full flex items-center justify-center ml-auto lg:ml-0">
-                  Start lesson&nbsp;&nbsp;→
+                <Link to="/training" className="border border-navy-header text-navy-header font-semibold text-sm w-full sm:w-[188px] h-12 rounded-full flex items-center justify-center hover:bg-chip ml-auto lg:ml-0 mt-7">
+                  View training
                 </Link>
               </>
             )}
@@ -349,7 +480,8 @@ export default function License() {
           <h2 className="text-[22px] font-bold text-navy-header">Training Stamps</h2>
           <p className="text-[#667085] text-xs mt-1">Complete a module to add a verified stamp to your passport.</p>
         </div>
-        <Link to="/training" className="text-[#365fd9] font-semibold text-xs shrink-0">View training&nbsp;&nbsp;→</Link>
+        {/* py/-my pair: a comfortable touch target, same position on the page. */}
+        <Link to="/training" className="text-[#365fd9] font-semibold text-xs shrink-0 py-3 -my-3 inline-flex items-center">View training&nbsp;&nbsp;→</Link>
       </div>
       <div className="bg-white border border-[#d8d0b4] rounded-[16px] mt-4 px-4 sm:px-8 py-8 flex items-center justify-center lg:justify-between flex-wrap gap-6">
         {earnedStamps.map(s => <InkStamp key={s.title} s={s} onClick={() => setOpenStamp(s)} />)}
@@ -361,6 +493,7 @@ export default function License() {
           s={openStamp}
           completions={profile.moduleCompletions}
           progress={profile.trainingProgress}
+          assigned={assigned}
           onClose={() => setOpenStamp(null)}
         />
       )}

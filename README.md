@@ -8,27 +8,11 @@ Four features: a gamified **AI License**, a **Smart Gateway** that masks
 sensitive data ("mask, don't block"), an **Admin Dashboard** with live risk alerts and
 audit log, and an **AI Tool Approval workflow** ("guide, don't punish").
 
-### Signature features (governance depth)
-- **Organisational AI Risk Score** — one board-level number (0–100, lower is better) computed
-  live from open alerts, gateway overrides, shadow-AI exposure and training coverage, with a
-  6-day trend and ROI tiles (exposure value protected, incidents prevented). Resolving an alert
-  or an employee override visibly moves it.
-- **Governance Copilot** — an explainability assistant on every admin screen. Ask "what's our
-  biggest risk?" or "why was this masked?" and it answers from the live audit data, mapping each
-  point to PDPA / NIST AI RMF / EU AI Act. Gemini-powered when a key is set, deterministic
-  analyst otherwise (every reply is labelled — the fallback is never passed off as the model).
-- **One-click AI Compliance Report** — a regulator-ready report built live from the audit log:
-  AI-written executive summary, framework coverage, data-category → control mapping, masked
-  evidence, and a self-contained print/PDF download.
-- **Live Demo Simulator** — a pitch-mode switch that streams synthetic company-wide activity into
-  the backend, so the audit log, KPIs, department chart and risk score all move on their own
-  during a live demo. Never touches the signed-in employee's own profile.
-
 ## Team Members
 - Yeap Boon Shen (@YBoonShen) — Team Leader
 - Lee Jia Yin
 - Muhammad Ikhlas Bin Mohd Faizal
-- Samantha Chan Pei Yin 
+- Samantha Chan Pei Yin
 
 ---
 
@@ -106,9 +90,15 @@ The demo has no real password check — **the email decides which side you see**
 | To open | Type this email | Password |
 |---|---|---|
 | Employee passport | anything, e.g. `jiayin.tan@abcd.com` | anything |
+| A *different* employee | an employee ID, e.g. `e-198@abcd.com` | anything |
 | Admin console | `admin@abcd.com` | anything |
 
 The sign-in form is pre-filled with the employee account, so you can just click **Sign in**.
+
+> **Signing in as a second employee** is what makes the training assignment demo
+> convincing: put the admin console in one window and `e-198@abcd.com` in another,
+> assign a module to E-217, and watch it appear for E-217 and *not* for E-198.
+> The directory IDs are `E-217`, `E-198`, `S-044`, `F-102`, `M-083`, `H-011`, `O-031`.
 
 ## Step 4 — Install the Chrome extension
 
@@ -164,6 +154,49 @@ Sign out, sign in as `admin@abcd.com`, and look at:
 Sign back in as an employee and open **Training** → complete a module quiz. Your XP,
 level and stamps update on the **License** page — and they survive a restart.
 
+### E. Assign a training and watch it arrive
+
+1. As admin, open **Training modules**. Module 5 (*AI Tools at Work*) ships as a draft —
+   click **Publish**.
+2. Click **Edit questions** on it. The saved questions are listed with their answers;
+   click one to change its wording or its correct answer, then **Confirm training
+   module**. Nothing is saved until you confirm. A module holds at most **40** questions.
+3. Click **Assign →**, pick **Employee**, tick `E-217`, confirm.
+4. In another window, sign in as `jiayin.tan@abcd.com` (that is E-217). The module is
+   on **Training** immediately, and the notification bell has a **Start training** quick
+   action that opens it.
+5. Sign in as `e-198@abcd.com` instead: no notification, the module is not listed, and
+   opening `/training/quiz/5` directly is refused — the refusal is recorded in the
+   admin **Audit Log** as a `DENIED` event.
+
+Everything an admin does — publish, hide, edit questions, assign, decide a tool request,
+change the policy — appears in the Audit Log within a couple of seconds, without
+refreshing the page.
+
+### F. Trigger a real risk alert (2 minutes)
+
+Open **Admin → Risk Alerts** in one window and the employee **Smart Gateway** in another.
+
+**Repeated identifiers.** Paste this into the Gateway and send it three times:
+```
+Draft a reminder for customer Lim, IC 880505-10-5566, about the order
+```
+- Sends 1 and 2 raise **nothing** — a masked prompt is the system working.
+- Send 3 raises one **MEDIUM** alert, and the employee gets a notification first.
+- Sends 4 and 5 **escalate that same card to HIGH**. No second card ever appears.
+
+**Unapproved tool.** In the Gateway's *Sending to* row, pick **DeepSeek** (marked ⚠ —
+it has no visa). A **MEDIUM** alert appears immediately, the employee is told which
+tool and where to request a visa, and the prompt is still protected — nothing is
+blocked. Picking it again does not add a second card.
+
+Then close the loop: **Tool Approvals → approve SummarizerX** and the register stops
+flagging it. Or on the alert, **Assign training** opens the assignment wizard already
+on the employee the alert is about.
+
+With the Chrome extension loaded, opening <https://deepseek.com> does the same thing —
+the extension shows its standing "not approved" banner *and* the admin gets the alert.
+
 ## If something goes wrong
 
 | Problem | Fix |
@@ -208,20 +241,14 @@ which source ran. Never commit `.env` — it is gitignored.
 
 ## Tests
 
-Layer-1 regex, Layer-2 names, XP progression, extension rule sync and compliance-report wiring:
+Layer-1 regex, Layer-2 names, XP progression, extension rule sync, compliance-report
+wiring, the training assignment/access rules (question limit, department resolution,
+who can open what, no duplicate notifications) and the risk-alert rules (thresholds,
+escalation instead of duplication, per-employee isolation):
 ```bash
 cd backend
-npm test          # detection unit tests — 7 Layer-1 + 5 Layer-2 cases
-npm run benchmark # accuracy on the 100-prompt labelled set (target ≥ 90%)
+npm test
 ```
-
-### Troubleshooting
-| Problem | Fix |
-|---|---|
-| `cd backend` → *"cannot find the path"* / `ENOENT ...package.json` | You're in the wrong folder. `cd utarhack-aipassport` first, then `cd backend`. |
-| `EADDRINUSE: address already in use :::5001` (or `:5173`) | An old server is still running. Close it, or on Windows PowerShell: `Get-NetTCPConnection -LocalPort 5001,5173 -State Listen \| Select -Expand OwningProcess \| ForEach { Stop-Process -Id $_ -Force }` |
-| Page loads but data is blank / "Backend not running" | Make sure Terminal 1 (backend) is running on port 5001. |
-| Want to reset the demo data | Restart the backend (`Ctrl+C`, then `npm run dev`) — state is in‑memory. |
 
 ## Detection — two layers
 - **Layer 1 (regex, always on):** Malaysian IC, passport numbers, phone numbers, emails,
@@ -244,6 +271,12 @@ npm run benchmark # accuracy on the 100-prompt labelled set (target ≥ 90%)
 | POST   | /api/auth/login            | `{ role }` → demo session (email decides role in the UI) |
 | POST   | /api/detect                | `{ prompt }` → `{ masked, detections, layer2, mode }` — two-layer scan; logs audit + applies XP rules (clean +2, masked +0) |
 | POST   | /api/detect/backfill       | `{ events }` — audit records the extension held during a gateway outage; re-scanned, deduped by id, recorded with `offline: true`, no XP |
+| POST   | /api/gateway/tool-use      | `{ tool, model? }` — an employee reached a tool. Approved ones answer quietly; anything else writes an audit event and raises a risk alert |
+| GET    | /api/gateway/tool-status   | `?tool=&model=&host=` → the whole verdict without recording anything: this employee's access, the model's status, the mode that really applies and approved alternatives |
+| POST   | /api/gateway/model-use     | `{ tool, model }` — the employee switched model inside an approved tool |
+| GET    | /api/tools                 | The approved-tool register |
+| GET    | /api/tools/mine            | The register folded for the signed-in employee — the same access verdict the gateway enforces |
+| POST   | /api/tools/model-status    | Admin — approve, unapprove or withdraw one model without touching its tool |
 | POST   | /api/gateway/override      | Warn-only mode "send original": −20 XP, streak reset, High alert |
 | GET    | /api/profile               | Employee E-217 license: total XP, level + band, per-module `trainingProgress`, streak, stamps, counters |
 | GET    | /api/progression           | Level table + the employee's XP breakdown per training module (admin view) |
@@ -251,7 +284,14 @@ npm run benchmark # accuracy on the 100-prompt labelled set (target ≥ 90%)
 | POST   | /api/quiz/answer           | `{ question, correct }` — records the answer (first attempt only); earns no XP by itself |
 | GET    | /api/quiz/results          | Attempt score + this module's stored progress record |
 | POST   | /api/training/complete     | Settles the module's XP (best result wins), stamp + notification, `{ award, levelUp }` |
-| GET    | /api/notifications         | Employee notifications (`/:id/read`, `/:id/delete`, `/:id/restore`) |
+| GET    | /api/training/library      | Admin — every module with its questions, plus assignment records |
+| POST   | /api/training/modules      | Admin — create a module (max 40 questions, validated server-side) |
+| PUT    | /api/training/modules/:id  | Admin — save an edited question set in one write |
+| POST   | /api/training/modules/:id/status | Admin — publish (`live`) or hide (`draft`) |
+| GET/POST | /api/training/assignments | Admin — assignment records; POST assigns and notifies the recipients |
+| GET    | /api/training/mine         | Employee — only the modules assigned to *them* |
+| GET    | /api/training/mine/:id     | Employee — one module with its questions; 403 if not assigned |
+| GET    | /api/notifications         | The signed-in employee's notifications (`/:id/read`, `/:id/delete`, `/:id/restore`) |
 | GET    | /api/visas                 | Tool requests (`POST /api/visas/apply`, `POST /api/visas/:id/decision`) |
 | GET    | /api/alerts                | Risk alerts (`POST /api/alerts/:id/resolve` to resolve) |
 | POST   | /api/review-request        | Public transparency portal → creates an admin risk alert |
@@ -259,18 +299,117 @@ npm run benchmark # accuracy on the 100-prompt labelled set (target ≥ 90%)
 | GET    | /api/stats                 | Admin KPIs — single source of truth for all screens |
 | GET    | /api/report                | One-click compliance report totals, derived from the audit log (period baseline + everything recorded since) |
 | GET/PUT| /api/settings              | Gateway policy — Mask / Warn only / Block really applies |
-| GET    | /api/risk                  | Organisational AI Risk Score — score, band, factors, 6-day trend, ROI metrics |
-| POST   | /api/copilot               | `{ question }` → Governance Copilot answer grounded in live data (`source`: gemini/offline) |
-| GET    | /api/copilot/suggestions   | Suggested copilot questions |
-| GET    | /api/report                | Compliance report data — risk, KPIs, framework coverage, control mapping, evidence |
-| GET    | /api/report/summary        | AI-written executive summary (`source`: gemini/offline) |
-| GET/POST| /api/simulate             | Live demo simulator — `POST { on }` toggles synthetic activity injection |
-| POST   | /api/reset                 | Reset demo data (also stops the simulator) |
+| POST   | /api/reset                 | Reset demo data |
 
 Demo state (audit feed, alerts, counters) is **in-memory** and reseeds on restart.
-The **progression slice** — total XP, the per-module training records and stamps —
-is written to `backend/data/progress.json`, so an employee's XP survives a refresh,
-a re-login, a different device and a server restart. `POST /api/reset` clears it.
+The **durable slice** — every employee's XP, per-module training records and stamps,
+plus the training library, its assignment records and the notifications they produced —
+is written to `backend/data/progress.json`, so an assignment and an employee's XP both
+survive a refresh, a re-login, a different device and a server restart.
+`POST /api/reset` clears it.
+
+## Risk alerts: what raises one, and at what level
+
+The rules and their thresholds live in `backend/src/risk.js`, and the Risk Alerts
+screen states the rubric so the queue can be explained rather than just read.
+
+| Level | Means | Answer within |
+|---|---|---:|
+| **HIGH** | Protected data left the organisation, or a pattern repeated past the point where guidance is enough | 4h |
+| **MEDIUM** | The gateway held — nothing escaped — but the behaviour needs a refresher | 24h |
+| **MONITORING** | A trend with no individual responsible | 72h |
+
+| Rule | Raises | Escalates to HIGH |
+|---|---|---|
+| **Repeated identifiers** — the same *kind* of identifier masked repeatedly for one employee inside a 15-minute window | MEDIUM at 3 | at 5 |
+| **Unapproved tool** — an employee opens a tool with no active visa | MEDIUM | HIGH if the tool is SUSPENDED |
+| **Tool above licence level** — the tool is approved, the employee's AI License is not high enough for it | MEDIUM | — |
+| **Unapproved model** — the tool is approved, the selected model is not | MEDIUM | HIGH if the model is SUSPENDED |
+| **Checkpoint override** — Warn-only mode, "send original anyway" | HIGH immediately | — |
+| **Human review requested** — from the public transparency portal | HIGH | — |
+
+Two properties hold across all of them:
+
+- **A single protected prompt is never an alert.** The gateway masking something is
+  the system working; alerting on it would teach an admin to ignore the queue. Only a
+  *pattern* is raised.
+- **A pattern that continues escalates the alert it already has.** It never opens a
+  second one — a queue holding the same finding five times is the same failure as no
+  queue at all. The `×N` on a card is that finding's own evidence count.
+
+The approved-tool register (`db.orgTools`) is the single authority on what is
+approved. Approving a visa on Tool Approvals is what moves a tool into it, and that is
+what stops the gateway flagging it — the decision and its effect cannot drift apart.
+The Chrome extension asks the same register (`GET /api/gateway/tool-status`) rather than
+assuming, and falls back to the last verdict it saw when the gateway is unreachable.
+
+## Unapproved tools: what actually happens
+
+Approval does **not** decide whether a tool opens. It decides what the tool is allowed
+to *receive*. Blocking the website outright is the one response the case study rules out —
+it pushes the usage somewhere nothing can see it, and a browser extension cannot enforce
+it anyway. So the site opens and ordinary work is untouched; only company data is held
+back.
+
+| | Clean prompt | Sensitive prompt |
+|---|---|---|
+| **Approved** tool + model | sent untouched | masked, then sent |
+| **Unapproved** tool or model | sent untouched | **refused**, with approved alternatives named |
+| Data the tool is **not cleared for** (`blockOn`) | sent untouched | **refused**, whatever the tool's status |
+| **Suspended** tool | sent untouched | refused — and the panel says stop, not "be careful" |
+
+`risk.js` → `effectiveMode()` is the one place this is decided, and every rule in it can
+only ever *tighten* the org's policy. A tool's own settings can never loosen what an admin
+set, so this can never become the reason something leaked.
+
+Approval is also per employee, not only per organisation: `toolAccessFor()` folds the
+register's status, the employee's AI License level (`minLevel`) and their own request
+history into one verdict — `active · locked · review · declined · suspended · unreviewed`.
+The employee's AI Tools page and the gateway both read it, so the page cannot show a tool
+as approved while the checkpoint refuses the prompt.
+
+## Model-level approval
+
+A greenlit tool is not a greenlit catalogue. Register entries carry a `models` list with
+its own status per model, so **Claude can be approved while Fable 5 on it is not**.
+Withdrawing a model is a different admin action from suspending its tool
+(`POST /api/tools/model-status` vs `/api/tools/suspend`) — the whole point being that
+refusing one model leaves every approved model on that tool working.
+
+The extension reads the selected model at send time, from the URL parameter when the tool
+has one and otherwise from the model picker's label (`modelSelectors` in
+`extension/config.js`, ordered specific → generic like every other selector there).
+
+**A model the register cannot identify is `UNKNOWN`, never unapproved.** Platforms rename
+models constantly and the extension is reading somebody else's UI label, so blocking on
+"we could not tell" would punish the employee for a register that is a week out of date.
+That means model-level restriction is best-effort by construction: it is enforced at the
+checkpoint, not at the network, and an "auto"/router mode cannot promise which model
+actually served a request.
+
+## Training: one set of records, two views
+
+The training library and its assignment records live on the backend, not in browser
+storage, and both sides read the same rows:
+
+| Fact | Admin sees it as | Employee sees it as |
+|---|---|---|
+| module id | the row on Training modules | the module on their Training page |
+| `status: live` | "Live · visible to employees" | the module appears at all |
+| assignment record | "assigned to N" | the module is on their list, and a notification arrives |
+| `questions[]` | the question editor | the assessment they sit |
+
+Because there is one set of records, "published and assigned" and "the employee can open
+it" cannot disagree. Access is decided by `canAccessModule()` on the server, so an
+unassigned employee gets a 403 from a direct URL or a hand-made API call — and the
+refusal is written to the audit log as a `DENIED` event. A module is playable the moment
+it has questions; there is no separate content flag that can leave an assigned module
+permanently on "coming soon".
+
+Each employee's identity is stated by the browser (`X-AIP-User`) and re-validated against
+the directory on every request — the seam a Firebase ID token replaces. It is what lets
+an admin console and an employee passport be open at the same time without the later
+sign-in redefining who the earlier one is.
 
 ## AI License progression
 XP is earned, accumulated and turned into a level in exactly one place:

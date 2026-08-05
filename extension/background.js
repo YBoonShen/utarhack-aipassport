@@ -183,34 +183,128 @@ async function flushQueue() {
 
 // ---- approved tools --------------------------------------------------------
 
-// Resolves whether a tool is approved for this employee. /api/visas holds visa
-// *requests*, so a decision there wins; otherwise the tool table in config.js
-// applies. Replace this body when the backend exposes an approved-tools list —
-// nothing else in the extension needs to change.
-async function resolveTool(toolName) {
+// Two different questions, deliberately two different calls.
+//
+//   resolveTool()  — "where does this employee stand, and what applies here?"
+//                    A question. GET, cached, safe to ask as often as anything
+//                    needs to know. Asking used to POST, which meant opening the
+//                    popup wrote an audit event about a use that never happened.
+//
+//   reportToolUse() — "they are on it." An event. POST, once per arrival, and
+//                    the thing that turns "the extension knew" into a risk alert
+//                    an admin can act on.
+//
+// The register is the authority for both: the same list an admin curates on Tool
+// Approvals, folded with this employee's licence level and their own request
+// history, so the extension never forms a second opinion about approval.
+
+const POLICY_KEY = 'aipPolicy' // last good verdict per tool, for offline
+const POLICY_TTL_MS = 60_000
+
+const policyCache = new Map() // toolName -> { at, policy }
+
+// Everything the checkpoint needs about where a prompt is heading: this
+// employee's standing, the selected model's standing, the mode that really
+// applies and which approved tools to offer instead.
+//
+// Offline it answers from the last verdict this browser saw, and if there has
+// never been one it answers "approved". That direction is deliberate: a gateway
+// that cannot be reached must never be the reason an employee cannot work, and
+// the checkpoint still masks with the local rules either way.
+async function resolveTool(toolName, model = '') {
   const known = CFG.TOOLS.find(t => t.name === toolName) || null
   if (!known) return { approved: false, reason: 'unknown', tool: null }
 
-  try {
-    const visas = await callApi('/visas')
-    const decision = visas.find(v => v.tool === toolName)
-    if (decision && ['DECLINED', 'REDIRECTED'].includes(decision.status)) {
-      return { approved: false, reason: 'declined', tool: known, request: decision }
-    }
-  } catch {
-    /* offline — fall through to the configured tool table */
+  const cached = policyCache.get(toolName)
+  if (cached && !model && Date.now() - cached.at < POLICY_TTL_MS) {
+    return { ...cached.policy, tool: known, cached: true }
   }
-  return { approved: true, reason: 'approved', tool: known }
+
+  const query = new URLSearchParams({ tool: toolName })
+  if (model) query.set('model', model)
+
+  try {
+    const policy = await callApi(`/gateway/tool-status?${query}`)
+    const resolved = {
+      approved: Boolean(policy.approved),
+      access: policy.access,
+      reason: policy.access,
+      explain: policy.explain,
+      mode: policy.mode,
+      orgMode: policy.orgMode,
+      tightened: Boolean(policy.tightened),
+      model: policy.model,
+      approvedModels: policy.approvedModels || [],
+      alternatives: policy.alternatives || [],
+      blockOn: policy.blockOn || [],
+      online: true,
+    }
+    // Only the tool-level verdict is cached. A model-specific answer is about a
+    // picker the employee can change between two prompts.
+    if (!model) {
+      policyCache.set(toolName, { at: Date.now(), policy: resolved })
+      await chrome.storage.local.set({ [POLICY_KEY]: { ...(await readPolicyStore()), [toolName]: resolved } })
+    }
+    return { ...resolved, tool: known }
+  } catch (err) {
+    noteApiFailure(err)
+  }
+
+  const stored = (await readPolicyStore())[toolName]
+  if (stored) {
+    CFG.log('tool', `gateway unreachable — using the last known verdict for ${toolName}`)
+    return { ...stored, tool: known, online: false, cached: true }
+  }
+  // Never seen this tool answered. Fail open, and say so.
+  return { approved: true, access: 'active', reason: 'gateway-unreachable', tool: known, online: false, alternatives: [] }
+}
+
+async function readPolicyStore() {
+  const stored = await chrome.storage.local.get(POLICY_KEY)
+  return stored[POLICY_KEY] || {}
+}
+
+// The arrival itself. Separate from resolving so that asking a question can
+// never write a record. The backend de-duplicates per employee + tool per hour,
+// so re-arming the checkpoint on a navigation cannot fill the queue.
+async function reportToolUse(toolName, model = '') {
+  try {
+    const seen = await postJson('/gateway/tool-use', { tool: toolName, ...(model ? { model } : {}) })
+    if (seen.policy) {
+      const resolved = {
+        approved: Boolean(seen.policy.approved),
+        access: seen.policy.access,
+        reason: seen.policy.access,
+        explain: seen.policy.explain,
+        mode: seen.policy.mode,
+        orgMode: seen.policy.orgMode,
+        tightened: Boolean(seen.policy.tightened),
+        approvedModels: seen.policy.approvedModels || [],
+        alternatives: seen.policy.alternatives || [],
+        blockOn: seen.policy.blockOn || [],
+        online: true,
+      }
+      policyCache.set(toolName, { at: Date.now(), policy: resolved })
+      await chrome.storage.local.set({ [POLICY_KEY]: { ...(await readPolicyStore()), [toolName]: resolved } })
+    }
+    return seen
+  } catch (err) {
+    noteApiFailure(err)
+    return { __error: String(err?.message || err) }
+  }
 }
 
 // ---- message handling ------------------------------------------------------
 
 const handlers = {
   // While-typing check. `preview` means the backend runs detection but records
-  // no audit event, no counters and no points.
-  async AIP_DETECT({ prompt, tool }) {
+  // no audit event, no counters and no points. `model` travels with it so the
+  // returned mode is the one that will really apply — a warning that says
+  // "you'll be asked to mask this" when the answer is "this cannot go here" is
+  // worse than no warning.
+  async AIP_DETECT({ prompt, tool, model }) {
     try {
-      return await postJson('/detect', { prompt, tool, preview: true })
+      return await postJson('/detect', { prompt, tool, model, preview: true })
     } catch (err) {
       noteApiFailure(err)
       throw err
@@ -219,9 +313,9 @@ const handlers = {
 
   // The employee chose to protect and send: this is the real event, recorded in
   // the existing audit log exactly like a prompt sent from /gateway.
-  async AIP_COMMIT({ prompt, tool }) {
+  async AIP_COMMIT({ prompt, tool, model }) {
     try {
-      return await postJson('/detect', { prompt, tool })
+      return await postJson('/detect', { prompt, tool, model })
     } catch (err) {
       noteApiFailure(err)
       throw err
@@ -261,8 +355,26 @@ const handlers = {
     return refreshState(Boolean(force))
   },
 
-  async AIP_TOOL({ tool }) {
-    return resolveTool(tool)
+  // Resolve only — never records. Safe for the popup and for re-checking on
+  // every send.
+  async AIP_TOOL({ tool, model }) {
+    return resolveTool(tool, model || '')
+  },
+
+  // The employee arrived on a tool. This is the recorded event.
+  async AIP_TOOL_USE({ tool, model }) {
+    return reportToolUse(tool, model || '')
+  },
+
+  // The employee changed model inside an approved tool. Recorded on its own so
+  // an admin sees the switch even when no prompt follows it.
+  async AIP_MODEL_USE({ tool, model }) {
+    try {
+      return await postJson('/gateway/model-use', { tool, model })
+    } catch (err) {
+      noteApiFailure(err)
+      return { __error: String(err?.message || err) }
+    }
   },
 
   // The employee's own Smart Gateway events, for the popup's Recent activity.

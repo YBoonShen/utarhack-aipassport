@@ -7,14 +7,14 @@
 // anything else signs in as the employee. Firebase Auth later.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login, SIGN_IN_UNAVAILABLE } from '../lib/api.js'
+import { login, logFailure, SIGN_IN_UNAVAILABLE } from '../lib/api.js'
 import { useToast } from '../components/Toast.jsx'
 
 const panelCopy = {
   signin: {
     kicker: 'WELCOME BACK',
     title: 'One trusted sign-in for safer AI work.',
-    body: 'Access your AI license, training, visas and protected tools from one secure account.',
+    body: 'Access your AI License, training, AI tools and safe-use record from one secure account.',
   },
   forgot: {
     kicker: 'ACCOUNT RECOVERY',
@@ -117,14 +117,19 @@ export default function Auth() {
     setError(null)
     try {
       const role = email.trim().toLowerCase().startsWith('admin') ? 'admin' : 'employee'
-      const u = await login(role)
+      // The email also selects which directory employee signs in — the server
+      // resolves it, so a reviewer can be E-217 in one window and E-198 in
+      // another and watch an assignment reach exactly one of them.
+      const u = await login(role, email.trim())
       setUser(u)
       setView('success')
-    } catch {
-      // Deliberately says nothing about *why*. On a sign-in form the reason is
-      // the one thing an unauthenticated visitor must not be handed — neither
-      // the state of the infrastructure nor, in a real auth backend, whether
-      // this email exists.
+    } catch (err) {
+      // The screen deliberately says nothing about *why*. On a sign-in form the
+      // reason is the one thing an unauthenticated visitor must not be handed —
+      // neither the state of the infrastructure nor, in a real auth backend,
+      // whether this email exists. The actual error goes to the console, which
+      // is where the person debugging it is looking.
+      logFailure('sign-in', err)
       setError(SIGN_IN_UNAVAILABLE)
     } finally {
       setBusy(false)
@@ -139,7 +144,8 @@ export default function Auth() {
       const u = await login('admin')
       setUser(u)
       setView('success')
-    } catch {
+    } catch (err) {
+      logFailure('SSO sign-in', err)
       setError(SIGN_IN_UNAVAILABLE)
     } finally {
       setBusy(false)

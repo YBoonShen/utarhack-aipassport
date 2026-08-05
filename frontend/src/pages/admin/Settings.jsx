@@ -9,7 +9,7 @@ import { api } from '../../lib/api.js'
 const categories = [
   { key: 'gateway', title: 'Gateway policy', sub: 'Protection mode and data types' },
   { key: 'data', title: 'Data & retention', sub: 'Storage and deletion' },
-  { key: 'tools', title: 'Approved tools', sub: 'Tool and visa defaults' },
+  { key: 'tools', title: 'Approved tools', sub: 'Tool access defaults' },
   { key: 'notifications', title: 'Notifications', sub: 'Alerts and escalation' },
   { key: 'roles', title: 'Roles & access', sub: 'Admin permissions' },
   { key: 'integrations', title: 'Integrations', sub: 'Directory and reporting' },
@@ -18,7 +18,7 @@ const categories = [
 const sectionMeta = {
   gateway: { title: 'Gateway policy', subtitle: 'Choose how AI Passport responds when sensitive content is detected.', badge: 'ACTIVE' },
   data: { title: 'Data & retention', subtitle: 'Control what is stored, for how long, and how records are deleted.', badge: 'ENFORCED' },
-  tools: { title: 'Approved tools', subtitle: 'Set default visa rules and the data each approved AI tool may receive.', badge: 'CONFIGURED' },
+  tools: { title: 'Approved tools', subtitle: 'Set default tool access rules and the data each approved AI tool may receive.', badge: 'CONFIGURED' },
   notifications: { title: 'Notifications', subtitle: 'Decide how critical events are delivered and escalated.', badge: 'ACTIVE' },
   roles: { title: 'Roles & access', subtitle: 'Control who can change policy and how access is protected.', badge: 'ENFORCED' },
   integrations: { title: 'Integrations', subtitle: 'Connect trusted enterprise systems while keeping sync health and ownership visible.', badge: 'HEALTHY' },
@@ -153,7 +153,7 @@ export default function Settings() {
   const [retention, setRetention] = useState('90 days')
   const [auditFields, setAuditFields] = useState({ maskedPrompt: true, toolAction: true, deptContext: true })
   const [encExports, setEncExports] = useState(true)
-  const [approvalPolicy, setApprovalPolicy] = useState('Visa required')
+  const [approvalPolicy, setApprovalPolicy] = useState('Approval required')
   const [safeguards, setSafeguards] = useState({ vendorReview: true, dataUse: true, inactiveReview: true })
   const [channels, setChannels] = useState({ 'Admin Console': true, Email: true, Teams: true })
   const [alertEvents, setAlertEvents] = useState({ highRisk: true, unapproved: true, overdue: true, milestone: true })
@@ -332,8 +332,8 @@ export default function Settings() {
           {section === 'tools' && (
             <>
               <Card title="Default approval policy">
-                <p className="text-[#667085] text-[11px] mt-1">Unlisted tools require a visa before organisation data can be used.</p>
-                <Pills options={['Visa required', 'Block unlisted', 'Allow review']} value={approvalPolicy} onChange={setApprovalPolicy} />
+                <p className="text-[#667085] text-[11px] mt-1">Unlisted tools need approval before organisation data can be used.</p>
+                <Pills options={['Approval required', 'Block unlisted', 'Allow review']} value={approvalPolicy} onChange={setApprovalPolicy} />
               </Card>
 
               <div className="grid grid-cols-2 gap-5 mt-5">
@@ -344,13 +344,13 @@ export default function Settings() {
                 </Card>
                 <Card title="Review safeguards">
                   <ToggleRow i={0} title="Vendor security review" sub="Required before approval" on={safeguards.vendorReview} onToggle={() => setSafeguards(s => ({ ...s, vendorReview: !s.vendorReview }))} />
-                  <ToggleRow i={1} title="Data-use declaration" sub="Categories shown on each visa" on={safeguards.dataUse} onToggle={() => setSafeguards(s => ({ ...s, dataUse: !s.dataUse }))} />
+                  <ToggleRow i={1} title="Data-use declaration" sub="Categories shown on each approved tool" on={safeguards.dataUse} onToggle={() => setSafeguards(s => ({ ...s, dataUse: !s.dataUse }))} />
                   <ToggleRow i={2} title="Inactive tool review" sub="Reassess after 90 days" on={safeguards.inactiveReview} onToggle={() => setSafeguards(s => ({ ...s, inactiveReview: !s.inactiveReview }))} />
                   <p className="text-[#d97706] font-semibold text-[11px] mt-3">2 tool requests awaiting decision</p>
                 </Card>
               </div>
 
-              <NavyNote kicker="LEAST PRIVILEGE" title="Every visa states permitted data" body="Employees see the approved purpose and data categories before opening a tool." />
+              <NavyNote kicker="LEAST PRIVILEGE" title="Every approved tool states permitted data" body="Employees see the approved purpose and data categories before opening a tool." />
             </>
           )}
 

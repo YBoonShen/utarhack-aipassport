@@ -11,26 +11,47 @@
 // paste a shell command, which is the shape of a real attack pattern and not a
 // habit a security product should be teaching.
 //
-// So the developer detail is kept for development and nothing else.
-// `import.meta.env.DEV` is replaced at build time, so the branch below is
-// eliminated from a production bundle — the hint is not merely hidden from the
-// page, it is not in the shipped JavaScript to be found.
-const DEV_HINT = ' (dev: is the backend running? cd backend && npm run dev)'
+// The two channels are therefore kept apart, and neither one is weakened for the
+// other's sake:
+//   • the screen gets a plain sentence about what happened and what to do next;
+//   • the console gets the whole error, for whoever is actually debugging it.
+// No user-facing string carries a command, a path, a status code or a stack.
 
-// Pre-auth. Says only that the attempt could not be completed, and points at
-// the person who can actually help — no infrastructure, no instructions.
-export const SIGN_IN_UNAVAILABLE =
-  'Sign-in is unavailable right now. Please try again in a moment, or contact your IT administrator.' +
-  (import.meta.env.DEV ? DEV_HINT : '')
+// Pre-auth. Says only that the attempt could not be completed — no
+// infrastructure, no instructions, and in a real auth backend no hint as to
+// whether the account exists.
+export const SIGN_IN_UNAVAILABLE = 'Sign-in is temporarily unavailable. Please try again in a moment.'
 
 // Post-auth. The reader is a known employee, so it can be a little warmer, but
 // it still describes the effect rather than the architecture.
-export const SERVICE_UNAVAILABLE =
-  'We could not reach the service just now. Nothing was sent. Please try again in a moment.' +
-  (import.meta.env.DEV ? DEV_HINT : '')
+export const SERVICE_UNAVAILABLE = 'We could not reach the service just now. Nothing was sent. Please try again in a moment.'
 
-async function request(path, options) {
-  const res = await fetch(`/api${path}`, options)
+/**
+ * The developer half of a failure: the real error, in the console, where only
+ * somebody with devtools open will read it. Callers pair this with one of the
+ * user-facing strings above — never with the error itself.
+ */
+export function logFailure(scope, error) {
+  console.error(`[AI Passport] ${scope} failed`, error)
+}
+
+// Who this tab is signed in as, stated on every request. The server validates
+// it against its own directory before believing any of it — this is not a
+// credential, it is the seam a Firebase ID token slots into later. It exists
+// because the backend has to answer two browsers at once (an admin console and
+// an employee passport) without the later sign-in redefining who the earlier
+// one is: notifications, assigned training and the quiz all hang off it.
+function identityHeaders() {
+  const user = currentUser()
+  if (!user) return {}
+  return { 'X-AIP-Role': user.role, 'X-AIP-User': user.id }
+}
+
+async function request(path, options = {}) {
+  const res = await fetch(`/api${path}`, {
+    ...options,
+    headers: { ...identityHeaders(), ...(options.headers || {}) },
+  })
   if (!res.ok) {
     // Keep the status and payload — callers such as the 24h retry lock need the
     // details the server sent with the error (e.g. 423 + retryAvailableAt).
@@ -70,8 +91,11 @@ export function currentUser() {
   }
 }
 
-export async function login(role) {
-  const user = await api.post('/auth/login', { role })
+// The email decides both the role and, for an employee, which directory record
+// signs in — so the same demo can show a training reaching one employee and not
+// another. The server resolves it; this only passes it on.
+export async function login(role, email) {
+  const user = await api.post('/auth/login', { role, email })
   localStorage.setItem(KEY, JSON.stringify(user))
   return user
 }
@@ -89,8 +113,9 @@ export async function restoreSession() {
   if (!user) return null
   try {
     const { user: live } = await request('/auth/session')
-    if (live?.role === user.role) return live
-    return await api.post('/auth/login', { role: user.role })
+    if (live?.role === user.role && live?.id === user.id) return live
+    // Same tab, different identity on the shared session — re-assert this one.
+    return await api.post('/auth/login', { role: user.role, email: user.id })
   } catch {
     return null // backend down; the local session is unaffected
   }

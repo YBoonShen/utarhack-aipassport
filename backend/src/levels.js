@@ -2,10 +2,15 @@
 // server. Every place that needs a level, a band or a progress percentage calls
 // levelFor(); nothing recomputes thresholds on its own.
 //
-//   Level 1 · Trainee        0 – 500
-//   Level 2 · Navigator    501 – 2,000
-//   Level 3 · Ambassador 2,001 – 4,000
-//   Level 4 · Guardian   4,001 – 8,000   ← maximum. There is no Level 5.
+//   Level 1 · Trainee        0 –   499
+//   Level 2 · Navigator    500 – 1,999
+//   Level 3 · Ambassador 2,000 – 3,999
+//   Level 4 · Guardian   4,000 – 8,000   ← maximum. There is no Level 5.
+//
+// `max` is the EXCLUSIVE top of the band, which is the same number as the next
+// level's threshold: reaching exactly 500 is Navigator, not the last point of
+// Trainee. That is also the number the progress bar counts up to, so a bar
+// reading "1,244 / 2,000" fills when Ambassador is actually reached.
 //
 // The frontend mirror is frontend/src/lib/levels.js — the same table, so the UI
 // can still render a level for its offline fallback profile. Change one, change
@@ -13,9 +18,9 @@
 
 export const LEVELS = [
   { level: 1, name: 'Trainee', min: 0, max: 500 },
-  { level: 2, name: 'Navigator', min: 501, max: 2000 },
-  { level: 3, name: 'Ambassador', min: 2001, max: 4000 },
-  { level: 4, name: 'Guardian', min: 4001, max: 8000 },
+  { level: 2, name: 'Navigator', min: 500, max: 2000 },
+  { level: 3, name: 'Ambassador', min: 2000, max: 4000 },
+  { level: 4, name: 'Guardian', min: 4000, max: 8000 },
 ]
 
 export const MAX_LEVEL = LEVELS[LEVELS.length - 1].level
@@ -44,12 +49,25 @@ export const LEVEL_BENEFITS = {
  *   nextLevelName           — the level unlocked past nextLevelXP (null at max)
  *   xpToNext                — XP still needed to cross into the next level
  *   progressPercentage      — progress *within* the current band, 0–100
+ *   learningPercentage      — total XP as a share of the next level's threshold
  *   isMaxLevel              — true at Level 4 (no further level exists)
  *   isMaxXP                 — true once the 8,000 XP ceiling is reached
+ *
+ * progressPercentage and learningPercentage answer two different questions and
+ * are deliberately both kept:
+ *   • progressPercentage — "how far through Level 2 am I?"  (xp - min) / span.
+ *     A newly promoted Navigator reads 0%.
+ *   • learningPercentage — "how far am I toward the points that unlock the next
+ *     level?"  xp / max. This is the figure the Learning Progress card shows,
+ *     and it is the same arithmetic as the "1,240 / 2,000 safety points" line
+ *     printed beside every progress bar — so the percentage can be checked
+ *     against the two numbers next to it instead of being taken on trust.
  */
 export function levelFor(totalXP, stickyLevel = 0) {
   const xp = Math.max(0, Math.round(Number(totalXP) || 0))
-  const earned = LEVELS.find(l => xp <= l.max) || LEVELS[LEVELS.length - 1]
+  // `< max`, not `<=`: max is the next level's threshold, so hitting it exactly
+  // is already the next level.
+  const earned = LEVELS.find(l => xp < l.max) || LEVELS[LEVELS.length - 1]
   const level = Math.min(MAX_LEVEL, Math.max(earned.level, Number(stickyLevel) || 0))
   const band = LEVELS[level - 1]
   const next = LEVELS[level] || null
@@ -66,11 +84,29 @@ export function levelFor(totalXP, stickyLevel = 0) {
     currentLevelXP: band.min,
     nextLevelXP: band.max,
     nextLevelName: next ? next.name : null,
-    // The next level unlocks one point past the band ceiling (2,000 is still
-    // Navigator, 2,001 is Ambassador) — so "to go" counts to max + 1.
-    xpToNext: next ? Math.max(0, band.max + 1 - xp) : 0,
+    // The next level unlocks AT the band ceiling (2,000 is Ambassador), so
+    // "to go" counts to max exactly.
+    xpToNext: next ? Math.max(0, band.max - xp) : 0,
     progressPercentage,
+    learningPercentage: learningPercentageFor(xp, band.max, isMaxXP),
     isMaxLevel: band.level === MAX_LEVEL,
     isMaxXP,
   }
+}
+
+/**
+ * Learning progress: current safety points ÷ the points that unlock the next
+ * level, × 100.
+ *
+ * Floored rather than rounded, and held at 99 until the threshold is actually
+ * crossed. That is the level-up boundary: 1,999 of 2,000 points rounds to 100%
+ * but is not a level-up, and a bar sitting on "100% complete" while the
+ * employee is still a Navigator is the one thing this number must never say.
+ * 100 is reserved for the XP ceiling, where there is genuinely nothing left.
+ */
+function learningPercentageFor(xp, threshold, isMaxXP) {
+  if (isMaxXP) return 100
+  if (!threshold || threshold <= 0) return 100
+  const raw = (xp / threshold) * 100
+  return Math.max(0, Math.min(99, Math.floor(raw)))
 }

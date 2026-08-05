@@ -63,7 +63,7 @@ const RISK_FACTORS = [
 const riskByTool = {
   SummarizerX: { dataSensitivity: 8, vendorTransparency: 5, externalRetention: 7, modelType: 4, userPopulation: 6, humanOversight: 3 },
   MeetingMind: { dataSensitivity: 7, vendorTransparency: 6, externalRetention: 6, modelType: 5, userPopulation: 5, humanOversight: 4 },
-  'CodePilot Pro': { dataSensitivity: 9, vendorTransparency: 4, externalRetention: 6, modelType: 6, userPopulation: 4, humanOversight: 2 },
+  'GitHub Copilot': { dataSensitivity: 9, vendorTransparency: 4, externalRetention: 6, modelType: 6, userPopulation: 4, humanOversight: 2 },
   TranslateAI: { dataSensitivity: 3, vendorTransparency: 5, externalRetention: 4, modelType: 4, userPopulation: 5, humanOversight: 3 },
 }
 const DEFAULT_RISK = { dataSensitivity: 6, vendorTransparency: 7, externalRetention: 6, modelType: 5, userPopulation: 5, humanOversight: 5 }
@@ -96,6 +96,37 @@ const stageLabels = ['Submitted', 'Security', 'Compliance', 'Decision']
 // Shown until GET /tools answers (and if the backend is offline), so the vendor
 // security card keeps its Figma content instead of blinking out.
 const FALLBACK_FLAGGED = { name: 'Fable 5', vendor: 'Claude', status: 'ACTIVE', flag: 'Security team flagged a breach' }
+
+/**
+ * The flagged thing the vendor security card acts on.
+ *
+ * Fable 5 used to be registered as a *tool* whose vendor was "Claude", which
+ * made the only available response "suspend the whole vendor". It is a model on
+ * an approved tool, so the card now finds it either way: a flagged tool if there
+ * is one, otherwise a flagged model, carrying the tool it belongs to so the
+ * action can be scoped to the model alone.
+ */
+function findFlagged(tools) {
+  const tool = tools.find(t => t.flag)
+  if (tool) return { kind: 'tool', name: tool.name, vendor: tool.vendor, status: tool.status, flag: tool.flag, tool, suspendedOn: tool.suspendedOn }
+
+  for (const t of tools) {
+    const model = (t.models || []).find(m => m.flag)
+    if (model) {
+      return {
+        kind: 'model',
+        name: model.label,
+        vendor: t.name,
+        status: model.status,
+        flag: model.flag,
+        tool: t,
+        model,
+        suspendedOn: model.suspendedOn,
+      }
+    }
+  }
+  return null
+}
 
 // The score line plus the info icon that opens the factor breakdown beside it.
 // Closes on click-outside and Escape; remounted per request so switching
@@ -192,9 +223,10 @@ export default function ToolApprovals() {
     return () => { alive = false; clearInterval(t) }
   }, [archived])
 
-  // The vendor-flagged tool the security card acts on, with its org-wide status.
-  const flagged = tools.find(t => t.flag) || FALLBACK_FLAGGED
+  // The vendor-flagged tool *or model* the security card acts on.
+  const flagged = findFlagged(tools) || FALLBACK_FLAGGED
   const flaggedSuspended = flagged.status === 'SUSPENDED'
+  const flaggedIsModel = flagged.kind === 'model'
 
   const visible = requests.filter(r => !archived.has(r.id))
   const sel = visible.find(r => r.id === selectedId)
@@ -227,23 +259,34 @@ export default function ToolApprovals() {
   // Suspend the flagged tool for the whole organisation. Nothing is written
   // until the admin confirms here; the backend rejects a second suspension, so
   // the card can only ever record the action once.
+  // Suspending a *model* is a different action from suspending its tool, and
+  // the difference is the whole point: withdrawing Fable 5 must not stop the
+  // organisation using Claude. The card picks the endpoint that matches what it
+  // is actually looking at.
   async function confirmSuspend() {
     if (suspending || flaggedSuspended) return
     setSuspending(true)
     setSuspendError('')
     try {
-      const res = await api.post('/tools/suspend', { tool: flagged.name })
+      const res = flaggedIsModel
+        ? await api.post('/tools/model-status', {
+          tool: flagged.tool.name, model: flagged.model.id, status: 'SUSPENDED',
+        })
+        : await api.post('/tools/suspend', { tool: flagged.name })
       setTools(res.tools)
       setConfirming(false)
-      setActionResult({ tool: res.tool.name, eventId: res.event.id })
-      toast(`${res.tool.name} has been suspended organisation-wide`)
+      const label = flaggedIsModel ? res.model.label : res.tool.name
+      setActionResult({ tool: label, eventId: res.event.id, model: flaggedIsModel })
+      toast(flaggedIsModel
+        ? `${label} has been withdrawn — ${res.tool.name} itself is unaffected`
+        : `${label} has been suspended organisation-wide`)
     } catch (err) {
       if (err.status === 409) {
         // Already suspended elsewhere — resync the card instead of writing again.
-        setSuspendError(`${flagged.name} is already suspended organisation-wide.`)
+        setSuspendError(`${flagged.name} is already suspended.`)
         api.get('/tools').then(setTools).catch(() => {})
       } else {
-        setSuspendError('The organisation-wide suspension could not be completed. Please try again.')
+        setSuspendError('The suspension could not be completed. Please try again.')
       }
     } finally {
       setSuspending(false)
@@ -271,7 +314,10 @@ export default function ToolApprovals() {
     <div>
       <div>
         <h1 className="text-[28px] font-bold text-[#17213a]">Tool Approvals</h1>
-        <p className="text-[#667085] text-sm mt-1.5">Review new AI tools quickly while keeping data use and vendor risk explicit.</p>
+        <p className="text-[#667085] text-sm mt-1.5">
+          Tool approval is the decision on an employee&rsquo;s request for tool access. Approving one adds the tool to
+          their AI Tools list; declining it suggests an alternative. Either way they are notified.
+        </p>
       </div>
 
       {/* KPI cards */}
@@ -292,22 +338,28 @@ export default function ToolApprovals() {
             Flips to the suspended state once the tool is suspended org-wide. */}
         <div className={`rounded-[14px] px-3.5 py-2.5 border-[1.5px] flex flex-col ${flaggedSuspended ? 'bg-[#f3f4f6] border-[#98a2b3]' : 'bg-[#fceded] border-[#c72929]'}`}>
           <p className={`font-bold text-[11px] ${flaggedSuspended ? 'text-[#667085]' : 'text-[#c72929]'}`}>
-            {flaggedSuspended ? '■  ORG-WIDE STATUS: SUSPENDED' : '⚠  VENDOR SECURITY ALERT · ACTIVE'}
+            {flaggedSuspended
+
+              ? (flaggedIsModel ? "■  MODEL WITHDRAWN" : "■  ORG-WIDE STATUS: SUSPENDED")
+
+              : (flaggedIsModel ? "⚠  MODEL SECURITY ALERT · ACTIVE" : "⚠  VENDOR SECURITY ALERT · ACTIVE")}
           </p>
           <p className="font-bold text-[16px] text-[#0a204f] mt-1">{flagged.name} · {flagged.vendor}</p>
           <p className={`text-[9px] mt-0.5 ${flaggedSuspended ? 'text-[#667085]' : 'text-[#804d4d]'}`}>
-            {flaggedSuspended ? `Suspended for all employees${flagged.suspendedOn ? ` · ${flagged.suspendedOn}` : ''}` : flagged.flag}
+            {flaggedSuspended
+              ? `${flaggedIsModel ? `Withdrawn · ${flagged.vendor} still approved` : 'Suspended for all employees'}${flagged.suspendedOn ? ` · ${flagged.suspendedOn}` : ''}`
+              : flagged.flag}
           </p>
           {flaggedSuspended ? (
             <button disabled className="bg-[#e4e7ec] text-[#667085] font-semibold text-[12px] rounded-full h-[30px] px-4 mt-1.5 self-end flex items-center justify-center cursor-default">
-              Suspended
+              {flaggedIsModel ? 'Withdrawn' : 'Suspended'}
             </button>
           ) : (
             <button
               onClick={() => { setSuspendError(''); setConfirming(true) }}
               className="bg-[#c72929] hover:bg-[#a91f1f] text-white font-semibold text-[12px] rounded-full h-[30px] px-4 mt-1.5 self-end flex items-center justify-center cursor-pointer"
             >
-              Suspend org-wide&nbsp;&nbsp;→
+              {flaggedIsModel ? 'Withdraw model' : 'Suspend org-wide'}&nbsp;&nbsp;→
             </button>
           )}
         </div>
@@ -318,9 +370,10 @@ export default function ToolApprovals() {
         <div className="bg-[#e9f8f2] border border-[#078b6c] rounded-[12px] px-4 py-3 mt-4 flex items-start gap-3">
           <span className="w-7 h-7 rounded-full bg-[#078b6c] text-white text-sm font-bold flex items-center justify-center shrink-0">✓</span>
           <div className="flex-1">
-            <p className="text-[#17213a] font-bold text-[13px]">Tool suspended</p>
+            <p className="text-[#17213a] font-bold text-[13px]">{actionResult.model ? 'Model withdrawn' : 'Tool suspended'}</p>
             <p className="text-[#0a5f4a] text-xs mt-0.5">
-              Action completed: {actionResult.tool} suspended organisation-wide. Recorded in the audit log as {actionResult.eventId}.
+              Action completed: {actionResult.tool} {actionResult.model ? 'withdrawn — the tool itself stays approved' : 'suspended organisation-wide'}.
+              Recorded in the audit log as {actionResult.eventId}.
             </p>
           </div>
           <Link to="/admin/audit-log" className="text-[#078b6c] font-semibold text-xs underline shrink-0 mt-0.5">View in audit log</Link>
@@ -470,20 +523,39 @@ export default function ToolApprovals() {
                 <span className="text-[#c72929] font-bold text-2xl">!</span>
               </div>
               <div className="flex-1">
-                <p className="text-[#c72929] font-bold text-xs">ADMINISTRATIVE ACTION · ORGANISATION-WIDE</p>
-                <p className="text-[#0a1733] font-bold text-2xl mt-1.5">Suspend {flagged.name} organisation-wide?</p>
+                <p className="text-[#c72929] font-bold text-xs">
+                  ADMINISTRATIVE ACTION · {flaggedIsModel ? 'ONE MODEL' : 'ORGANISATION-WIDE'}
+                </p>
+                <p className="text-[#0a1733] font-bold text-2xl mt-1.5">
+                  {flaggedIsModel
+                    ? `Withdraw ${flagged.name} from ${flagged.vendor}?`
+                    : `Suspend ${flagged.name} organisation-wide?`}
+                </p>
               </div>
               <button onClick={closeConfirm} className="w-10 h-10 rounded-full border border-sand text-navy text-xl leading-none cursor-pointer hover:bg-chip shrink-0" aria-label="Close">×</button>
             </div>
 
             <p className="text-[#5c6b87] text-sm mt-5">
-              This will suspend this AI tool for all employees in the organisation. Are you sure you want to continue?
+              {flaggedIsModel
+                ? `This withdraws one model. ${flagged.vendor} stays approved and every other model on it keeps working. Are you sure you want to continue?`
+                : 'This will suspend this AI tool for all employees in the organisation. Are you sure you want to continue?'}
             </p>
 
             <div className="bg-[#f0f5ff] rounded-[12px] px-4 py-4 mt-4 space-y-1.5">
-              <p className="text-[#0a1733] text-xs">• Every employee loses access — {flagged.name} shows as suspended on their visa list.</p>
-              <p className="text-[#0a1733] text-xs">• {flagged.name} can no longer be used or requested while the suspension is in place.</p>
-              <p className="text-[#0a1733] text-xs">• The action is recorded in the audit log against your admin account.</p>
+              {flaggedIsModel ? (
+                <>
+                  <p className="text-[#0a1733] text-xs">• {flagged.vendor} is <strong>not</strong> suspended — employees keep using it on approved models.</p>
+                  <p className="text-[#0a1733] text-xs">• Prompts containing company or customer data are no longer sent to {flagged.name}.</p>
+                  <p className="text-[#0a1733] text-xs">• Employees selecting it are told which models to use instead.</p>
+                  <p className="text-[#0a1733] text-xs">• The action is recorded in the audit log against your admin account.</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-[#0a1733] text-xs">• Every employee loses access — {flagged.name} shows as blocked in their AI Tools list.</p>
+                  <p className="text-[#0a1733] text-xs">• {flagged.name} can no longer be used or requested while the suspension is in place.</p>
+                  <p className="text-[#0a1733] text-xs">• The action is recorded in the audit log against your admin account.</p>
+                </>
+              )}
             </div>
 
             {suspendError && (

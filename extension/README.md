@@ -194,10 +194,29 @@ never sent silently, and the tool is never left unusable.
   internal document updates — setting `textContent` alone would leave ChatGPT
   holding the original prompt. If OpenAI changes the editor, the fallback path
   in `content.js` → `writeText()` is where to look.
-- **Approved tools** fall back to the `TOOLS` table because `/api/visas` returns
-  visa *requests*, not an approved-tool list. `background.js` → `resolveTool()`
-  already honours a `DECLINED`/`REDIRECTED` decision from that API and is the
-  single function to change when the backend exposes the real list.
+- **Approval is the backend's answer, never this table's.** `config.js` → `TOOLS`
+  says only which sites the checkpoint can *operate* on. `background.js` →
+  `resolveTool()` asks `GET /api/gateway/tool-status`, which folds the org
+  register, the employee's AI License level and their own request history into
+  one verdict, and returns the mode that really applies plus approved
+  alternatives. Resolving and recording are deliberately separate calls: asking
+  the question used to POST a tool-use, so opening the popup wrote an audit event
+  about a use that never happened.
+- **An unapproved tool is not blocked.** The site opens and clean prompts are
+  untouched; what changes is that the gateway policy tightens to Block for
+  sensitive ones, and the panel names an approved alternative. Blocking the site
+  outright would push the usage out of the audit log's sight, which is the one
+  outcome the whole product exists to avoid.
+- **Model selection** is read at send time — `config.js` → `readModel()`, using
+  `modelParam` (a URL query parameter) first and then `modelSelectors`. Read
+  lazily rather than watched with a MutationObserver: the value only matters at
+  the instant a prompt is sent, and a standing observer on somebody else's picker
+  would run all session for it. Reading nothing is a normal answer, and the
+  backend treats an unidentified model as UNKNOWN rather than unapproved.
+- **Checking a model picker.** Same recipe as the composer: open the tool with
+  DevTools and run `document.querySelector('<selector>')?.innerText`. It should
+  print the model name the UI is showing. If every selector misses, the checkpoint
+  simply has no model to report — it never guesses.
 - **Protection follows the dashboard session.** The extension has no login of its
   own; it reads `/api/auth/session`. That session is in-memory on the backend, so
   a backend restart drops it — the dashboard re-asserts it on load

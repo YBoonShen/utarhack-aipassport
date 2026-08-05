@@ -45,13 +45,13 @@ export default function LevelUpOverlay({ level, levelName, totalXP, onClose }) {
 
         <div className="bg-navy-mid rounded-[14px] px-4 py-3.5 mt-5 text-left">
           <div className="flex justify-between gap-3">
-            <p className="text-gold-brand font-semibold text-[11px]">TOTAL XP</p>
-            <p className="text-white font-semibold text-[11px]">{totalXP.toLocaleString()} XP</p>
+            <p className="text-gold-brand font-semibold text-[11px]">TOTAL SAFETY POINTS</p>
+            <p className="text-white font-semibold text-[11px]">{totalXP.toLocaleString()} points</p>
           </div>
           <div className="flex justify-between gap-3 mt-2">
             <p className="text-[#cbd5e1] text-[11px]">{isMax ? 'Progression ceiling' : `${band.name} band`}</p>
             <p className="text-[#cbd5e1] text-[11px]">
-              {isMax ? `${MAX_XP.toLocaleString()} XP · maximum level` : `${band.min.toLocaleString()} – ${band.max.toLocaleString()} XP`}
+              {isMax ? `${MAX_XP.toLocaleString()} points · maximum level` : `${band.min.toLocaleString()} – ${band.max.toLocaleString()} points`}
             </p>
           </div>
         </div>

@@ -2,6 +2,7 @@
 // Full-page master–detail layout: Inbox list on the left, detail panel on the
 // right, red delete-confirmation overlay (permanent delete).
 import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useNotifications } from '../components/notificationsStore.jsx'
 
 function DeleteConfirm({ n, onCancel, onConfirm }) {
@@ -36,6 +37,7 @@ function DeleteConfirm({ n, onCancel, onConfirm }) {
 
 export default function Notifications() {
   const { items, markRead, remove } = useNotifications()
+  const navigate = useNavigate()
   const [selectedId, setSelectedId] = useState(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
 
@@ -60,7 +62,7 @@ export default function Notifications() {
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-10 py-6 lg:py-8">
       <h1 className="text-[26px] lg:text-[30px] font-bold text-navy-header">Notifications</h1>
-      <p className="text-[#667085] text-sm mt-1.5 mb-6">Review updates about your training, visas, safety progress and Smart Gateway activity.</p>
+      <p className="text-[#667085] text-sm mt-1.5 mb-6">Review updates about your training, AI tools, safety progress and Smart Gateway activity.</p>
 
       <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 lg:gap-6 items-start">
         {/* Inbox */}
@@ -90,6 +92,19 @@ export default function Notifications() {
                   </div>
                   <p className="text-navy font-semibold text-sm mt-2">{n.title}</p>
                   <p className="text-slate2 text-[11px] mt-1 leading-relaxed line-clamp-2">{n.body}</p>
+                  {/* The quick action is on the list row as well as in the
+                      detail panel — a new training is one tap from the inbox. */}
+                  {n.action && (
+                    <span
+                      role="link"
+                      tabIndex={0}
+                      onClick={e => { e.stopPropagation(); markRead(n.id); navigate(n.action.to) }}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); markRead(n.id); navigate(n.action.to) } }}
+                      className="inline-flex items-center mt-2 py-3 -my-3 text-[#2e5ccc] font-semibold text-[11px] cursor-pointer hover:underline"
+                    >
+                      {n.action.label} →
+                    </span>
+                  )}
                 </button>
               )
             })}
@@ -112,7 +127,7 @@ export default function Notifications() {
 
             <div className="bg-[#edf2ff] rounded-[14px] p-4.5 mt-6">
               <p className="text-navy font-semibold text-base mb-1 px-0.5">Details</p>
-              {selected.facts.map(([k, v], i) => (
+              {(selected.facts || []).map(([k, v], i) => (
                 <div key={k} className={`flex justify-between gap-4 py-2.5 px-0.5 ${i > 0 ? 'border-t border-sand' : ''}`}>
                   <span className="text-slate2 text-[13px] font-medium shrink-0">{k}</span>
                   <span className="text-navy text-[13px] font-semibold text-right">{v}</span>
@@ -125,7 +140,17 @@ export default function Notifications() {
               <p className="text-slate2 text-xs">Only approved, masked information appears in notifications.</p>
             </div>
 
-            <div className="flex justify-end mt-6">
+            <div className="flex flex-wrap justify-end gap-3 mt-6">
+              {/* Quick action — the shortest path from "you have new training"
+                  to actually opening it. It goes straight to the module. */}
+              {selected.action && (
+                <Link
+                  to={selected.action.to}
+                  className="bg-gold hover:bg-gold-dark text-navy text-sm font-semibold px-8 h-12 rounded-full inline-flex items-center mr-auto"
+                >
+                  {selected.action.label} →
+                </Link>
+              )}
               <button
                 onClick={() => setDeleteOpen(true)}
                 className="border border-red-alert text-red-alert text-sm font-semibold px-8 h-12 rounded-full cursor-pointer hover:bg-red-50"

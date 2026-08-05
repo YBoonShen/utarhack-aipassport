@@ -85,7 +85,15 @@ export default function AdminSidebar() {
       <div className="hidden lg:block flex-1" />
       {/* shrink-0 on both: whatever the window height, the identity block keeps
           its size and the nav above does the giving. */}
-      <button onClick={() => setLogoutOpen(true)} className="text-[#cbd5e1] text-[11px] px-1.5 mt-3 lg:mt-0 mb-0 lg:mb-3 text-left cursor-pointer hover:text-white shrink-0">← Log out</button>
+      {/* Same place, same size, same action — but bounded, so it reads as a
+          control rather than a caption. The border is the sidebar's own white
+          at low opacity, so it stays quiet against the navy. */}
+      <button
+        onClick={() => setLogoutOpen(true)}
+        className="inline-flex items-center gap-1.5 self-start h-8 px-3 rounded-full border border-white/25 text-[#cbd5e1] text-[11px] font-semibold mt-3 lg:mt-0 mb-0 lg:mb-3 cursor-pointer hover:bg-white/10 hover:text-white hover:border-white/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-brand transition-colors shrink-0"
+      >
+        <span aria-hidden="true">←</span>Log out
+      </button>
       {/* Identity card is desktop chrome — hidden on phones to keep the strip short. */}
       <div className="bg-[#173976] rounded-[12px] p-3 hidden lg:flex items-center gap-3 shrink-0">
         <div className="w-9 h-9 rounded-full bg-gold-brand flex items-center justify-center text-navy-header font-bold text-[11px]">AD</div>

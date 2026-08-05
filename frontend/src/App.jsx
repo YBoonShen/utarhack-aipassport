@@ -15,11 +15,13 @@ import TrainingQuiz from './pages/TrainingQuiz.jsx'
 import TrainingResults from './pages/TrainingResults.jsx'
 import Visas from './pages/Visas.jsx'
 import Notifications from './pages/Notifications.jsx'
+import Activity from './pages/Activity.jsx'
 import Transparency from './pages/Transparency.jsx'
 import Extension from './pages/Extension.jsx'
 import AdminOverview from './pages/AdminOverview.jsx'
 import AdminTraining from './pages/admin/AdminTraining.jsx'
 import AssignTraining from './pages/admin/AssignTraining.jsx'
+import EditQuestions from './pages/admin/EditQuestions.jsx'
 import RiskAlerts from './pages/admin/RiskAlerts.jsx'
 import AuditLog from './pages/admin/AuditLog.jsx'
 import AuditReport from './pages/admin/AuditReport.jsx'
@@ -41,7 +43,7 @@ function HomeRedirect() {
 }
 
 // `role` defaults to employee. Pass role={null} for pages the admin may also
-// open directly (e.g. My Visas, to see how a decision looks to the employee).
+// open directly (e.g. AI Tools, to see how a decision looks to the employee).
 function EmployeePage({ children, role = 'employee' }) {
   return (
     <RequireRole role={role}>
@@ -74,8 +76,13 @@ export default function App() {
           <Route path="/training/modules" element={<EmployeePage><TrainingModules /></EmployeePage>} />
           <Route path="/training/quiz/:moduleId" element={<EmployeePage><TrainingQuiz /></EmployeePage>} />
           <Route path="/training/results/:moduleId" element={<EmployeePage><TrainingResults /></EmployeePage>} />
-          <Route path="/visas" element={<EmployeePage role={null}><Visas /></EmployeePage>} />
+          {/* AI Tools — the page formerly called "My Visas". /visas stays as a
+              redirect: notifications written before the rename are persisted on
+              disk with that link, and so are any bookmarks. */}
+          <Route path="/tools" element={<EmployeePage role={null}><Visas /></EmployeePage>} />
+          <Route path="/visas" element={<Navigate to="/tools" replace />} />
           <Route path="/notifications" element={<EmployeePage><Notifications /></EmployeePage>} />
+          <Route path="/activity" element={<EmployeePage><Activity /></EmployeePage>} />
 
           {/* Public — no login required */}
           <Route path="/transparency" element={<Transparency />} />
@@ -86,6 +93,8 @@ export default function App() {
             <Route index element={<AdminOverview />} />
             <Route path="training" element={<AdminTraining />} />
             <Route path="training/assign" element={<AssignTraining />} />
+            {/* Training module → question list → edit a question → confirm */}
+            <Route path="training/:moduleId/questions" element={<EditQuestions />} />
             <Route path="risk-alerts" element={<RiskAlerts />} />
             <Route path="audit-log" element={<AuditLog />} />
             <Route path="audit-report" element={<AuditReport />} />

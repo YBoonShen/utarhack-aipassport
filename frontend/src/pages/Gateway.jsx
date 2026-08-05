@@ -1,7 +1,12 @@
 // 02 Employee · Prompt Protection Modal — matches Figma frame "02 Employee • Prompt Protection Modal".
 // LIVE demo: POST /api/detect really masks the prompt before the Checkpoint modal opens.
-import { useState } from 'react'
-import { SERVICE_UNAVAILABLE } from '../lib/api.js'
+//
+// The tool selector is what makes the unapproved-tool rule demonstrable without
+// installing the Chrome extension. Picking a tool tells the gateway where the
+// prompt is heading, exactly as the extension does when it arms the checkpoint
+// on a page — and a tool with no visa raises the same risk alert either way.
+import { useEffect, useState } from 'react'
+import { api, logFailure, SERVICE_UNAVAILABLE } from '../lib/api.js'
 
 // Render masked text with [MASKED-*] tokens as green protected chips, like the Figma
 function ProtectedText({ text }) {
@@ -21,6 +26,9 @@ function ProtectedText({ text }) {
   )
 }
 
+// Shown until GET /tools answers, so the picker is never empty.
+const FALLBACK_TOOLS = [{ name: 'AI Assistant', vendor: 'Internal', status: 'APPROVED' }]
+
 export default function Gateway() {
   const [prompt, setPrompt] = useState('')
   const [result, setResult] = useState(null) // { masked, detections } -> modal open
@@ -29,17 +37,33 @@ export default function Gateway() {
   const [showWhy, setShowWhy] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [tools, setTools] = useState(FALLBACK_TOOLS)
+  const [tool, setTool] = useState('AI Assistant')
+
+  // The approved-tool register — the same list the admin curates on Tool
+  // Approvals, so what counts as approved here is never a second opinion.
+  useEffect(() => {
+    let alive = true
+    api.get('/tools').then(t => alive && t.length && setTools(t)).catch(() => {})
+    return () => { alive = false }
+  }, [])
+
+  const selected = tools.find(t => t.name === tool) || FALLBACK_TOOLS[0]
+  const unapproved = selected.status !== 'APPROVED'
+
+  // Choosing a tool is the event: it tells the gateway where prompts are about
+  // to go. An unapproved one is recorded and alerted on immediately, before any
+  // prompt is typed — which is the point, since the alert is about the tool.
+  function chooseTool(name) {
+    setTool(name)
+    api.post('/gateway/tool-use', { tool: name }).catch(err => logFailure('tool check', err))
+  }
 
   async function send() {
     if (!prompt.trim() || loading) return
     setLoading(true); setError(null)
     try {
-      const res = await fetch('/api/detect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      })
-      const data = await res.json()
+      const data = await api.post('/detect', { prompt, tool })
       if (data.detections && data.detections.length > 0) {
         setCheckedPrompt(prompt)
         setResult(data)
@@ -47,7 +71,10 @@ export default function Gateway() {
       } else {
         deliver(prompt)
       }
-    } catch {
+    } catch (err) {
+      // Same split as sign-in: the employee is told the prompt was not sent, the
+      // console keeps the reason it was not.
+      logFailure('prompt check', err)
       setError(SERVICE_UNAVAILABLE)
     } finally {
       setLoading(false)
@@ -57,12 +84,12 @@ export default function Gateway() {
   // Warn-only mode: sending the original is allowed but penalised (-20, streak reset)
   async function sendOriginal() {
     try {
-      await fetch('/api/gateway/override', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: checkedPrompt }),
-      })
-    } catch { /* offline */ }
+      await api.post('/gateway/override', { prompt: checkedPrompt })
+    } catch (err) {
+      // The override still goes through for the employee; only the record of it
+      // is lost, which is a developer's problem and not a message for them.
+      logFailure('override record', err)
+    }
     deliver(checkedPrompt, 0)
   }
 
@@ -110,13 +137,51 @@ export default function Gateway() {
 
       {/* Chat area */}
       <div className="flex-1 min-w-0 flex flex-col px-4 sm:px-10 lg:px-20">
-        <div className="text-center pt-9 pb-5 border-b border-[#d0d5dd]">
-          <p className="text-navy-header font-bold text-2xl">AI Assistant</p>
+        <div className="pt-7 pb-4 border-b border-[#d0d5dd]">
+          <p className="text-navy-header font-bold text-2xl text-center">{selected.name}</p>
+          {/* Which tool the prompt is heading for. Approved tools are neutral;
+              anything without a visa is marked here and on the admin's queue. */}
+          <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
+            <span className="text-[#667085] text-[11px] font-semibold">SENDING TO</span>
+            {tools.map(t => {
+              const active = t.name === tool
+              const ok = t.status === 'APPROVED'
+              return (
+                <button
+                  key={t.name}
+                  onClick={() => chooseTool(t.name)}
+                  title={`${t.vendor} · ${t.status}`}
+                  className={`text-[11px] font-semibold px-3 py-1.5 rounded-full cursor-pointer border ${
+                    active
+                      ? ok ? 'bg-navy-header border-navy-header text-white' : 'bg-[#d97706] border-[#d97706] text-white'
+                      : ok ? 'bg-white border-[#d0d5dd] text-[#344054] hover:border-navy-header' : 'bg-[#fff5de] border-[#e8c877] text-[#8a6410] hover:border-[#d97706]'
+                  }`}
+                >
+                  {t.name}
+                  {!ok && <span className="ml-1.5">⚠</span>}
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         <div className="flex-1 flex flex-col gap-4 py-8 overflow-y-auto">
+          {/* Guide, don't punish: the tool is not blocked and the prompt is
+              still protected — the employee is told what is missing and how to
+              fix it, and the same finding reaches the admin's queue. */}
+          {unapproved && (
+            <div className="bg-[#fff5de] border border-[#e8c877] rounded-[12px] px-4 py-3 self-center max-w-[560px]">
+              <p className="text-[#8a6410] font-semibold text-[13px]">{selected.name} is not an approved tool</p>
+              <p className="text-[#8a6410] text-xs mt-1">
+                It has no approved access, so there are no agreed terms for what it does with company data. Your prompts are
+                still protected by the Smart Gateway. Request tool access from AI Tools before putting company data in it.
+              </p>
+            </div>
+          )}
           {messages.length === 0 && (
-            <p className="text-[#667085] text-base text-center mt-40">Start a conversation with your approved AI tool.</p>
+            <p className="text-[#667085] text-base text-center mt-32">
+              {unapproved ? 'Pick an approved tool, or request access for this one.' : 'Start a conversation with your approved AI tool.'}
+            </p>
           )}
           {messages.map((m, i) =>
             m.role === 'user' ? (

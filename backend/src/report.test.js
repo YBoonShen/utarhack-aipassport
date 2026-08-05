@@ -30,7 +30,7 @@ test('the seeded period matches the reference report', () => {
   const r = reportSummary()
   assert.equal(r.promptsProtected, 4120)
   assert.equal(r.itemsMasked, 612)
-  assert.equal(r.toolsApproved, 8) // 7 before the period + 1 approved visa in the seed
+  assert.equal(r.toolsApproved, 8) // 7 before the period + 1 approved tool access request in the seed
   assert.equal(r.risksResolved, 3)
   assert.equal(r.humanReviews, 11)
   assert.equal(r.confirmedLeaks, 0)

@@ -6,7 +6,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../lib/api.js'
-import { MODULES } from '../lib/trainingModules.js'
+import { buildLesson } from '../lib/lesson.js'
+import { useAssignedModules } from '../lib/useTraining.js'
+import { pickCurrentModule } from '../lib/trainingProgress.js'
 import { clearCompletion, recordCompletion, retryStatus, RETRY_LOCK_HOURS } from '../lib/retryLock.js'
 import { levelState, barXP, nextLevelLabel, celebrateOnce } from '../lib/levels.js'
 import LevelUpOverlay from '../components/LevelUpOverlay.jsx'
@@ -60,12 +62,28 @@ function evaluate(pct) {
 export default function TrainingResults() {
   const { moduleId: moduleIdParam } = useParams()
   const moduleId = Number(moduleIdParam) || 1
-  const mod = MODULES[moduleId] || MODULES[1]
   const navigate = useNavigate()
-  const questionLabels = mod.questions.map(q => q.stepTitle)
 
-  const [profile, setProfile] = useState({ points: 1390, target: 2000, level: 2, levelName: 'Navigator' })
-  const [results, setResults] = useState({ correct: 3, total: 3, pointsEarned: mod.points, answers: {}, module: null })
+  // The module is read through the same access-checked route the quiz uses, so
+  // the results of a training somebody else was assigned cannot be opened here
+  // either.
+  const [module, setModule] = useState(null)
+  const [denied, setDenied] = useState(false)
+  useEffect(() => {
+    let alive = true
+    setDenied(false)
+    api.get(`/training/mine/${moduleId}`)
+      .then(m => alive && setModule(m))
+      .catch(() => alive && setDenied(true))
+    return () => { alive = false }
+  }, [moduleId])
+
+  // Zeroed, not the demo employee's 1,390 points at Level 2 — the licence
+  // progress card on this page was showing those to every employee for the
+  // moment before /api/profile answered, immediately after they had been told
+  // what they just earned. levelState() derives Level 1 from 0 points.
+  const [profile, setProfile] = useState({ points: 0, level: 0, completedModules: [] })
+  const [results, setResults] = useState({ correct: 0, total: 0, pointsEarned: 0, answers: {}, module: null })
   const [serverCompletedAt, setServerCompletedAt] = useState(null)
   const [now, setNow] = useState(Date.now())
   const [retrying, setRetrying] = useState(false)
@@ -101,9 +119,36 @@ export default function TrainingResults() {
 
   const lock = retryStatus(moduleId, serverCompletedAt, now)
 
+  // The employee's own module list, so "next" is a module they actually have
+  // rather than whatever id happens to come after this one.
+  const { modules: assigned } = useAssignedModules()
+  const mod = buildLesson(module)
+
+  if (denied) {
+    return (
+      <div className="max-w-[1320px] mx-auto px-4 lg:px-10 pt-8 pb-10">
+        <div className="bg-card border border-sand rounded-[18px] p-8 max-w-[620px]">
+          <p className="text-gold text-[10px] font-semibold tracking-[1px]">NOT ASSIGNED TO YOU</p>
+          <p className="text-navy font-bold text-[22px] mt-2">You don’t have access to this training</p>
+          <p className="text-slate2 text-sm mt-2.5">
+            This module is either not published yet, or it was assigned to other employees. Everything assigned to you
+            is on your training list.
+          </p>
+          <Link to="/training/modules" className="border border-navy text-navy text-[13px] font-semibold px-6 h-12 rounded-full inline-flex items-center mt-6 hover:bg-chip">
+            ←&nbsp;&nbsp;All training modules
+          </Link>
+        </div>
+      </div>
+    )
+  }
+  if (!mod) {
+    return <p className="max-w-[1320px] mx-auto px-4 lg:px-10 pt-8 pb-10 text-slate2 text-sm">Loading your results…</p>
+  }
+
+  const questionLabels = mod.questions.map(q => q.stepTitle)
   const total = mod.questions.length || results.total
   const correct = Math.min(results.correct, total)
-  const scorePct = Math.round((correct / total) * 100)
+  const scorePct = total ? Math.round((correct / total) * 100) : 0
 
   // XP summary. `record` is this module's stored progression record, so these
   // numbers are rebuilt from the server on a later visit too — not just in the
@@ -116,7 +161,11 @@ export default function TrainingResults() {
   const lvl = levelState(profile)
   const verdict = evaluate(scorePct)
   const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-  const nextModule = MODULES[moduleId + 1]
+  // The next module this employee has, not the next id in the library — an id
+  // they were never assigned would be a dead end. Picked with the same helper
+  // the Training dashboard and the Home card use, so "next" here is the module
+  // those screens will actually be showing when the employee arrives.
+  const nextModule = pickCurrentModule(assigned.filter(m => m.id !== moduleId))
 
   async function retry() {
     if (lock.locked || retrying) return
@@ -147,7 +196,7 @@ export default function TrainingResults() {
         <div className="flex flex-wrap items-center gap-2 mt-1.5 shrink-0">
           <span className="bg-green-soft text-green text-xs font-semibold px-6 py-2 rounded-full">{verdict.chip}</span>
           <span className={`text-xs font-semibold px-5 py-2 rounded-full ${xpGained > 0 ? 'bg-gold text-navy' : 'bg-chip text-slate2 border border-sand'}`}>
-            {xpGained > 0 ? `+${xpGained} XP` : 'NO NEW XP'}
+            {xpGained > 0 ? `+${xpGained} points` : 'NO NEW POINTS'}
           </span>
         </div>
       </div>
@@ -191,34 +240,34 @@ export default function TrainingResults() {
           <p className="text-gold text-xs font-semibold">REWARDS &amp; LICENSE PROGRESS</p>
           <p className="text-white font-bold text-[42px] mt-2 leading-none">{xpGained > 0 ? `+${xpGained}` : '+0'}</p>
           <p className="text-white text-[15px] mt-2">
-            {outcome === 'first' && 'XP earned · added to your total'}
-            {outcome === 'improved' && 'XP improvement · only the difference is added'}
-            {outcome === 'unchanged' && 'XP · your best result already counts'}
+            {outcome === 'first' && 'Points earned · added to your total'}
+            {outcome === 'improved' && 'Points improvement · only the difference is added'}
+            {outcome === 'unchanged' && 'Points · your best result already counts'}
           </p>
 
           {/* The anti-farm rule, stated plainly to the employee (§8). */}
           <div className="bg-[#132e66] rounded-[12px] px-4 py-3 mt-4">
             {outcome === 'first' ? (
               <p className="text-white text-[13px]">
-                This module now contributes <span className="font-semibold">{bestPoints} of {mod.points} XP</span> to your AI License.
+                This module now contributes <span className="font-semibold">{bestPoints} of {mod.points} points</span> to your AI License.
               </p>
             ) : outcome === 'improved' ? (
               <>
                 <p className="text-white text-[13px]">
-                  Previous best <span className="font-semibold">{previousPoints} XP</span> → new best{' '}
-                  <span className="font-semibold">{bestPoints} XP</span>
+                  Previous best <span className="font-semibold">{previousPoints} points</span> → new best{' '}
+                  <span className="font-semibold">{bestPoints} points</span>
                 </p>
                 <p className="text-[#cbd5e1] text-[12px] mt-1">
-                  +{xpGained} XP improvement added — not {previousPoints} + {record?.lastAttemptPoints ?? bestPoints}.
+                  +{xpGained} points improvement added — not {previousPoints} + {record?.lastAttemptPoints ?? bestPoints}.
                 </p>
               </>
             ) : (
               <>
                 <p className="text-white text-[13px]">
-                  Your best score remains <span className="font-semibold">{bestPoints} XP</span>.
+                  Your best score remains <span className="font-semibold">{bestPoints} points</span>.
                 </p>
                 <p className="text-[#cbd5e1] text-[12px] mt-1">
-                  This attempt scored {record?.lastAttemptPoints ?? 0} XP, so no additional XP was earned.
+                  This attempt scored {record?.lastAttemptPoints ?? 0} points, so no additional points were earned.
                 </p>
               </>
             )}
@@ -236,7 +285,7 @@ export default function TrainingResults() {
           <p className="text-white font-bold text-xl mt-1.5">
             Level {lvl.level} · {lvl.levelName}
           </p>
-          <p className="text-white text-[15px] mt-0.5">{barXP(lvl).toLocaleString()} / {lvl.nextLevelXP.toLocaleString()} XP</p>
+          <p className="text-white text-[15px] mt-0.5">{barXP(lvl).toLocaleString()} / {lvl.nextLevelXP.toLocaleString()} safety points</p>
           {/* Progress inside the current band, so a Navigator is measured
               against 2,000 — not against the far-away 8,000 ceiling. */}
           <div className="h-3 rounded-full bg-navy-track mt-3.5">
@@ -248,7 +297,7 @@ export default function TrainingResults() {
 
           <div className="bg-[#132e66] rounded-[12px] px-3.5 py-2 mt-5">
             <p className="text-gold text-[11px] font-semibold">{nextModule ? `NEXT: ${nextModule.title.toUpperCase()}` : 'MORE MODULES COMING SOON'}</p>
-            {nextModule && <p className="text-white text-sm mt-0.5">{nextModule.minutes}-minute lesson · +{nextModule.points} XP</p>}
+            {nextModule && <p className="text-white text-sm mt-0.5">{nextModule.minutes}-minute lesson · +{nextModule.points} points</p>}
           </div>
         </div>
       </div>
@@ -272,8 +321,8 @@ export default function TrainingResults() {
               {lock.locked
                 ? `You can retake this assessment in ${lock.remainingLabel} — available ${lock.availableLabel}.`
                 : bestPoints >= mod.points
-                  ? `Retaking restarts the assessment from Question 1. You already hold the full ${mod.points} XP, so this is revision — your stamp and XP stay as they are.`
-                  : `Retaking restarts the assessment from Question 1. Your stamp and ${bestPoints} XP stay; only a better result adds XP, up to ${mod.points}.`}
+                  ? `Retaking restarts the assessment from Question 1. You already hold the full ${mod.points} points, so this is revision — your stamp and points stay as they are.`
+                  : `Retaking restarts the assessment from Question 1. Your stamp and ${bestPoints} points stay; only a better result adds points, up to ${mod.points}.`}
             </p>
             <p className="text-slate2 text-xs mt-1.5">
               A retry unlocks {RETRY_LOCK_HOURS} hours after each evaluation, so there is time to review the lesson first.

@@ -187,7 +187,7 @@ export default function Extension() {
                 <span className="w-10 h-10 rounded-full bg-white border border-[#d1bf7a] text-[#e0b31e] font-bold text-[15px] flex items-center justify-center shrink-0">↗</span>
                 <div className="flex-1">
                   <p className="text-[#0c2556] font-semibold text-sm">Open employee dashboard</p>
-                  <p className="text-[#5c6a82] text-[11px] mt-0.5">View your license, training and visas.</p>
+                  <p className="text-[#5c6a82] text-[11px] mt-0.5">View your AI License, training and AI tools.</p>
                 </div>
                 <span className="text-[#0c2556] text-[22px]">›</span>
               </Link>
