@@ -157,7 +157,7 @@ export default function AssignTraining() {
           <p className="text-[#8a6410] font-semibold text-[11px] tracking-wide">OPTION 2 · CREATE</p>
           <p className="font-bold text-[22px] mt-2 text-[#17213a]">New Training</p>
           <p className="text-[12.5px] mt-1.5 text-[#667085]">
-            Write a module from scratch — title, XP value and up to {MAX_QUESTIONS} questions.
+            Write a module from scratch — title, points value and up to {MAX_QUESTIONS} questions.
           </p>
         </button>
       </div>

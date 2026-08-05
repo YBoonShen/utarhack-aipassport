@@ -1,44 +1,38 @@
 // 04A Employee · All Modules — matches Figma frame "04A Employee • All Modules".
 // This is where "View all training" lands: every module assigned to this
-// employee, outstanding ones first and completed ones after, read from the same
+// employee, unfinished ones first and completed ones after, read from the same
 // server records the Training dashboard reads. Modules assigned to somebody
 // else never appear here, and the server refuses them even by direct URL.
-import { useEffect, useMemo, useState } from 'react'
+//
+// Each module arrives from /api/training/mine carrying this employee's own
+// progress on it, and useAssignedModules keeps that snapshot fresh. The page
+// used to fetch /api/profile alongside it and cross-reference two lists by id,
+// which is a second copy of the same fact and one more thing to fall out of
+// step; there is now one source for both the ordering and the labels.
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { api } from '../lib/api.js'
 import { useAssignedModules } from '../lib/useTraining.js'
+import { TRAINING_STATUS } from '../lib/terms.js'
+import { playable, moduleState, moduleHref, orderUpcoming } from '../lib/trainingProgress.js'
+import BackLink from '../components/BackLink.jsx'
 
 export default function TrainingModules() {
-  const [completed, setCompleted] = useState([])
-  // moduleId -> progress record (best score + XP this module contributes).
-  const [progress, setProgress] = useState({})
   const { modules, loaded } = useAssignedModules()
 
-  useEffect(() => {
-    api.get('/profile').then(p => {
-      setCompleted(p.completedModules || [])
-      setProgress(p.trainingProgress || {})
-    }).catch(() => {})
-  }, [])
-
-  // Outstanding first, completed after — the order the employee needs, without
-  // hiding anything they have already passed.
-  const ordered = useMemo(() => {
-    const outstanding = modules.filter(m => !completed.includes(m.id))
-    const finished = modules.filter(m => completed.includes(m.id))
-    return [...outstanding, ...finished]
-  }, [modules, completed])
-  const doneCount = modules.filter(m => completed.includes(m.id)).length
+  // In-progress first, then untouched, then completed — the same ordering the
+  // Training dashboard applies, from the same server-reported progress, so the
+  // two lists never disagree about what state a module is in. Completed modules
+  // stay listed: this is where a redo is started from.
+  const ordered = useMemo(() => orderUpcoming(modules, null), [modules])
+  const doneCount = modules.filter(m => m.progress?.completed).length
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-10 py-6 lg:py-8">
-      <Link to="/training" className="text-[#667085] hover:text-navy-header font-semibold text-[13px] inline-flex items-center">
-        ←&nbsp;&nbsp;Back to Training
-      </Link>
+      <BackLink to="/training">Back to Training</BackLink>
       <h1 className="text-[26px] lg:text-[30px] font-bold text-navy-header mt-3">All Training Modules</h1>
       <p className="text-[#667085] text-sm mt-2 max-w-[900px]">
-        Every module assigned to you, upcoming and completed. Complete modules to earn XP, stamps and unlock AI tools.
-        Each module contributes its best result to your total XP — retaking one can only raise that contribution.
+        Every module assigned to you, upcoming and completed. Complete modules to earn safety points, stamps and unlock AI tools.
+        Each module contributes its best result to your total safety points — retaking one can only raise that contribution.
       </p>
       {modules.length > 0 && (
         <p className="text-navy-header font-semibold text-[13px] mt-3">
@@ -67,13 +61,16 @@ export default function TrainingModules() {
         )}
 
         {ordered.map((m, i) => {
-          const done = completed.includes(m.id)
-          const record = progress[m.id]
-          // Open the moment it has questions — no separate content flag to fall
-          // out of step with the module an admin actually published.
-          const open = (m.questionCount || 0) > 0
+          // Every state comes from the module's own server-reported progress,
+          // so this list and the Training dashboard label the same module the
+          // same way.
+          const state = moduleState(m)
+          const done = state === 'completed'
+          const started = state === 'inProgress'
+          const record = m.progress || {}
+          const open = playable(m)
           const Card = open ? Link : 'div'
-          const cardProps = open ? { to: done ? `/training/results/${m.id}` : `/training/quiz/${m.id}` } : {}
+          const cardProps = open ? { to: moduleHref(m) } : {}
           return (
             <Card
               key={m.id}
@@ -95,17 +92,23 @@ export default function TrainingModules() {
                 <p className="text-gold-brand font-medium text-[12.5px] mt-1.5">
                   {m.questionCount} questions ·{' '}
                   {done
-                    ? `${record?.pointsEarned ?? 0} / ${m.points} XP earned${record?.attempts > 1 ? ` · ${record.attempts} attempts` : ''}`
-                    : `+${m.points} XP`}
+                    ? `${record.pointsEarned ?? 0} / ${m.points} points earned${record.attempts > 1 ? ` · ${record.attempts} attempts` : ''}`
+                    : started
+                      ? `${Math.min(record.attempted, m.questionCount)} of ${m.questionCount} answered · +${m.points} points`
+                      : `+${m.points} points`}
                 </p>
               </div>
               {!open ? (
                 <span className="bg-[#e5e5eb] text-[#667085] font-semibold text-sm h-11 px-5 rounded-full inline-flex items-center shrink-0 ml-auto sm:ml-0">
-                  Coming soon
+                  {TRAINING_STATUS.unavailable}
                 </span>
               ) : done ? (
                 <span className="bg-[#e7f1ec] border border-[#328768] text-[#19533e] font-semibold text-sm h-11 px-5 rounded-full inline-flex items-center shrink-0 ml-auto sm:ml-0">
-                  {record && record.pointsEarned >= m.points ? '✓ Full XP · Revise' : '✓ Completed · Improve'}
+                  {record.pointsEarned >= m.points ? '✓ Full points · Revise' : `✓ ${TRAINING_STATUS.completed} · Improve`}
+                </span>
+              ) : started ? (
+                <span className="bg-gold-brand text-navy-header font-semibold text-sm h-11 px-5 rounded-full inline-flex items-center shrink-0 ml-auto sm:ml-0">
+                  Resume module →
                 </span>
               ) : (
                 <span className="bg-gold-brand text-navy-header font-semibold text-sm h-11 px-5 rounded-full inline-flex items-center shrink-0 ml-auto sm:ml-0">

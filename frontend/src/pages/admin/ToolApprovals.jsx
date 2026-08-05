@@ -271,7 +271,10 @@ export default function ToolApprovals() {
     <div>
       <div>
         <h1 className="text-[28px] font-bold text-[#17213a]">Tool Approvals</h1>
-        <p className="text-[#667085] text-sm mt-1.5">Review new AI tools quickly while keeping data use and vendor risk explicit.</p>
+        <p className="text-[#667085] text-sm mt-1.5">
+          Tool approval is the decision on an employee&rsquo;s request for tool access. Approving one adds the tool to
+          their AI Tools list; declining it suggests an alternative. Either way they are notified.
+        </p>
       </div>
 
       {/* KPI cards */}
@@ -481,7 +484,7 @@ export default function ToolApprovals() {
             </p>
 
             <div className="bg-[#f0f5ff] rounded-[12px] px-4 py-4 mt-4 space-y-1.5">
-              <p className="text-[#0a1733] text-xs">• Every employee loses access — {flagged.name} shows as suspended on their visa list.</p>
+              <p className="text-[#0a1733] text-xs">• Every employee loses access — {flagged.name} shows as blocked in their AI Tools list.</p>
               <p className="text-[#0a1733] text-xs">• {flagged.name} can no longer be used or requested while the suspension is in place.</p>
               <p className="text-[#0a1733] text-xs">• The action is recorded in the audit log against your admin account.</p>
             </div>

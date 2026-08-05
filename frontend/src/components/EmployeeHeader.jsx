@@ -16,7 +16,7 @@ const navLinks = [
   ['/home', 'Home'],
   ['/license', 'My License'],
   ['/training', 'Training'],
-  ['/visas', 'My Visas'],
+  ['/tools', 'AI Tools'],
 ]
 
 function BellIcon() {

@@ -49,20 +49,20 @@ function ProgressionModal({ employee, onClose }) {
         <div className="bg-[#fffcef] border border-[#e5dec7] rounded-[12px] px-4 py-3.5 mt-5">
           <div className="flex flex-wrap justify-between gap-2">
             <p className="text-[#17213a] font-semibold text-sm">Level {lvl.level} · {lvl.levelName}</p>
-            <p className="text-[#17213a] font-semibold text-sm">{lvl.totalXP.toLocaleString()} XP total</p>
+            <p className="text-[#17213a] font-semibold text-sm">{lvl.totalXP.toLocaleString()} points total</p>
           </div>
           <div className="h-2.5 rounded-full bg-[#f1eddf] mt-2.5">
             <div className="h-2.5 rounded-full bg-gold-brand" style={{ width: `${lvl.progressPercentage}%` }} />
           </div>
           <div className="flex flex-wrap justify-between gap-2 mt-2">
-            <p className="text-[#667085] text-[11px]">{barXP(lvl).toLocaleString()} / {lvl.nextLevelXP.toLocaleString()} XP in this level</p>
+            <p className="text-[#667085] text-[11px]">{barXP(lvl).toLocaleString()} / {lvl.nextLevelXP.toLocaleString()} points in this level</p>
             <p className="text-[#667085] text-[11px]">{nextLevelLabel(lvl)}</p>
           </div>
         </div>
 
         <p className="text-[#667085] font-semibold text-[10px] tracking-[1px] mt-5">TRAINING CONTRIBUTION</p>
         <div className="grid grid-cols-[1fr_70px_70px_74px] gap-1 bg-navy-header rounded-[8px] text-gold-brand font-semibold text-[10px] px-3 h-9 items-center mt-2">
-          <p>Module</p><p>Best</p><p>Attempts</p><p className="text-right">XP earned</p>
+          <p>Module</p><p>Best</p><p>Attempts</p><p className="text-right">Points earned</p>
         </div>
         {modules.length === 0 ? (
           <p className="text-[#667085] text-sm text-center py-6">No training completed yet.</p>
@@ -79,15 +79,15 @@ function ProgressionModal({ employee, onClose }) {
 
         <div className="flex flex-wrap justify-between gap-2 mt-3">
           <p className="text-[#667085] text-[11px]">
-            Training XP {trainingXP.toLocaleString()}&nbsp;&nbsp;·&nbsp;&nbsp;Other safe-use XP {(lvl.totalXP - trainingXP).toLocaleString()}
+            Training points {trainingXP.toLocaleString()}&nbsp;&nbsp;·&nbsp;&nbsp;Other safe-use points {(lvl.totalXP - trainingXP).toLocaleString()}
           </p>
           <p className="text-[#667085] text-[11px]">Best result per module only</p>
         </div>
 
         <div className="bg-[#eef2ff] rounded-[10px] px-4 py-3 mt-4">
-          <p className="text-[#365fd9] font-semibold text-[10px]">HOW XP IS COUNTED</p>
+          <p className="text-[#365fd9] font-semibold text-[10px]">HOW POINTS ARE COUNTED</p>
           <p className="text-[#17213a] text-[11.5px] mt-1.5 leading-relaxed">
-            Each module contributes its best result once. Repeat attempts raise the attempt count but never the XP, so
+            Each module contributes its best result once. Repeat attempts raise the attempt count but never the points, so
             this record reflects learning rather than how often a module was reopened.
           </p>
         </div>
@@ -259,10 +259,10 @@ export default function Employees() {
         {/* Employee directory */}
         <div className="bg-white border border-[#d8d0b4] rounded-[14px] p-4 flex flex-col min-h-0">
           <p className="text-[#17213a] font-bold text-lg shrink-0">Employee directory</p>
-          <p className="text-[#667085] text-xs mt-0.5 shrink-0">303 active records · privacy-minimised view · select a row for XP detail</p>
+          <p className="text-[#667085] text-xs mt-0.5 shrink-0">303 active records · privacy-minimised view · select a row for points detail</p>
 
           <div className={`${cols} bg-navy-header rounded-[8px] text-gold-brand font-semibold text-[11px] px-3 h-10 mt-3 shrink-0`}>
-            <p>Employee</p><p>Dept</p><p>License</p><p>Training · XP</p><p>Protected</p><p>Alerts</p><p>Status</p>
+            <p>Employee</p><p>Dept</p><p>License</p><p>Training · Points</p><p>Protected</p><p>Alerts</p><p>Status</p>
           </div>
           {/* The rows are the one part allowed to overflow, and paging keeps
               even that rare — everything around them stays on screen. */}

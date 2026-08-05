@@ -495,7 +495,7 @@ export function ModuleCreatedModal({ moduleTitle, questions, points, minutes, on
           </div>
         </div>
         <p className="text-ink text-sm mt-4">
-          {questions} question{questions === 1 ? '' : 's'} · {points} XP · {minutes} min. It has been added to your module library and can now be assigned to employees or departments.
+          {questions} question{questions === 1 ? '' : 's'} · {points} points · {minutes} min. It has been added to your module library and can now be assigned to employees or departments.
         </p>
         <div className="flex flex-wrap gap-3 mt-6">
           <button onClick={onAssign} className="bg-gold hover:bg-gold-dark text-navy font-semibold text-sm px-6 h-12 rounded-full cursor-pointer">
@@ -605,7 +605,7 @@ export function CreateModuleCard({ kicker, draft, setDraft, onOpenQuestion, onEd
         <div>
           {/* The module's XP value — an employee earns it once, scaled by their
               best score on this module. */}
-          <p className="text-slate2 font-semibold text-xs">XP VALUE</p>
+          <p className="text-slate2 font-semibold text-xs">POINTS VALUE</p>
           <input
             value={draft.points}
             onChange={e => setDraft(d => ({ ...d, points: e.target.value }))}

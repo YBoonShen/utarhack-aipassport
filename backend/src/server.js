@@ -15,7 +15,7 @@ import {
   suspendToolOrgWide, recordToolUse, toolStatus, openAlerts, alertsView, resolveAlert,
   addReviewRequest, leaderboard, progressionSummary,
   allProgressionSummaries, reportSummary, updateSettings,
-  setSessionEmployee, notificationsFor, updateNotification,
+  setSessionEmployee, notificationsFor, updateNotification, activityFor, publicProfile,
   libraryForAdmin, moduleById, publicModule, createModule, updateModule, setModuleStatus,
   modulesForEmployee, canAccessModule, assignTraining, assignmentRecords, assignmentsForEmployee,
   MAX_QUESTIONS,
@@ -245,7 +245,9 @@ app.post('/api/gateway/override', (req, res) => {
 })
 
 // ---- employee data ---------------------------------------------------------
-app.get('/api/profile', (req, res) => res.json({ ...db.profile, safety: safetyScore() }))
+// The stored record plus its derived fields (AI Safety Score). Served through
+// publicProfile() so no screen has to invent a number the server did not send.
+app.get('/api/profile', (req, res) => res.json(publicProfile()))
 
 app.get('/api/leaderboard', (req, res) => res.json(leaderboard()))
 
@@ -281,8 +283,8 @@ function guardModule(req, res) {
 app.post('/api/quiz/answer', (req, res) => {
   const moduleId = guardModule(req, res)
   if (moduleId === null) return
-  const { question, correct } = req.body || {}
-  res.json(answerQuiz(moduleId, Number(question), Boolean(correct)))
+  const { question, correct, selected } = req.body || {}
+  res.json(answerQuiz(moduleId, Number(question), Boolean(correct), Number.isInteger(selected) ? selected : null))
 })
 
 app.get('/api/quiz/results', (req, res) => {
@@ -402,6 +404,26 @@ app.post('/api/notifications/:id/read', notificationPatch({ read: true }))
 app.post('/api/notifications/:id/delete', notificationPatch({ deleted: true }))
 app.post('/api/notifications/:id/restore', notificationPatch({ deleted: false }))
 
+// ---- my AI activity --------------------------------------------------------
+// The signed-in employee's own audit events, behind the Home "My AI Activity"
+// card and the page it opens. Scoped on the server (activityFor), so the
+// browser is never sent an event belonging to somebody else — /api/audit, the
+// organisation-wide feed, stays where it is for the admin console.
+app.get('/api/activity/mine', (req, res) => {
+  if (req.actor.role === 'admin') {
+    return res.status(403).json({ error: 'This is an employee view. Administrators use the Audit Log.' })
+  }
+  const p = db.profile
+  res.json({
+    events: activityFor(req.actor.id),
+    counters: {
+      promptsProtected: p.promptsProtected,
+      itemsMasked: p.itemsMasked,
+      streakDays: p.streakDays,
+    },
+  })
+})
+
 // ---- visas / tool approvals ------------------------------------------------
 app.get('/api/visas', (req, res) => res.json(db.visaRequests))
 app.post('/api/visas/apply', (req, res) => res.json(applyForVisa(req.body || {})))
@@ -466,36 +488,8 @@ app.post('/api/review-request', (req, res) => {
 app.get('/api/settings', (req, res) => res.json(db.settings))
 app.put('/api/settings', requireAdmin, (req, res) => res.json(updateSettings(req.body || {})))
 
-// ---- organisational risk score + ROI (quantified governance) ---------------
-app.get('/api/risk', (req, res) => res.json(riskScore()))
-
-// ---- governance copilot (explainability assistant) -------------------------
-app.get('/api/copilot/suggestions', (req, res) => res.json({ suggestions: SUGGESTED_QUESTIONS }))
-app.post('/api/copilot', async (req, res) => {
-  const { question } = req.body || {}
-  res.json(await askCopilot(question))
-})
-
-// ---- one-click AI compliance report ----------------------------------------
-app.get('/api/report', (req, res) => res.json(reportData()))
-app.get('/api/report/summary', async (req, res) => res.json(await executiveSummary()))
-
-// ---- live demo simulator (pitch mode) --------------------------------------
-let simTimer = null
-app.get('/api/simulate', (req, res) => res.json({ on: sim.on, injected: sim.injected }))
-app.post('/api/simulate', (req, res) => {
-  const { on } = req.body || {}
-  const next = typeof on === 'boolean' ? on : !sim.on
-  sim.on = next
-  if (simTimer) { clearInterval(simTimer); simTimer = null }
-  if (next) simTimer = setInterval(simulateTick, 2500)
-  res.json({ on: sim.on, injected: sim.injected })
-})
-
 // ---- demo helpers ----------------------------------------------------------
 app.post('/api/reset', (req, res) => {
-  if (simTimer) { clearInterval(simTimer); simTimer = null }
-  sim.on = false
   resetStore()
   res.json({ ok: true })
 })

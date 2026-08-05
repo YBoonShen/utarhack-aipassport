@@ -22,32 +22,46 @@ function test(name, fn) {
 
 test('band boundaries map to the four levels', () => {
   assert.equal(levelFor(0).level, 1)
-  assert.equal(levelFor(500).level, 1)
-  assert.equal(levelFor(501).level, 2)
-  assert.equal(levelFor(2000).level, 2)
-  assert.equal(levelFor(2001).level, 3)
-  assert.equal(levelFor(4000).level, 3)
-  assert.equal(levelFor(4001).level, 4)
+  assert.equal(levelFor(499).level, 1)
+  assert.equal(levelFor(1999).level, 2)
+  assert.equal(levelFor(3999).level, 3)
+  assert.equal(levelFor(7999).level, 4)
   assert.equal(levelFor(8000).level, 4)
   assert.equal(levelFor(99999).level, 4) // no Level 5
 })
 
-test('band names', () => {
-  assert.equal(levelFor(0).levelName, 'Trainee')
-  assert.equal(levelFor(501).levelName, 'Navigator')
-  assert.equal(levelFor(2001).levelName, 'Ambassador')
-  assert.equal(levelFor(4001).levelName, 'Guardian')
+// The rule the bands exist for: a threshold reached is a level held, not the
+// last point of the level below it.
+test('a threshold reached is the next level immediately', () => {
+  assert.equal(levelFor(500).level, 2)
+  assert.equal(levelFor(2000).level, 3)
+  assert.equal(levelFor(4000).level, 4)
 })
 
-test('1,250 XP reports the Level 2 band, not a share of 8,000', () => {
+test('band names', () => {
+  assert.equal(levelFor(0).levelName, 'Trainee')
+  assert.equal(levelFor(500).levelName, 'Navigator')
+  assert.equal(levelFor(2000).levelName, 'Ambassador')
+  assert.equal(levelFor(4000).levelName, 'Guardian')
+})
+
+test('1,250 points reports the Level 2 band, not a share of 8,000', () => {
   const s = levelFor(1250)
   assert.equal(s.level, 2)
-  assert.equal(s.currentLevelXP, 501)
+  assert.equal(s.currentLevelXP, 500)
   assert.equal(s.nextLevelXP, 2000)
   assert.equal(s.nextLevelName, 'Ambassador')
-  assert.equal(s.xpToNext, 751) // 2,001 unlocks Ambassador
+  assert.equal(s.xpToNext, 750) // 2,000 unlocks Ambassador
   assert.equal(s.progressPercentage, 50) // half way through the band, not 15%
   assert.equal(s.isMaxLevel, false)
+})
+
+// The bar must fill exactly as the next level is reached — 0% at the threshold
+// below, 100% at the threshold above.
+test('the bar spans the band it is drawn for', () => {
+  assert.equal(levelFor(500).progressPercentage, 0)
+  assert.equal(levelFor(1999).progressPercentage, 100) // rounds to full at the top
+  assert.equal(levelFor(2000).progressPercentage, 0) // …and resets into Ambassador
 })
 
 test('Guardian at the ceiling is 100% and maxed', () => {

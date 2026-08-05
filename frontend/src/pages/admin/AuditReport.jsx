@@ -1,43 +1,7 @@
-// 14A Admin · AI Compliance Report — the regulator-ready deliverable.
-// Everything is live from /api/report (KPIs, risk score, framework coverage,
-// control mapping, masked evidence) and the executive summary is written by
-// the Governance Copilot (Gemini when a key is set, deterministic analyst
-// otherwise — labelled either way). "Download" produces a self-contained,
-// print-ready HTML the org can hand to an auditor. Only masked records are
-// ever included — no raw personal data leaves the platform.
+// 14A Admin - AI Compliance Report.
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api.js'
 
-const frameworks = [
-  { name: 'NIST AI RMF', detail: 'Govern · Map · Measure · Manage — all evidenced' },
-  { name: 'EU AI Act', detail: 'Art. 4 literacy · transparency · human oversight' },
-  { name: 'Malaysia PDPA', detail: 'Personal-data handling · masking · retention' },
-]
-
-// Every figure below comes from /api/report, which derives it from the audit log
-// the same way the Overview KPIs derive theirs. This page holds no numbers of
-// its own: a compliance report that says "generated from the append-only audit
-// log" at the bottom has to actually be one, or the first auditor who sends a
-// test prompt and re-exports will find the totals never moved.
-//
-// The values here are only the pre-fetch placeholders, replaced on first load.
-const PLACEHOLDER = {
-  period: { from: '01 Jul 2026', to: '19 Jul 2026' },
-  promptsProtected: 4120, itemsMasked: 612, toolsApproved: 8,
-  risksResolved: 3, humanReviews: 11, confirmedLeaks: 0, recoveredEvents: 0,
-}
-
-export default function AuditReport() {
-  const [summary, setSummary] = useState(PLACEHOLDER)
-
-  useEffect(() => {
-    let alive = true
-    const load = () => api.get('/report').then(r => alive && setSummary(r)).catch(() => {})
-    load()
-    // Polled like every other admin screen, so a prompt sent during the demo
-    // shows up here without a manual refresh.
-    const t = setInterval(load, 5000)
-    return () => { alive = false; clearInterval(t) }
 const bandColor = { Low: '#058f6b', Moderate: '#d5a71f', Elevated: '#e0771b', High: '#db2629' }
 const rm = n => 'RM ' + Number(n || 0).toLocaleString()
 
@@ -47,40 +11,24 @@ export default function AuditReport() {
   const [regen, setRegen] = useState(false)
 
   useEffect(() => {
-    api.get('/report').then(setReport).catch(() => {})
-    api.get('/report/summary').then(setSummary).catch(() => setSummary({ summary: '', source: 'offline' }))
+    let alive = true
+    const load = () => {
+      api.get('/report').then(r => alive && setReport(r)).catch(() => {})
+      api.get('/report/summary').then(s => alive && setSummary(s)).catch(() => alive && setSummary({ summary: '', source: 'offline' }))
+    }
+    load()
+    const t = setInterval(load, 5000)
+    return () => { alive = false; clearInterval(t) }
   }, [])
 
   async function regenerate() {
     setRegen(true)
-    try { setSummary(await api.get('/report/summary')) } catch { /* keep */ } finally { setRegen(false) }
+    try { setSummary(await api.get('/report/summary')) } catch { /* keep current summary */ } finally { setRegen(false) }
   }
 
   const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-  const period = `${summary.period?.from || PLACEHOLDER.period.from} – ${summary.period?.to || PLACEHOLDER.period.to}`
-
-  const kpis = [
-    [summary.promptsProtected.toLocaleString(), 'Prompts protected'],
-    [summary.itemsMasked.toLocaleString(), 'Sensitive items masked'],
-    [summary.toolsApproved, 'Tools reviewed & approved'],
-    [summary.risksResolved, 'Risks resolved'],
-    [summary.humanReviews, 'Human reviews completed'],
-    [summary.confirmedLeaks, 'Confirmed data leaks'],
-  ]
-
-  function download() {
-    const rows = frameworks.map(f => `<tr><td>${f.name}</td><td>${f.detail}</td><td>Compliant</td></tr>`).join('')
-    const kpiRows = kpis.map(([v, label]) => `<tr><td>${label}</td><td>${v}</td></tr>`).join('')
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>AI Passport Audit Report</title>
-<style>body{font-family:Arial,sans-serif;margin:40px;color:#0a204f}h1{color:#0a204f}h2{color:#0a204f;margin-top:28px}
-table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #e0e0e5;padding:7px 10px;text-align:left}
-th{background:#0b2457;color:#d9b32c}</style></head><body>
-<p style="color:#d9b32c;font-weight:bold;font-size:12px">AI GOVERNANCE — COMPLIANCE AUDIT REPORT</p>
-<h1>Example Sdn Bhd</h1><p>Reporting period ${period} · Generated ${today}</p>
-<h2>Framework coverage</h2><table><tr><th>Framework</th><th>Evidence</th><th>Status</th></tr>${rows}</table>
   const risk = report?.risk
   const k = report?.kpis
-
   const kpiCards = k ? [
     [k.promptsProtected.toLocaleString(), 'Prompts protected'],
     [k.itemsMasked.toLocaleString(), 'Sensitive items masked'],
@@ -96,7 +44,7 @@ th{background:#0b2457;color:#d9b32c}</style></head><body>
     const ctrl = report.controls.map(c => `<tr><td>${c.type}</td><td>${c.framework}</td><td>${c.evidence}</td></tr>`).join('')
     const kpiRows = kpiCards.map(([v, label]) => `<tr><td>${label}</td><td>${v}</td></tr>`).join('')
     const ev = report.topEvents.map(e => `<tr><td>${e.time}</td><td>${e.user}</td><td>${e.dept}</td><td>${e.tool}</td><td>${e.action}</td><td>${e.record}</td></tr>`).join('')
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>AI Passport — Compliance Report</title>
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>AI Passport - Compliance Report</title>
 <style>body{font-family:Arial,Helvetica,sans-serif;margin:40px;color:#0a204f;max-width:900px}
 h1{margin:2px 0}h2{color:#0a204f;margin-top:30px;border-bottom:2px solid #d9b32c;padding-bottom:5px}
 .kick{color:#d9b32c;font-weight:bold;font-size:12px;letter-spacing:1px}
@@ -104,16 +52,16 @@ h1{margin:2px 0}h2{color:#0a204f;margin-top:30px;border-bottom:2px solid #d9b32c
 .sum{background:#f7f4ea;border-left:4px solid #d9b32c;padding:14px 18px;border-radius:6px;font-size:14px;line-height:1.6}
 table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:10px}td,th{border:1px solid #e0e0e5;padding:7px 10px;text-align:left}
 th{background:#0b2457;color:#d9b32c}.foot{margin-top:26px;font-size:11px;color:#667085}</style></head><body>
-<p class="kick">AI GOVERNANCE — COMPLIANCE AUDIT REPORT</p>
-<h1>${report.org}</h1><p>Reporting period ${report.period} · Generated ${today}</p>
-<p style="margin-top:14px">Organisational AI Risk Score: <span class="risk">${risk.score}/100 · ${risk.band}</span></p>
+<p class="kick">AI GOVERNANCE - COMPLIANCE AUDIT REPORT</p>
+<h1>${report.org}</h1><p>Reporting period ${report.period} - Generated ${today}</p>
+<p style="margin-top:14px">Organisational AI Risk Score: <span class="risk">${risk.score}/100 - ${risk.band}</span></p>
 <h2>Executive summary</h2><div class="sum">${(summary?.summary || '').replace(/</g, '&lt;')}</div>
 <p style="font-size:11px;color:#667085">${summary?.source === 'gemini' ? 'Written by Gemini from live audit data.' : 'Generated by the governance analyst from live audit data.'}</p>
 <h2>Framework coverage</h2><table><tr><th>Framework</th><th>Evidence</th><th>Status</th></tr>${fw}</table>
 <h2>Control mapping</h2><table><tr><th>Data category</th><th>Framework control</th><th>Evidence</th></tr>${ctrl}</table>
 <h2>Period summary</h2><table><tr><th>Metric</th><th>Value</th></tr>${kpiRows}</table>
-<h2>Evidence — recent masked records</h2><table><tr><th>Time</th><th>User</th><th>Dept</th><th>Tool</th><th>Action</th><th>Stored (masked) record</th></tr>${ev}</table>
-<p class="foot">Generated from the append-only audit log. Only masked records are included — no raw personal data leaves the platform. This document is suitable for internal governance review and regulator disclosure under Malaysia PDPA, the NIST AI RMF, and the EU AI Act.</p>
+<h2>Evidence - recent masked records</h2><table><tr><th>Time</th><th>User</th><th>Dept</th><th>Tool</th><th>Action</th><th>Stored masked record</th></tr>${ev}</table>
+<p class="foot">Generated from the append-only audit log. Only masked records are included - no raw personal data leaves the platform.</p>
 </body></html>`
     const blob = new Blob([html], { type: 'text/html' })
     const url = URL.createObjectURL(blob)
@@ -128,59 +76,53 @@ th{background:#0b2457;color:#d9b32c}.foot{margin-top:26px;font-size:11px;color:#
     <div>
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-[30px] font-bold text-[#0a204f]">Audit Report</h1>
-          <p className="text-[#667085] text-sm mt-1.5">Generated {today} · covers {period} · masked data only, ready for regulators.</p>
           <h1 className="text-[30px] font-bold text-[#0a204f]">AI Compliance Report</h1>
-          <p className="text-[#667085] text-sm mt-1.5">Live from the audit log · masked data only · regulator-ready. Generated {today}.</p>
+          <p className="text-[#667085] text-sm mt-1.5">Live from the audit log. Masked data only. Generated {today}.</p>
         </div>
         <button onClick={download} disabled={!report} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[200px] h-12 rounded-full cursor-pointer disabled:opacity-60">
-          Download report&nbsp;&nbsp;↓
+          Download report&nbsp;&nbsp;v
         </button>
       </div>
 
       <div className="bg-white border border-[#e0e0e5] rounded-[16px] p-8 mt-6">
-        <p className="text-gold-brand font-bold text-xs">AI GOVERNANCE — COMPLIANCE AUDIT REPORT</p>
-        <p className="text-[#0a204f] font-bold text-base mt-1.5">Example Sdn Bhd · Reporting period {period}</p>
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-gold-brand font-bold text-xs">AI GOVERNANCE — COMPLIANCE AUDIT REPORT</p>
-            <p className="text-[#0a204f] font-bold text-base mt-1.5">{report?.org || 'Example Sdn Bhd'} · Reporting period {report?.period || '1–22 Jul 2026'}</p>
+            <p className="text-gold-brand font-bold text-xs">AI GOVERNANCE - COMPLIANCE AUDIT REPORT</p>
+            <p className="text-[#0a204f] font-bold text-base mt-1.5">{report?.org || 'Example Sdn Bhd'} - Reporting period {report?.period || 'loading'}</p>
           </div>
           {risk && (
             <div className="text-right shrink-0">
               <p className="text-[#8a7d56] font-semibold text-[10px]">AI RISK SCORE</p>
               <span className="inline-block text-white font-bold text-sm rounded-full px-4 py-1.5 mt-1" style={{ background: bandColor[risk.band] }}>
-                {risk.score}/100 · {risk.band}
+                {risk.score}/100 - {risk.band}
               </span>
             </div>
           )}
         </div>
         <div className="h-px bg-[#e5e5eb] mt-6" />
 
-        {/* AI executive summary */}
         <div className="flex items-center justify-between mt-6">
           <p className="text-[#8a7d56] font-semibold text-[11px]">EXECUTIVE SUMMARY</p>
           <button onClick={regenerate} disabled={regen} className="text-[#365fd9] font-semibold text-[11px] cursor-pointer disabled:opacity-50">
-            {regen ? 'Generating…' : '✦ Regenerate with AI'}
+            {regen ? 'Generating...' : 'Regenerate with AI'}
           </button>
         </div>
         <div className="bg-[#f7f4ea] border-l-4 border-gold-brand rounded-r-[10px] px-5 py-4 mt-2">
           {summary?.summary
             ? <p className="text-[#344054] text-[13.5px] leading-relaxed">{summary.summary}</p>
-            : <p className="text-[#98a2b3] text-[13px]">Writing executive summary from live audit data…</p>}
+            : <p className="text-[#98a2b3] text-[13px]">Writing executive summary from live audit data...</p>}
           {summary?.summary && (
             <p className={`mt-2.5 text-[9px] font-semibold tracking-[0.5px] ${summary.source === 'gemini' ? 'text-[#365fd9]' : 'text-[#8a7d56]'}`}>
-              {summary.source === 'gemini' ? '✦ WRITTEN BY GEMINI · FROM LIVE AUDIT DATA' : '◆ GOVERNANCE ANALYST · FROM LIVE AUDIT DATA'}
+              {summary.source === 'gemini' ? 'WRITTEN BY GEMINI - FROM LIVE AUDIT DATA' : 'GOVERNANCE ANALYST - FROM LIVE AUDIT DATA'}
             </p>
           )}
         </div>
 
-        {/* Framework coverage */}
         <p className="text-[#8a7d56] font-semibold text-[11px] mt-7">FRAMEWORK COVERAGE</p>
         <div className="flex flex-col gap-2.5 mt-3">
           {(report?.frameworks || []).map(f => (
             <div key={f.name} className="bg-[#e7f4ee] rounded-[10px] h-14 px-4.5 flex items-center gap-3">
-              <span className="text-[#078b6c] font-bold text-base">✓</span>
+              <span className="text-[#078b6c] font-bold text-base">OK</span>
               <div className="flex-1">
                 <p className="text-[#0a204f] font-bold text-[15px]">{f.name}</p>
                 <p className="text-[#667085] text-[13px]">{f.detail}</p>
@@ -190,7 +132,6 @@ th{background:#0b2457;color:#d9b32c}.foot{margin-top:26px;font-size:11px;color:#
           ))}
         </div>
 
-        {/* Period summary */}
         <p className="text-[#8a7d56] font-semibold text-[11px] mt-7">PERIOD SUMMARY</p>
         <div className="grid grid-cols-3 gap-3.5 mt-3">
           {kpiCards.map(([v, label]) => (
@@ -201,8 +142,7 @@ th{background:#0b2457;color:#d9b32c}.foot{margin-top:26px;font-size:11px;color:#
           ))}
         </div>
 
-        {/* Control mapping */}
-        <p className="text-[#8a7d56] font-semibold text-[11px] mt-7">CONTROL MAPPING — WHAT WE PROTECT AND WHY</p>
+        <p className="text-[#8a7d56] font-semibold text-[11px] mt-7">CONTROL MAPPING - WHAT WE PROTECT AND WHY</p>
         <div className="border border-[#e5e5eb] rounded-[10px] overflow-hidden mt-3">
           <div className="grid grid-cols-[1.4fr_1.2fr_1.4fr] bg-navy-header text-gold-brand font-semibold text-[10px] tracking-[0.5px] px-4 py-2.5">
             <p>DATA CATEGORY</p><p>FRAMEWORK CONTROL</p><p>EVIDENCE</p>
@@ -217,16 +157,7 @@ th{background:#0b2457;color:#d9b32c}.foot{margin-top:26px;font-size:11px;color:#
         </div>
 
         <p className="text-[#667085] text-[12.5px] mt-7">
-          This report is generated from the append-only audit log. Only masked records are included — no raw personal data leaves the platform.
-          {summary.recoveredEvents > 0 && (
-            <>
-              {' '}
-              <span className="text-[#d97706] font-medium">
-                {summary.recoveredEvents} event{summary.recoveredEvents === 1 ? ' was' : 's were'} masked on-device during a gateway
-                outage and recorded on reconnection — included above and marked in the audit log.
-              </span>
-            </>
-          )}
+          This report is generated from the append-only audit log. Only masked records are included - no raw personal data leaves the platform.
         </p>
       </div>
     </div>

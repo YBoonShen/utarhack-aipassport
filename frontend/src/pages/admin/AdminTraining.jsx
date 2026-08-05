@@ -85,9 +85,15 @@ export default function AdminTraining() {
             </div>
             <div className="flex-1 min-w-0">
               <p className={`font-bold text-[15px] ${m.status === 'live' ? 'text-navy' : 'text-slate2'}`}>{m.title}</p>
+              {/* `done` is a COUNT of completions, and this line was rendering
+                  it with a "%" after it — 78 completions on a 303-person
+                  rollout read as "78% done". Both figures are now counts, and
+                  both come from the server (assignedTotal / doneTotal). */}
               <p className="text-slate2 text-[12.5px] mt-1">
-                {m.questionCount} question{m.questionCount === 1 ? '' : 's'} · +{m.points} XP{' '}
-                {m.status === 'live' ? `· assigned to ${assignedCount(m)} · ${m.done}% done` : '· not assigned'}
+                {m.questionCount} question{m.questionCount === 1 ? '' : 's'} · +{m.points} points{' '}
+                {m.status === 'live'
+                  ? `· assigned to ${assignedCount(m)} · ${m.doneTotal ?? m.done ?? 0} completed`
+                  : '· not assigned'}
               </p>
             </div>
             <span className={`text-[11.5px] font-semibold rounded-full px-3 py-1.5 shrink-0 ${m.status === 'live' ? 'bg-[#e7f4ee] text-[#328768]' : 'bg-[#ededf2] text-slate2'}`}>

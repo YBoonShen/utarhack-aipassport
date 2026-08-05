@@ -14,7 +14,7 @@ const panelCopy = {
   signin: {
     kicker: 'WELCOME BACK',
     title: 'One trusted sign-in for safer AI work.',
-    body: 'Access your AI license, training, visas and protected tools from one secure account.',
+    body: 'Access your AI License, training, AI tools and safe-use record from one secure account.',
   },
   forgot: {
     kicker: 'ACCOUNT RECOVERY',

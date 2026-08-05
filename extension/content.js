@@ -1129,7 +1129,7 @@
         'notice',
         `${header('warn')}
          <p class="aip-lead">${esc(tool.name)} is not approved</p>
-         <p class="aip-body">Your AI Passport visa for this tool is not active. Avoid entering company or customer data here, and request a visa from My Visas.</p>
+         <p class="aip-body">This tool is not approved for you yet. Avoid entering company or customer data here, and request tool access from AI Tools.</p>
          <div class="aip-actions"><button class="aip-btn aip-ghost" data-close>Dismiss</button></div>`
       )
     }

@@ -8,6 +8,7 @@
 // timestamp is mirrored into localStorage so the lock survives a refresh or a
 // re-login even when the API is unavailable. Whichever completion is *later*
 // wins, so a stale copy can never unlock a retry early.
+import { currentUser } from './api.js'
 
 // ---- single switch -------------------------------------------------------
 // Set RETRY_LOCK_ENABLED to false to go back to unlimited retries: every
@@ -20,11 +21,25 @@ export const RETRY_LOCK_HOURS = 24
 
 export const RETRY_LOCK_MS = RETRY_LOCK_HOURS * 60 * 60 * 1000
 
-const KEY = 'aip-training-completions' // { [moduleId]: ISO timestamp }
+// { [moduleId]: ISO timestamp }, per employee.
+//
+// The key is namespaced because more than one employee can sign in to the same
+// browser, and this store was previously shared between them: whoever completed
+// a module first left a 24h lock behind that the next employee inherited. The
+// quiz page reads this synchronously to avoid flashing Q1, so the effect was
+// that a colleague opening a module they had never touched was redirected
+// straight to a results screen showing 0/3. A lock belongs to the person who
+// earned it, so it is stored under their id.
+const KEY_PREFIX = 'aip-training-completions'
+
+function storageKey() {
+  const id = currentUser()?.id
+  return id ? `${KEY_PREFIX}:${id}` : KEY_PREFIX
+}
 
 function readAll() {
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY))
+    const raw = JSON.parse(localStorage.getItem(storageKey()))
     return raw && typeof raw === 'object' ? raw : {}
   } catch {
     return {}
@@ -33,7 +48,7 @@ function readAll() {
 
 function writeAll(map) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(map))
+    localStorage.setItem(storageKey(), JSON.stringify(map))
   } catch {
     /* storage unavailable (private mode) — the server copy still applies */
   }

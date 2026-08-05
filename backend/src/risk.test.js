@@ -139,7 +139,7 @@ test('an approved tool raises nothing', () => {
   assert.equal(openAlerts().length, before)
 })
 
-test('a tool with no visa raises one MEDIUM alert', () => {
+test('a tool with no approved access raises one MEDIUM alert', () => {
   const result = recordToolUse({ tool: 'DeepSeek' })
   assert.equal(result.status, 'UNAPPROVED')
   assert.equal(result.alert.severity, SEVERITY.MEDIUM)
@@ -166,10 +166,10 @@ test('the employee is told which tool, and where to fix it', () => {
   recordToolUse({ tool: 'DeepSeek' })
   const told = notificationsFor('E-217').filter(n => n.title === 'DeepSeek is not an approved tool')
   assert.equal(told.length, 1)
-  assert.equal(told[0].action.to, '/visas')
+  assert.equal(told[0].action.to, '/tools')
 })
 
-test('approving the visa is what stops the tool being flagged', () => {
+test('approving tool access is what stops the tool being flagged', () => {
   assert.equal(toolStatus('SummarizerX'), 'UNAPPROVED')
   assert.equal(recordToolUse({ tool: 'SummarizerX' }).alert.severity, SEVERITY.MEDIUM)
 
@@ -178,7 +178,7 @@ test('approving the visa is what stops the tool being flagged', () => {
   assert.equal(recordToolUse({ tool: 'SummarizerX' }).alert, null)
 })
 
-test('declining a visa leaves the tool unapproved', () => {
+test('declining tool access leaves the tool unapproved', () => {
   decideVisa('A-0492', 'decline')
   assert.equal(toolStatus('SummarizerX'), 'UNAPPROVED')
 })

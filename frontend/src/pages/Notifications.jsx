@@ -62,7 +62,7 @@ export default function Notifications() {
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-10 py-6 lg:py-8">
       <h1 className="text-[26px] lg:text-[30px] font-bold text-navy-header">Notifications</h1>
-      <p className="text-[#667085] text-sm mt-1.5 mb-6">Review updates about your training, visas, safety progress and Smart Gateway activity.</p>
+      <p className="text-[#667085] text-sm mt-1.5 mb-6">Review updates about your training, AI tools, safety progress and Smart Gateway activity.</p>
 
       <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 lg:gap-6 items-start">
         {/* Inbox */}
@@ -100,7 +100,7 @@ export default function Notifications() {
                       tabIndex={0}
                       onClick={e => { e.stopPropagation(); markRead(n.id); navigate(n.action.to) }}
                       onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); markRead(n.id); navigate(n.action.to) } }}
-                      className="inline-flex items-center mt-2 text-[#2e5ccc] font-semibold text-[11px] cursor-pointer hover:underline"
+                      className="inline-flex items-center mt-2 py-3 -my-3 text-[#2e5ccc] font-semibold text-[11px] cursor-pointer hover:underline"
                     >
                       {n.action.label} →
                     </span>

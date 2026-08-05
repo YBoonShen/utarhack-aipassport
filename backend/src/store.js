@@ -66,6 +66,10 @@ function blankProfile(id) {
     streakDays: 0,
     promptsProtected: 0,
     itemsMasked: 0,
+    // Times this employee sent the original prompt after a checkpoint flagged
+    // it. The one demonstrably unsafe act the system records per person, and
+    // the only thing that pulls the AI Safety Score down — see safetyFor().
+    overrides: 0,
     trainingCompleted: false,
     completedModules: [],
     moduleCompletions: {},
@@ -111,11 +115,7 @@ function seed() {
     sessionEmployeeId: DEFAULT_EMPLOYEE_ID,
     employees: { [DEFAULT_EMPLOYEE_ID]: demoProfile() },
 
-    counters: { promptsToday: 312, maskedToday: 58, overridesToday: 0, nextEventNo: 8218, nextRequestNo: 493, nextAlertNo: 2052 },
-
-    // Trailing 5-day organisational risk-score history — the live score is
-    // appended by riskScore() so the trend line always ends on "today".
-    riskHistory: [46, 43, 39, 36, 33],
+    counters: { promptsToday: 312, maskedToday: 58, nextEventNo: 8218, nextRequestNo: 493, nextAlertNo: 2052 },
 
     // The reporting period behind the one-click compliance report (O3). The
     // daily counters above reset with the demo; these accumulate across the
@@ -174,13 +174,13 @@ function seed() {
         id: 'RA-2049', key: 'tool:S-044:summarizerx:seed', severity: 'MEDIUM', status: 'open',
         employeeId: 'S-044', occurrences: 1,
         title: 'Unapproved tool detected',
-        meta: 'Sales · SummarizerX · no active visa',
+        meta: 'Sales · SummarizerX · no approved access',
         dueAt: dueAtFor('MEDIUM'),
         detailMeta: 'Sales · User S-044 · detected today at 13:51',
-        what: 'An employee opened SummarizerX, which has no active visa. The Smart Gateway still protected their prompts, but a tool nobody has reviewed has no agreed terms for what it does with company data.',
+        what: 'An employee opened SummarizerX, which has no approved access. The Smart Gateway still protected their prompts, but a tool nobody has reviewed has no agreed terms for what it does with company data.',
         evidence: 'SummarizerX opened · gateway protection active · no data confirmed sent', evidenceNote: 'Tool register check · no prompt content recorded',
         timeline: [['13:51', 'Alert created'], ['13:51', 'Redirect to approved tool offered'], ['13:52', 'Approved tool opened']],
-        recommend: 'Review the SummarizerX visa request, or point the employee at an approved alternative.', primary: 'Review tool request',
+        recommend: 'Review the SummarizerX tool access request, or point the employee at an approved alternative.', primary: 'Review tool request',
       },
       {
         id: 'RA-2050', key: 'review:REF-2026-041', severity: 'MEDIUM', status: 'open',
@@ -244,22 +244,28 @@ function seed() {
     // `status`: APPROVED (reviewed and cleared) · UNAPPROVED (never reviewed, or
     // a visa still in flight) · SUSPENDED (was approved, withdrawn after an
     // incident — using it anyway is the more serious finding).
+    // `model` and `dataScope` describe what the tool is and what it is cleared
+    // to receive; `minLevel` is the AI License level a tool needs, which is what
+    // makes a source-code tool unavailable to a Trainee. These are register
+    // fields rather than presentation, because the employee's AI Tools page was
+    // carrying its own hard-coded copy of all three — so a tool the admin
+    // suspended still read "approved · renews in 45 days" to the employee.
     orgTools: [
-      { name: 'AI Assistant', vendor: 'Internal', status: 'APPROVED' },
-      { name: 'ChatGPT', vendor: 'OpenAI', status: 'APPROVED' },
-      { name: 'Claude', vendor: 'Anthropic', status: 'APPROVED' },
-      { name: 'Gemini', vendor: 'Google', status: 'APPROVED' },
-      { name: 'CodePilot Pro', vendor: 'Copilot Labs', status: 'APPROVED' },
+      { name: 'AI Assistant', vendor: 'Internal', model: 'AI Passport Assistant', dataScope: 'Internal · non-personal', status: 'APPROVED' },
+      { name: 'ChatGPT', vendor: 'OpenAI', model: 'GPT-5.1', dataScope: 'Internal · non-personal', status: 'APPROVED' },
+      { name: 'Claude', vendor: 'Anthropic', model: 'Claude Sonnet 5', dataScope: 'Internal · non-personal', status: 'APPROVED' },
+      { name: 'Gemini', vendor: 'Google', model: 'Gemini 3 Flash', dataScope: 'Internal · non-personal', status: 'APPROVED' },
+      { name: 'CodePilot Pro', vendor: 'Copilot Labs', model: 'GPT-5.1-Codex', dataScope: 'Source code · internal repos', status: 'APPROVED', minLevel: 3 },
       // Real tools nobody has put through a review. The extension recognises
       // these hosts, so opening one is a demonstrable unapproved-tool event.
-      { name: 'DeepSeek', vendor: 'DeepSeek', status: 'UNAPPROVED' },
-      { name: 'Kimi', vendor: 'Moonshot AI', status: 'UNAPPROVED' },
+      { name: 'DeepSeek', vendor: 'DeepSeek', model: 'DeepSeek-V3', dataScope: 'Not reviewed', status: 'UNAPPROVED' },
+      { name: 'Kimi', vendor: 'Moonshot AI', model: 'Kimi k2', dataScope: 'Not reviewed', status: 'UNAPPROVED' },
       // Requested but still in review — a visa in flight is not an approval.
-      { name: 'SummarizerX', vendor: 'Summarize Inc.', status: 'UNAPPROVED' },
-      { name: 'MeetingMind', vendor: 'MeetingMind', status: 'UNAPPROVED' },
-      { name: 'TranslateAI', vendor: 'TranslateAI', status: 'UNAPPROVED' },
+      { name: 'SummarizerX', vendor: 'Summarize Inc.', model: 'Vendor model', dataScope: 'Meeting notes', status: 'UNAPPROVED' },
+      { name: 'MeetingMind', vendor: 'MeetingMind', model: 'MeetingMind Pro v2', dataScope: 'Voice + text · no customer data', status: 'UNAPPROVED' },
+      { name: 'TranslateAI', vendor: 'TranslateAI', model: 'TranslateAI v4', dataScope: 'Marketing copy · no personal data', status: 'UNAPPROVED' },
       {
-        name: 'Fable 5', vendor: 'Claude', model: 'Claude Fable 5',
+        name: 'Fable 5', vendor: 'Claude', model: 'Claude Fable 5', dataScope: 'General',
         status: 'APPROVED', flag: 'Security team flagged a breach',
         suspendedOn: null, suspendedAt: null, suspendedBy: null,
       },
@@ -274,12 +280,12 @@ function seed() {
     // only ever returns the signed-in employee's own.
     notifications: [
       {
-        id: 'n-visa', employeeId: DEFAULT_EMPLOYEE_ID, category: 'VISA UPDATE', time: 'Today · 08:15', received: 'Received 17 Jul 2026 · 08:15',
+        id: 'n-visa', employeeId: DEFAULT_EMPLOYEE_ID, category: 'TOOL ACCESS', time: 'Today · 08:15', received: 'Received 17 Jul 2026 · 08:15',
         title: 'SummarizerX moved to compliance review',
         body: 'Request A-0492 passed security review. Compliance checks are now in progress.',
-        what: 'Your visa application for SummarizerX cleared the security review stage. The compliance team is now checking vendor terms and data handling before a final decision.',
+        what: 'Your tool access request for SummarizerX cleared the security review stage. The compliance team is now checking vendor terms and data handling before a final decision.',
         facts: [['Request', 'A-0492'], ['Tool', 'SummarizerX'], ['Stage', 'Compliance review'], ['Submitted', '15 Jul 2026'], ['Expected decision', 'Within 2 working days']],
-        action: { label: 'View my visas', to: '/visas' },
+        action: { label: 'View AI tools', to: '/tools' },
         read: false, deleted: false,
       },
       {
@@ -287,7 +293,7 @@ function seed() {
         title: '21-day safe prompt streak',
         body: 'No unsafe prompts were sent for 21 consecutive days. Your license remains in good standing.',
         what: 'Every prompt you sent in the last 21 days passed the Smart Gateway with no unsafe content. Streaks like this keep your AI License in good standing.',
-        facts: [['Streak', '21 days'], ['Unsafe prompts', '0'], ['License standing', 'Good'], ['Started', '26 Jun 2026'], ['Reward', '+50 safety miles']],
+        facts: [['Streak', '21 days'], ['Unsafe prompts', '0'], ['License standing', 'Good'], ['Started', '26 Jun 2026'], ['Reward', '+50 safety points']],
         action: { label: 'View my license', to: '/license' },
         read: false, deleted: false,
       },
@@ -355,7 +361,7 @@ const DATA_FILE = path.join(DATA_DIR, 'progress.json')
 const PROFILE_FIELDS = [
   'activityXP', 'level', 'trainingProgress', 'completedModules', 'moduleCompletions',
   'trainingCompleted', 'stamps', 'streakDays', 'promptsProtected', 'itemsMasked',
-  'quiz', 'quizAttempt', 'name', 'initials', 'dept', 'licenseNo',
+  'overrides', 'quiz', 'quizAttempt', 'name', 'initials', 'dept', 'licenseNo',
 ]
 
 function snapshot() {
@@ -382,6 +388,23 @@ function save() {
   }
 }
 
+// Notifications written before "visa" was retired are already on disk, so they
+// are brought up to the current vocabulary as they are read back. Only the
+// category, the action label and its link change — the record of what happened
+// is left exactly as it was written.
+function migrateNotification(n) {
+  if (!n || typeof n !== 'object') return n
+  const migrated = n.category === 'VISA UPDATE' ? { ...n, category: 'TOOL ACCESS' } : { ...n }
+  if (migrated.action?.to === '/visas') {
+    migrated.action = {
+      ...migrated.action,
+      to: '/tools',
+      label: /visa/i.test(migrated.action.label || '') ? 'View AI tools' : migrated.action.label,
+    }
+  }
+  return migrated
+}
+
 function load() {
   try {
     if (!fs.existsSync(DATA_FILE)) return
@@ -393,7 +416,7 @@ function load() {
       }
       if (Array.isArray(saved.trainingLibrary) && saved.trainingLibrary.length) db.trainingLibrary = saved.trainingLibrary
       if (Array.isArray(saved.assignments)) db.assignments = saved.assignments
-      if (Array.isArray(saved.notifications)) db.notifications = saved.notifications
+      if (Array.isArray(saved.notifications)) db.notifications = saved.notifications.map(migrateNotification)
       db.nextModuleId = Math.max(
         Number(saved.nextModuleId) || 0,
         db.trainingLibrary.reduce((max, m) => Math.max(max, Number(m.id) || 0), 0) + 1
@@ -446,6 +469,59 @@ export function trainingXP(profile = db.profile) {
   return Object.values(profile.trainingProgress || {}).reduce((sum, r) => sum + (r.pointsEarned || 0), 0)
 }
 
+// ---- AI Safety Score -------------------------------------------------------
+// The employee mirror of the admin risk score, and the one number on the licence
+// card that used to be a constant: every passport rendered 80 · Excellent
+// because the server never sent this field at all and the browser fell back to a
+// literal. It is derived here so it moves with the records it claims to
+// describe, and so the employee and the admin are reading the same arithmetic.
+//
+// Only facts the store actually holds go into it:
+//   • baseline 60 — a new employee has done nothing unsafe, so they do not start
+//     "At risk"; they start with no record either way.
+//   • safe streak, up to +20 — profile.streakDays, reset to 0 by an override.
+//   • assigned training completed, up to +20 — the share of the modules they
+//     actually have, not of the whole library, so training assigned to somebody
+//     else never counts against them. Training assigned to THEM and not yet
+//     done does: outstanding mandatory training is a real compliance signal,
+//     and it is the part of the score they can close themselves.
+//   • −20 per override — the one case where protected data demonstrably left the
+//     organisation (recordOverride), which is what the card already tells them.
+const SAFETY_BASE = 60
+const SAFETY_STREAK_TARGET = 21
+const SAFETY_OVERRIDE_PENALTY = 20
+
+export function safetyFor(profile = db.profile) {
+  const streak = Math.max(0, Number(profile.streakDays) || 0)
+  const streakPoints = Math.round(Math.min(1, streak / SAFETY_STREAK_TARGET) * 20)
+
+  const assigned = modulesForEmployee(profile.id)
+  const completed = assigned.filter(m => (profile.completedModules || []).includes(m.id)).length
+  const trainingPoints = assigned.length ? Math.round((completed / assigned.length) * 20) : 0
+
+  const penalty = (Math.max(0, Number(profile.overrides) || 0)) * SAFETY_OVERRIDE_PENALTY
+  const score = Math.max(0, Math.min(100, SAFETY_BASE + streakPoints + trainingPoints - penalty))
+
+  const grade = score >= 80 ? 'Excellent' : score >= 60 ? 'Good' : score >= 40 ? 'Fair' : 'At risk'
+  return {
+    score,
+    grade,
+    streakDays: streak,
+    overrides: Math.max(0, Number(profile.overrides) || 0),
+    modulesCompleted: completed,
+    modulesAssigned: assigned.length,
+  }
+}
+
+/**
+ * The employee profile as the API serves it: the stored record plus the fields
+ * that are derived rather than kept. Everything employee-facing reads this, so a
+ * derived number cannot be correct on one screen and invented on another.
+ */
+export function publicProfile(profile = db.profile) {
+  return { ...profile, safety: safetyFor(profile) }
+}
+
 // Recomputes totalXP from its parts and stamps the derived level fields onto
 // the profile. Called after every change that can move XP — nothing else is
 // allowed to set profile.points or profile.level by hand.
@@ -465,6 +541,7 @@ function syncProgression(profile = db.profile) {
   p.nextLevelName = state.nextLevelName
   p.xpToNext = state.xpToNext
   p.progressPercentage = state.progressPercentage
+  p.learningPercentage = state.learningPercentage
   p.isMaxLevel = state.isMaxLevel
   p.isMaxXP = state.isMaxXP
   p.maxXP = MAX_XP
@@ -475,13 +552,13 @@ function announceLevelUp(state) {
   addNotification({
     category: 'MILESTONE',
     title: `Level ${state.level} · ${state.levelName} reached`,
-    body: `You crossed ${state.currentLevelXP.toLocaleString()} XP. ${LEVEL_BENEFITS[state.level]} is now unlocked.`,
-    what: `Your safe-AI progress earned Level ${state.level} · ${state.levelName}. XP comes from completed training and safe day-to-day AI use; repeating a module you have already passed does not add more.`,
+    body: `You reached ${state.currentLevelXP.toLocaleString()} safety points. ${LEVEL_BENEFITS[state.level]} is now unlocked.`,
+    what: `Your safe-AI progress earned Level ${state.level} · ${state.levelName}. Safety points come from completed training and safe day-to-day AI use; repeating a module you have already passed does not add more.`,
     facts: [
       ['New level', `Level ${state.level} · ${state.levelName}`],
       ['Unlocked', LEVEL_BENEFITS[state.level]],
-      ['Total XP', `${state.totalXP.toLocaleString()} XP`],
-      ['Next level', state.isMaxLevel ? 'Maximum level reached' : `${state.nextLevelName} at ${(state.nextLevelXP + 1).toLocaleString()} XP`],
+      ['Total points', `${state.totalXP.toLocaleString()} points`],
+      ['Next level', state.isMaxLevel ? 'Maximum level reached' : `${state.nextLevelName} at ${state.nextLevelXP.toLocaleString()} points`],
       ['Next step', 'Open My AI License to see the new class'],
     ],
     action: { label: 'View my license', to: '/license' },
@@ -598,6 +675,20 @@ export function recordSession(kind, user) {
     resource: 'AI Passport console',
     control: 'NIST PR.AC',
   })
+}
+
+const ACTIVITY_LIMIT = 50
+
+/**
+ * One employee's own slice of the audit log — what "My AI Activity" shows them.
+ *
+ * The filtering happens here rather than in the browser on purpose: /api/audit
+ * is the whole organisation's feed, and a page that shows an employee their own
+ * history must never be sent anybody else's events to filter out afterwards.
+ * Same records, same order, same masked-only text as the admin log.
+ */
+export function activityFor(employeeId, limit = ACTIVITY_LIMIT) {
+  return db.auditEvents.filter(e => e.user === employeeId).slice(0, limit)
 }
 
 // ---- risk alerts -----------------------------------------------------------
@@ -778,16 +869,16 @@ export function recordToolUse({ tool }) {
     employeeId,
     dept,
     title: suspended ? 'Suspended tool used' : 'Unapproved tool detected',
-    meta: `${departmentName(dept)} · ${name} · ${suspended ? 'suspended org-wide' : 'no active visa'}`,
+    meta: `${departmentName(dept)} · ${name} · ${suspended ? 'suspended org-wide' : 'no approved access'}`,
     detailMeta: `${departmentName(dept)} · User ${employeeId} · detected today at ${nowTime()}`,
     what: suspended
       ? `${name} was suspended organisation-wide after a vendor security concern, and an employee opened it anyway. Prompts sent there are outside the organisation's review.`
-      : `An employee opened ${name}, which has no active visa. The Smart Gateway still protected their prompts, but a tool nobody has reviewed has no agreed terms for what it does with company data.`,
+      : `An employee opened ${name}, which has no approved access. The Smart Gateway still protected their prompts, but a tool nobody has reviewed has no agreed terms for what it does with company data.`,
     evidence: `${name} opened · gateway protection ${suspended ? 'active' : 'active'} · no data confirmed sent`,
     evidenceNote: 'Tool register check · no prompt content recorded',
     recommend: suspended
       ? 'Contact the employee and confirm the suspension was understood.'
-      : `Review the ${name} visa request, or point the employee at an approved alternative.`,
+      : `Review the ${name} tool access request, or point the employee at an approved alternative.`,
     primary: suspended ? 'Acknowledge' : 'Review tool request',
   })
 
@@ -802,22 +893,22 @@ export function recordToolUse({ tool }) {
       risk: severity,
     })
     addNotification({
-      category: 'VISA UPDATE',
+      category: 'TOOL ACCESS',
       title: suspended ? `${name} is suspended` : `${name} is not an approved tool`,
       body: suspended
         ? `${name} was withdrawn organisation-wide. Please stop using it and switch to an approved tool.`
-        : `${name} has no active visa. Your prompts are still protected, but request a visa before putting company data in it.`,
+        : `${name} is not approved for you yet. Your prompts are still protected, but request tool access before putting company data in it.`,
       what: suspended
         ? `An administrator suspended ${name} for the whole organisation. Anything you send there is outside the organisation's review.`
-        : `${name} has not been through security and compliance review, so there are no agreed terms covering what it does with company data. Requesting a visa is the way to get it reviewed.`,
+        : `${name} has not been through security and compliance review, so there are no agreed terms covering what it does with company data. Requesting tool access is the way to get it reviewed.`,
       facts: [
         ['Tool', name],
         ['Status', status],
         ['Your prompts', 'Still protected by the Smart Gateway'],
-        ['Next step', suspended ? 'Switch to an approved tool' : 'Request a visa from My Visas'],
+        ['Next step', suspended ? 'Switch to an approved tool' : 'Request tool access from AI Tools'],
         ['Recorded', `Audit log · alert ${alert.id}`],
       ],
-      action: { label: 'Open My Visas', to: '/visas' },
+      action: { label: 'Open AI Tools', to: '/tools' },
     })
   }
   return { ok: true, status, alert, isNew }
@@ -902,7 +993,9 @@ export function recordOfflineEvent({ id, detections, masked, tool, at }) {
 // -20 points, streak reset, High alert for the admin, ALERT audit event.
 export function recordOverride({ prompt }) {
   db.profile.streakDays = 0
-  db.counters.overridesToday += 1
+  // Counted on the employee's own record, not only in the admin queue: it is
+  // what the AI Safety Score on their licence deducts for (safetyFor()).
+  db.profile.overrides = (db.profile.overrides || 0) + 1
   applyPoints(-20)
   const event = recordAudit({
     action: 'ALERT', record: prompt, control: 'PDPA P7', status: 'FLAGGED', risk: 'HIGH', countsAsPrompt: true,
@@ -1002,9 +1095,25 @@ export function publicModule(module, { withQuestions = false } = {}) {
     ...rest,
     questionCount: questions.length,
     assignedTotal: (module.assigned || 0) + assignedEmployeeIds(module.id).size,
+    // Completions, counted the same way as assignees: the standing rollout
+    // figure plus the employees who have actually finished it in this system.
+    // `module.done` is a COUNT in the seed, and the admin list was rendering it
+    // with a "%" after it — 78 completions on a 303-person rollout was being
+    // shown as "78% done".
+    doneTotal: (module.done || 0) + completedEmployeeIds(module.id).size,
     maxQuestions: MAX_QUESTIONS,
     ...(withQuestions ? { questions } : {}),
   }
+}
+
+/** Employees whose own progress record marks this module completed. */
+function completedEmployeeIds(moduleId) {
+  const id = Number(moduleId)
+  const ids = new Set()
+  for (const [employeeId, p] of Object.entries(db.employees)) {
+    if (p.trainingProgress?.[id]?.completed) ids.add(employeeId)
+  }
+  return ids
 }
 
 /** Every module, with its questions — the admin's view of the library. */
@@ -1133,15 +1242,65 @@ export function assignedModuleIds(employeeId) {
 }
 
 /**
+ * One employee's state on one module, assembled from the two records that hold
+ * it: the answers of the attempt in progress (profile.quiz) and the settled
+ * progression record (profile.trainingProgress).
+ *
+ * This travels with the module so the training screens can order and label by
+ * real state. They previously could not: the module list carried no per-module
+ * progress at all, so "current training" was decided by library order and the
+ * dashboard had to fetch /quiz/results separately for the one module it had
+ * already guessed at.
+ *
+ * A retry clears the answers but keeps the record, so a module being redone
+ * reads completed: true with attempted: 0 — which is what stops a redo being
+ * mistaken for unfinished work.
+ */
+export function moduleProgressFor(profile, moduleId) {
+  const id = Number(moduleId)
+  const answers = profile?.quiz?.[id] || {}
+  const record = profile?.trainingProgress?.[id] || null
+  const attempted = Object.keys(answers).length
+  const completed = Boolean(record?.completed) || (profile?.completedModules || []).includes(id)
+
+  // ISO-8601 sorts lexically, so the latest stamp is the last one.
+  const stamps = [
+    ...Object.values(answers).map(a => a?.at),
+    record?.lastAttemptAt,
+  ].filter(Boolean).sort()
+
+  return {
+    attempted,
+    completed,
+    // Started and not settled — the attempt the employee is in the middle of.
+    // A completed module is never "in progress", even while being redone.
+    inProgress: attempted > 0 && !completed,
+    started: attempted > 0 || completed,
+    attempts: record?.attempts || 0,
+    pointsEarned: record?.pointsEarned || 0,
+    bestScorePct: record?.bestScorePct || 0,
+    lastActivityAt: stamps.length ? stamps[stamps.length - 1] : null,
+  }
+}
+
+/**
  * The modules one employee actually has: published, and either part of the
  * standing curriculum or assigned to them personally or through their
  * department. Nobody sees a module that was assigned to somebody else.
+ *
+ * Each carries this employee's own progress on it, so the training screens
+ * order and label from the server's records rather than from library order.
  */
 export function modulesForEmployee(employeeId) {
   const assigned = assignedModuleIds(employeeId)
+  const profile = db.employees[employeeId] || null
   return db.trainingLibrary
     .filter(m => m.status === 'live' && (m.audience === 'everyone' || assigned.has(m.id)))
-    .map(m => ({ ...publicModule(m), assignedToMe: assigned.has(m.id) }))
+    .map(m => ({
+      ...publicModule(m),
+      assignedToMe: assigned.has(m.id),
+      progress: moduleProgressFor(profile, m.id),
+    }))
 }
 
 /**
@@ -1312,10 +1471,24 @@ function progressRecord(moduleId) {
   })
 }
 
-export function answerQuiz(moduleId, question, correct) {
+// `selected` is the option index the employee actually chose (null for the
+// write-your-own practice question). Recorded alongside the verdict because the
+// answer is final and the quiz page has to be able to put the employee back
+// exactly where they were after a refresh — knowing only that Q2 was wrong is
+// not enough to redraw Q2, and re-asking it would show feedback for an answer
+// that is not the one being scored.
+export function answerQuiz(moduleId, question, correct, selected) {
   const bucket = ((db.profile.quiz ??= {})[moduleId] ??= {})
   if (bucket[question] === undefined) {
-    bucket[question] = { correct }
+    // `at` is what makes "the training you were last working on" answerable.
+    // Without it the only ordering available was the library's own, so the
+    // Training dashboard always called module 1 "current" even when the
+    // employee had been part-way through module 3.
+    bucket[question] = {
+      correct,
+      selected: Number.isInteger(selected) ? selected : null,
+      at: new Date().toISOString(),
+    }
     save()
   }
   return quizResults(moduleId)
@@ -1661,205 +1834,20 @@ export function leaderboard() {
   return rows.map((r, i) => ({ ...r, rank: i + 1 }))
 }
 
-// ---- organisational AI risk score (proposal §6 — quantified governance) ----
-// A single 0–100 score the board can read at a glance: LOWER is better. It is
-// computed live from the same signals the admin already acts on, so resolving
-// an alert or an employee overriding the gateway visibly moves the number.
-// Each masked item is treated as one prevented exposure; RM value uses the
-// IBM/Ponemon per-record breach cost (~USD 165 ≈ RM 780) as a defensible proxy.
-const VALUE_PER_ITEM_RM = 780
-
-export function riskScore() {
-  const open = openAlerts()
-  const high = open.filter(a => a.severity === 'HIGH').length
-  const med = open.filter(a => a.severity === 'MEDIUM').length
-  const mon = open.filter(a => a.severity === 'MONITORING').length
-  const overrides = db.counters.overridesToday
-  const pending = db.visaRequests.filter(r => ['SECURITY REVIEW', 'COMPLIANCE'].includes(r.status)).length
-  const modulesDone = db.profile.completedModules.length
-  const trainingGap = Math.max(0, 3 - modulesDone)
-
-  // Each factor contributes points of risk; the gauge sums them (capped at 100).
-  const factors = [
-    { key: 'alerts', label: 'Unresolved risk alerts', points: high * 10 + med * 4 + mon * 1, detail: `${high} high · ${med} medium · ${mon} monitoring` },
-    { key: 'override', label: 'Policy overrides today', points: overrides * 15, detail: overrides ? `${overrides} employee override${overrides === 1 ? '' : 's'}` : 'No overrides — gateway respected' },
-    { key: 'shadow', label: 'Shadow-AI exposure', points: pending * 2, detail: `${pending} tool${pending === 1 ? '' : 's'} pending review` },
-    { key: 'training', label: 'Training coverage gap', points: trainingGap * 1, detail: `${modulesDone}/3 core modules complete` },
-    { key: 'residual', label: 'Baseline residual risk', points: 4, detail: 'Always-on gateway · masked storage' },
-  ].map(f => ({ ...f, tone: f.points >= 12 ? 'high' : f.points >= 5 ? 'med' : 'low' }))
-
-  const score = Math.min(100, Math.max(0, factors.reduce((n, f) => n + f.points, 0)))
-  const band = score < 25 ? 'Low' : score < 45 ? 'Moderate' : score < 70 ? 'Elevated' : 'High'
-  const trend = [...db.riskHistory, score]
-  const prev = db.riskHistory[db.riskHistory.length - 1]
-
-  const maskedToday = db.counters.maskedToday
-  return {
-    score, band, factors, trend,
-    delta: score - prev, // negative = improving
-    metrics: {
-      promptsProtected: db.counters.promptsToday,
-      itemsIntercepted: maskedToday,
-      incidentsPrevented: maskedToday,
-      valueProtected: maskedToday * VALUE_PER_ITEM_RM,
-      overrides,
-      confirmedLeaks: 0,
-    },
-  }
-}
-
-// ---- personal AI safety score (employee-facing, higher is better) ----------
-// The employee mirror of the org risk score: a 0–100 grade the individual can
-// grow. Built from the same behaviour the points system already rewards — safe
-// streak, level progress, training stamps, and clean-handling habit. Overriding
-// the gateway resets the streak (recordOverride), so the score visibly drops,
-// which reinforces "the safe path is the rewarded path".
-export function safetyScore() {
-  const p = db.profile
-  const streakPart = Math.min(p.streakDays, 30) / 30 * 25
-  const progressPart = Math.min(p.points / p.target, 1) * 20
-  const trainingPart = Math.min(p.stamps.length, 4) / 4 * 20
-  const habitPart = p.streakDays > 0 ? 30 : 8 // a recent override zeroes the streak
-  const residual = 5
-  const factors = [
-    { key: 'streak', label: 'Safe prompt streak', value: streakPart, detail: `${p.streakDays} day${p.streakDays === 1 ? '' : 's'} clean` },
-    { key: 'habit', label: 'Clean handling', value: habitPart, detail: p.streakDays > 0 ? 'No gateway overrides' : 'Recent override — rebuild streak' },
-    { key: 'training', label: 'Training completed', value: trainingPart, detail: `${p.stamps.length} verified stamp${p.stamps.length === 1 ? '' : 's'}` },
-    { key: 'progress', label: 'License progress', value: progressPart, detail: `${p.points.toLocaleString()} / ${p.target.toLocaleString()} pts` },
-  ]
-  const score = Math.round(Math.min(100, Math.max(0, streakPart + progressPart + trainingPart + habitPart + residual)))
-  const grade = score >= 80 ? 'Excellent' : score >= 62 ? 'Good' : score >= 45 ? 'Fair' : 'At risk'
-  return { score, grade, factors: factors.map(f => ({ ...f, value: Math.round(f.value) })) }
-}
-
-// ---- live demo simulator (pitch mode) --------------------------------------
-// Injects synthetic org-wide activity so every admin screen visibly moves
-// during a live demo. Runs on the server so audit log, KPIs, the department
-// chart and the risk score all react from one source. Purely additive — it
-// never touches the signed-in employee's own profile/points.
-export const sim = { on: false, injected: 0 }
-
-const SIM_USERS = [
-  { user: 'F-102', dept: 'Fin' }, { user: 'S-044', dept: 'Sales' }, { user: 'S-051', dept: 'Sales' },
-  { user: 'E-198', dept: 'Eng' }, { user: 'E-233', dept: 'Eng' }, { user: 'H-011', dept: 'HR' },
-  { user: 'M-083', dept: 'Mkt' }, { user: 'O-031', dept: 'Ops' },
-]
-const SIM_TOOLS = ['ChatGPT', 'Gemini', 'Claude', 'Copilot']
-const SIM_CLEAN = [
-  'Explain the difference between SQL joins with examples',
-  'Draft a polite follow-up email to a supplier about delivery',
-  'Summarise the key points of our Q3 marketing strategy',
-  'Write unit tests for a pagination helper function',
-  'Rewrite this paragraph to be clearer and more concise',
-]
-const SIM_MASKED = [
-  { record: 'Fix login bug reported by client [MASKED-NAME], ref [MASKED-RECORD]', control: 'PDPA P7' },
-  ['Draft payment reminder for invoice [MASKED-RECORD], amount [MASKED-AMOUNT]', 'NIST PR.DS'],
-  ['Reply to [MASKED-NAME] at [MASKED-EMAIL] about their account', 'PDPA P7'],
-  ['Verify customer identity — IC [MASKED-IC], phone [MASKED-PHONE]', 'PDPA P7'],
-  ['Review contractor onboarding for [MASKED-NAME], passport [MASKED-PASSPORT]', 'PDPA P7'],
-]
-const pick = arr => arr[Math.floor(Math.random() * arr.length)]
-
-function pushSimEvent({ user, dept, tool, action, control, record }) {
-  const event = {
-    id: `EV-${db.counters.nextEventNo++}`,
-    time: nowTime(), user, dept, tool, action,
-    control: control || 'NIST GV.4',
-    record: record.length > 60 ? record.slice(0, 57) + '…' : record,
-    sim: true,
-  }
-  db.auditEvents.unshift(event)
-  db.auditEvents = db.auditEvents.slice(0, 50)
-  return event
-}
-
-// One tick of simulated traffic. Weighted so most prompts are clean, some are
-// masked, and occasionally an unapproved-tool redirect or an override alert
-// fires — enough variety to make the dashboard feel alive without spamming.
-export function simulateTick() {
-  const who = pick(SIM_USERS)
-  const tool = pick(SIM_TOOLS)
-  const roll = Math.random()
-  db.counters.promptsToday += 1
-  sim.injected += 1
-
-  if (roll < 0.55) {
-    pushSimEvent({ ...who, tool, action: 'CLEAN', record: pick(SIM_CLEAN) })
-  } else if (roll < 0.9) {
-    const m = pick(SIM_MASKED)
-    const record = Array.isArray(m) ? m[0] : m.record
-    const control = Array.isArray(m) ? m[1] : m.control
-    const count = 1 + Math.floor(Math.random() * 2)
-    db.counters.maskedToday += count
-    pushSimEvent({ ...who, tool, action: 'MASKED', control, record })
-  } else if (roll < 0.96) {
-    pushSimEvent({ ...who, tool: 'SummarizerX', action: 'REDIRECTED', control: 'AIGE 4.2', record: 'Switched to approved tool · ChatGPT' })
-  } else {
-    // Rare high-risk override — also raises the live risk score.
-    db.counters.overridesToday += 1
-    pushSimEvent({ ...who, tool, action: 'ALERT', control: 'PDPA P7', record: 'Original prompt sent after gateway warning' })
-    db.alerts.unshift({
-      id: `RA-${db.counters.nextAlertNo++}`, severity: 'HIGH', status: 'open',
-      title: 'Protected prompt overridden',
-      meta: `${who.dept} · ${who.user} · just now`, due: 'Review today',
-      detailMeta: `${who.dept} · User ${who.user} · detected today at ${nowTime()}`,
-      what: 'An employee sent the original prompt after the gateway flagged sensitive content. Points were deducted and the event was logged for review.',
-      evidence: 'Original sent by employee choice · flagged for review', evidenceNote: 'Simulated event · live demo',
-      timeline: [[nowTime(), 'Override recorded'], ['—', 'Manager review pending']],
-      recommend: 'Assign the 5-minute Data Privacy refresher.', primary: 'Assign training',
-    })
-  }
-  return { injected: sim.injected }
-}
-
-// ---- compliance report data (single source for the AI report page) ---------
-// Maps live detections to the controls they evidence so the report reads as a
-// regulator-ready document rather than a static mock-up.
-const REPORT_CONTROLS = [
-  { type: 'Personal identifiers (IC, passport, phone, email, names)', framework: 'Malaysia PDPA · Principle 7 (Security)', evidence: 'Masked before transmission · raw values never stored' },
-  { type: 'Financial figures (amounts, invoices)', framework: 'NIST AI RMF · MEASURE 2.7', evidence: 'Amounts tokenised · audit stores masked text only' },
-  { type: 'Customer & case records', framework: 'PDPA · Principle 7 + retention limit', evidence: 'Reference IDs masked · 90-day purge enforced' },
-  { type: 'Credentials & source secrets', framework: 'NIST AI RMF · MANAGE 2.2', evidence: 'Keys and secrets blocked at the gateway' },
-  { type: 'AI-assisted decisions', framework: 'EU AI Act · Art. 14 (Human oversight)', evidence: 'Public review portal · independent human sign-off' },
-  { type: 'AI literacy & training', framework: 'EU AI Act · Art. 4 (AI literacy)', evidence: 'Gamified licence · per-employee training stamps' },
-]
-
-export function reportData() {
-  const risk = riskScore()
-  const toolsApproved = db.visaRequests.filter(r => r.status === 'APPROVED').length
-  const risksResolved = db.alerts.filter(a => a.status === 'resolved').length
-  const today = todayDate()
-  return {
-    org: 'Example Sdn Bhd',
-    period: '1–' + today.split(' ')[0] + ' ' + today.split(' ').slice(1).join(' '),
-    generated: today,
-    risk,
-    controls: REPORT_CONTROLS,
-    frameworks: [
-      { name: 'NIST AI RMF', detail: 'Govern · Map · Measure · Manage — all evidenced', status: 'Compliant' },
-      { name: 'EU AI Act', detail: 'Art. 4 literacy · Art. 14 human oversight · transparency', status: 'Compliant' },
-      { name: 'Malaysia PDPA', detail: 'Personal-data handling · masking · 90-day retention', status: 'Compliant' },
-    ],
-    kpis: {
-      promptsProtected: risk.metrics.promptsProtected,
-      itemsMasked: risk.metrics.itemsIntercepted,
-      toolsApproved,
-      risksResolved,
-      humanReviews: 11,
-      confirmedLeaks: 0,
-      valueProtected: risk.metrics.valueProtected,
-    },
-    topEvents: db.auditEvents.slice(0, 8),
-  }
-}
-
 // ---- visas / tool approvals ----
 
-export function applyForVisa({ tool, purpose, scopes }) {
+// `model`, `vendor` and `category` are what the employee filled in on the
+// request form. They were being collected and thrown away, which is why an
+// approved tool then joined the register as "Unreviewed vendor" with no model —
+// and why the employee's own AI Tools list could not describe a tool it had just
+// asked for.
+export function applyForVisa({ tool, purpose, scopes, model, vendor, category }) {
   const request = {
     id: `A-0${db.counters.nextRequestNo++}`,
     tool: tool || 'SummarizerX',
+    model: String(model || '').trim() || 'Vendor model',
+    vendor: String(vendor || '').trim() || 'Unreviewed vendor',
+    category: String(category || '').trim(),
     status: 'SECURITY REVIEW',
     dept: db.profile.dept,
     requester: db.profile.id,
@@ -1873,7 +1861,7 @@ export function applyForVisa({ tool, purpose, scopes }) {
     action: 'REQUESTED',
     resource: request.tool,
     tool: request.tool,
-    record: `Tool visa requested · ${request.id} · ${request.tool}`,
+    record: `Tool access requested · ${request.id} · ${request.tool}`,
     control: 'AIGE 4.2',
   })
   return request
@@ -1894,7 +1882,16 @@ export function decideVisa(id, decision, note) {
   if (registered && registered.status !== 'SUSPENDED') {
     registered.status = decision === 'approve' ? 'APPROVED' : 'UNAPPROVED'
   } else if (!registered) {
-    db.orgTools.push({ name: request.tool, vendor: 'Unreviewed vendor', status: decision === 'approve' ? 'APPROVED' : 'UNAPPROVED' })
+    // A tool nobody had registered before. It joins with what the requester
+    // declared about it, so an approved tool describes itself on their AI Tools
+    // list instead of appearing as a bare name.
+    db.orgTools.push({
+      name: request.tool,
+      vendor: request.vendor || 'Unreviewed vendor',
+      model: request.model || 'Vendor model',
+      dataScope: (request.scopes || []).join(' · ') || 'As declared in the request',
+      status: decision === 'approve' ? 'APPROVED' : 'UNAPPROVED',
+    })
   }
 
   // Governance decisions are themselves auditable
@@ -1907,12 +1904,12 @@ export function decideVisa(id, decision, note) {
   })
 
   const titles = {
-    approve: `${request.tool} visa approved`,
-    decline: `${request.tool} visa declined`,
+    approve: `${request.tool} access approved`,
+    decline: `${request.tool} access declined`,
     redirect: `${request.tool} request redirected`,
   }
   const bodies = {
-    approve: `Request ${request.id} was approved. The tool has been added to your approved visas.`,
+    approve: `Request ${request.id} was approved. The tool has been added to your approved AI tools.`,
     decline: `Request ${request.id} was declined. An approved alternative remains available.`,
     redirect: `Request ${request.id} was closed with a one-click switch to an approved alternative.`,
   }
@@ -1920,7 +1917,7 @@ export function decideVisa(id, decision, note) {
     // The employee who asked is the employee who is told — not whoever happens
     // to be signed in when the admin decides.
     employeeId: employeeById(request.requester) ? request.requester : undefined,
-    category: 'VISA UPDATE',
+    category: 'TOOL ACCESS',
     title: titles[decision] || `${request.tool} request updated`,
     body: bodies[decision] || `Request ${request.id} status: ${request.status}.`,
     what: `IT and Compliance completed the review of your ${request.tool} request. ${bodies[decision] || ''}`,
@@ -1931,7 +1928,7 @@ export function decideVisa(id, decision, note) {
       ['Decided', request.decided],
       ['Reviewer', 'Admin · Compliance role'],
     ],
-    action: { label: 'View my visas', to: '/visas' },
+    action: { label: 'View AI tools', to: '/tools' },
   })
   return request
 }
@@ -1966,10 +1963,10 @@ export function suspendToolOrgWide(name, admin = ADMIN_ACTOR) {
     addNotification({
       employeeId: id,
       key: `suspend:${tool.name}`,
-      category: 'VISA UPDATE',
+      category: 'TOOL ACCESS',
       title: `${tool.name} suspended organisation-wide`,
       body: `${tool.name} is suspended for every employee. It can no longer be used or requested until the suspension is lifted.`,
-      what: `An administrator suspended ${tool.name} for the whole organisation after a vendor security concern. The tool now shows as suspended on your visa list and new requests for it are not accepted.`,
+      what: `An administrator suspended ${tool.name} for the whole organisation after a vendor security concern. The tool now shows as blocked in your AI Tools list and new requests for it are not accepted.`,
       facts: [
         ['Tool', tool.name],
         ['Vendor', tool.vendor],
@@ -1977,7 +1974,7 @@ export function suspendToolOrgWide(name, admin = ADMIN_ACTOR) {
         ['Effective', 'Immediately'],
         ['Recorded', `Audit log · ${event.id}`],
       ],
-      action: { label: 'View my visas', to: '/visas' },
+      action: { label: 'View AI tools', to: '/tools' },
     })
   }
 

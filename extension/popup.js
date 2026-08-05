@@ -237,7 +237,7 @@ async function render() {
     return
   }
   const resolved = await ask({ type: 'AIP_TOOL', tool: tool.name })
-  if (resolved?.approved === false) return paintSite('warn', `${tool.name} · no active visa`)
+  if (resolved?.approved === false) return paintSite('warn', `${tool.name} · not approved`)
   if (!state.active) return paintSite('idle', `${tool.name} · prompts are not being checked`)
   if (!live?.ready) return paintSite('warn', `${tool.name} · checkpoint not running on this tab`)
   if (!state.online) return paintSite('warn', `${tool.name} · checking on this device only`)

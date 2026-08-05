@@ -25,6 +25,44 @@ function Radio({ state }) {
   return <span className="w-5 h-5 rounded-full border-2 border-[#d8d0b4] bg-white shrink-0" />
 }
 
+// Above this many questions the step bar stops being one segment per question.
+const SEGMENTED_UP_TO = 12
+
+// ---- resuming an attempt ---------------------------------------------------
+// /api/quiz/results returns the answers already recorded for this module, as
+// { [questionIndex]: { correct, selected } }. These two turn that back into the
+// page state it came from.
+
+/** The stored answers as this page's local shape. */
+function restoreAnswers(stored) {
+  const answers = {}
+  for (const [index, a] of Object.entries(stored || {})) {
+    // A practice question records no option index — it is answered once the
+    // rewrite has been checked, which is exactly what `checked` means here.
+    answers[Number(index)] = Number.isInteger(a?.selected)
+      ? { selected: a.selected }
+      // The rewrite itself is never stored — a practice answer is scored on
+      // having been written and checked, so `restored` is what the page says
+      // instead of redrawing text it does not have.
+      : { checked: true, rewrite: '', restored: true }
+  }
+  return answers
+}
+
+/**
+ * Where to drop the employee back in: the first question with no answer yet.
+ * With every question answered they land on the last one, which is where the
+ * Submit action is — the attempt is finished but not yet evaluated.
+ */
+function resumeStep(stored, total) {
+  const answered = stored || {}
+  const count = Number(total) || 0
+  for (let i = 0; i < count; i++) {
+    if (answered[i] === undefined) return i
+  }
+  return Math.max(0, count - 1)
+}
+
 // Shared shell for the states that are not a question: loading, refused, empty.
 function Notice({ kicker, title, body }) {
   return (
@@ -81,6 +119,14 @@ export default function TrainingQuiz() {
 
   // The server is the source of truth for the 24h lock; localStorage covers a
   // refresh and a re-login while the API is unreachable.
+  //
+  // The same call restores the attempt in progress. Answers are final and the
+  // server keeps only the FIRST answer per question, so a refresh that dropped
+  // back to Q1 with an empty page was letting the employee re-answer questions
+  // that were already scored: the feedback on screen was for the new pick, the
+  // result was the old one, and the "2 of 3 answered" the Training dashboard
+  // showed was invisible here. Resuming from the stored answers keeps the one
+  // recorded attempt and the screen describing it in step.
   useEffect(() => {
     if (status !== 'ok') return undefined
     let alive = true
@@ -90,6 +136,8 @@ export default function TrainingQuiz() {
         if (!alive) return
         setLock(retryStatus(moduleId, r.completedAt))
         setRecord(r.module || null)
+        setAnswers(restoreAnswers(r.answers))
+        setStep(resumeStep(r.answers, r.total))
       })
       .catch(() => {})
     return () => { alive = false }
@@ -142,14 +190,16 @@ export default function TrainingQuiz() {
   function pick(i) {
     if (answered) return
     setAnswers(a => ({ ...a, [step]: { selected: i } }))
-    api.post('/quiz/answer', { module: moduleId, question: step, correct: i === q.correct }).catch(() => {})
+    // `selected` is sent so this attempt can be redrawn after a refresh — the
+    // server keeps the first answer per question and ignores any later one.
+    api.post('/quiz/answer', { module: moduleId, question: step, correct: i === q.correct, selected: i }).catch(() => {})
   }
 
   function checkRewrite() {
     const text = answer.rewrite || ''
     if (answer.checked || !text.trim()) return
     setAnswers(a => ({ ...a, [step]: { ...a[step], checked: true } }))
-    api.post('/quiz/answer', { module: moduleId, question: step, correct: true }).catch(() => {})
+    api.post('/quiz/answer', { module: moduleId, question: step, correct: true, selected: null }).catch(() => {})
   }
 
   async function next() {
@@ -168,10 +218,6 @@ export default function TrainingQuiz() {
       levelUp = res?.levelUp || null
     } catch {
       /* offline — results page shows fallback, lock still starts locally */
-    if (!answered) return // wrong answers can still continue — first attempt already scored
-    if (isLast) {
-      try { await api.post('/training/complete', { module: moduleId }) } catch { /* offline — results page shows fallback */ }
-      return navigate(`/training/results/${moduleId}`)
     }
     recordCompletion(moduleId, completedAt)
     // The level-up is a one-off event, so it travels in navigation state rather
@@ -181,8 +227,15 @@ export default function TrainingQuiz() {
   }
 
   function back() {
-    if (step === 0) return navigate('/training')
-    setStep(step - 1)
+    if (step > 0) return setStep(step - 1)
+    // Leaving the quiz from Q1 returns to whatever opened it — the Training
+    // dashboard, the full module list, or a notification — instead of always
+    // to the dashboard, which sent anyone who came from "All training modules"
+    // to a different page than the one they pressed Back from. A direct load
+    // (deep link, refresh) has no history to return to, so it falls back to
+    // Training rather than leaving the app.
+    if (window.history.state?.idx > 0) return navigate(-1)
+    navigate('/training')
   }
 
   return (
@@ -194,7 +247,7 @@ export default function TrainingQuiz() {
         </div>
         <p className="text-[#667085] text-xs font-medium pb-1">
           {mod.minutes}-minute lesson&nbsp;&nbsp;·&nbsp;&nbsp;{total}-question quiz&nbsp;&nbsp;·&nbsp;&nbsp;
-          {record?.completed ? `${record.pointsEarned} / ${mod.points} XP earned` : `+${mod.points} XP`}
+          {record?.completed ? `${record.pointsEarned} / ${mod.points} points earned` : `+${mod.points} points`}
         </p>
       </div>
 
@@ -203,28 +256,41 @@ export default function TrainingQuiz() {
       {record?.completed && (
         <div className="bg-[#eef2ff] border border-[#c7d2fe] rounded-[12px] px-4 py-3 mt-4">
           <p className="text-navy-header text-[13px] font-semibold">
-            You are revisiting this training — your current best is {record.pointsEarned} XP.
+            You are revisiting this training — your current best is {record.pointsEarned} points.
           </p>
           <p className="text-[#667085] text-[12px] mt-1">
             {record.pointsEarned >= mod.points
-              ? `You already hold the full ${mod.points} XP for this module, so this attempt is revision — no further XP is added.`
-              : `Only an improvement counts: beat ${record.pointsEarned} XP and the difference is added to your total, up to ${mod.points} XP.`}
+              ? `You already hold the full ${mod.points} points for this module, so this attempt is revision — no further points are added.`
+              : `Only an improvement counts: beat ${record.pointsEarned} points and the difference is added to your total, up to ${mod.points} points.`}
           </p>
         </div>
       )}
 
-      {/* One segment per question. A module can hold up to 40, so the steps are
-          a scaling bar rather than a fixed three-column row. */}
+      {/* One segment per question. A module can hold up to 40, and 40 segments
+          at a 6px floor plus their gaps needed ~470px — wider than a phone, so
+          the bar ran off the screen on exactly the modules it mattered most for.
+          Past a dozen questions the segments stop being readable anyway, so the
+          bar becomes a single continuous fill; below that it keeps the original
+          segmented look with no minimum width to overflow with. */}
       <div className="mt-6">
         <div className="flex items-center justify-between gap-3 mb-2.5">
           <p className="text-navy-header text-[11px] font-semibold truncate">{step + 1}&nbsp;&nbsp;{q.stepTitle}</p>
           <p className="text-[#667085] text-[11px] font-medium shrink-0">{step + 1} of {total}</p>
         </div>
-        <div className="flex gap-1.5">
-          {questions.map((question, i) => (
-            <div key={i} className={`h-1.5 rounded-full flex-1 min-w-[6px] ${i <= step ? 'bg-gold-brand' : 'bg-[#d8d0b4]'}`} title={question.stepTitle} />
-          ))}
-        </div>
+        {total <= SEGMENTED_UP_TO ? (
+          <div className="flex gap-1.5">
+            {questions.map((question, i) => (
+              <div key={i} className={`h-1.5 rounded-full flex-1 min-w-0 ${i <= step ? 'bg-gold-brand' : 'bg-[#d8d0b4]'}`} title={question.stepTitle} />
+            ))}
+          </div>
+        ) : (
+          <div className="h-1.5 rounded-full bg-[#d8d0b4] w-full overflow-hidden">
+            <div
+              className="h-1.5 rounded-full bg-gold-brand transition-all duration-500"
+              style={{ width: `${Math.round(((step + 1) / total) * 100)}%` }}
+            />
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_316px] gap-4 lg:gap-6 mt-5 items-start">
@@ -266,10 +332,12 @@ export default function TrainingQuiz() {
               ) : (
                 <div className="bg-[#e7f1ec] border border-[#328768] rounded-[12px] px-4 py-4 mt-4">
                   <p className="text-[#19533e] text-sm">
-                    Detected locally: no name, IC, phone or financial data found&nbsp;&nbsp;·&nbsp;&nbsp;Task context preserved&nbsp;&nbsp;·&nbsp;&nbsp;Safe to send
+                    {answer.restored
+                      ? 'You already completed this practice on an earlier visit — it stays answered.'
+                      : 'Detected locally: no name, IC, phone or financial data found  ·  Task context preserved  ·  Safe to send'}
                   </p>
                   <p className="text-[#19533e] text-sm mt-1">
-                    {record?.completed ? 'Submit to settle this module’s XP' : `+${mod.points} XP on completion`}
+                    {record?.completed ? 'Submit to settle this module’s points' : `+${mod.points} points on completion`}
                   </p>
                 </div>
               )}
@@ -350,17 +418,6 @@ export default function TrainingQuiz() {
                 </button>
               </div>
             </div>
-          <div className="flex justify-between mt-4">
-            <button onClick={back} className="border border-navy-header text-navy-header text-[13px] font-semibold w-[130px] h-12 rounded-full cursor-pointer hover:bg-chip">
-              ←&nbsp;&nbsp;Back
-            </button>
-            <button
-              onClick={next}
-              disabled={!answered}
-              className={`text-[13px] font-semibold w-[180px] h-12 rounded-full ${answered ? 'bg-gold-brand text-navy-header cursor-pointer hover:bg-gold' : 'bg-[#d8d0b4] text-[#667085]'}`}
-            >
-              {isLast ? 'Submit answers' : 'Continue'}&nbsp;&nbsp;→
-            </button>
           </div>
         </div>
 
@@ -398,11 +455,11 @@ export default function TrainingQuiz() {
           <div className="bg-[#365fd9] rounded-[14px] px-4 py-4 mt-6">
             <p className="text-gold-brand text-[9px] font-semibold">COMPLETE ALL {total}</p>
             <p className="text-white text-lg font-bold mt-1.5">
-              {record?.completed ? `Best so far: ${record.pointsEarned} / ${mod.points} XP` : `+${mod.points} XP`}
+              {record?.completed ? `Best so far: ${record.pointsEarned} / ${mod.points} points` : `+${mod.points} points`}
             </p>
             <p className="text-[#eef2ff] text-[10px] mt-1.5">
               {record?.completed
-                ? 'Beating your best raises this module’s XP by the difference.'
+                ? 'Beating your best raises this module’s points by the difference.'
                 : `Earn the ${mod.stampTitle.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())} training stamp.`}
             </p>
           </div>

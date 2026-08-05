@@ -10,6 +10,7 @@
 // they are taking is always a complete set an admin signed off.
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import BackLink from '../../components/BackLink.jsx'
 import { useToast } from '../../components/Toast.jsx'
 import { MAX_QUESTIONS, QuestionList, QuestionModal } from '../../components/admin/TrainingModuleForm.jsx'
 import { saveModule } from '../../lib/trainingStore.js'
@@ -116,9 +117,7 @@ export default function EditQuestions() {
 
   return (
     <div>
-      <Link to="/admin/training" className="text-[#667085] hover:text-navy-header font-semibold text-[13px] inline-flex items-center">
-        ←&nbsp;&nbsp;Back to Training modules
-      </Link>
+      <BackLink to="/admin/training">Back to Training modules</BackLink>
 
       <div className="flex flex-col sm:flex-row items-start justify-between gap-3 mt-3">
         <div>
@@ -158,7 +157,7 @@ export default function EditQuestions() {
             />
           </div>
           <div>
-            <p className="text-slate2 font-semibold text-xs">XP VALUE</p>
+            <p className="text-slate2 font-semibold text-xs">POINTS VALUE</p>
             <input
               value={draft.points}
               onChange={e => setDraft(d => ({ ...d, points: e.target.value }))}

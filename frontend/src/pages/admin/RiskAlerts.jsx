@@ -292,51 +292,45 @@ export default function RiskAlerts() {
                   </div>
                 ))}
               </div>
-            </div>
 
-            {/* Pinned with the actions rather than at the end of the scroll: the
-                recommendation is what the button next to it carries out, so an
-                admin should never have to scroll to find out what they are
-                about to do. */}
-            <div className="p-5 pt-3.5 border-t border-[#eee6d4] shrink-0">
-              <div className="bg-[#fff5de] rounded-[10px] px-3.5 py-2.5">
+              <div className="bg-[#fff5de] rounded-[10px] px-3.5 py-2.5 mt-4">
                 <p className="text-[#d97706] font-semibold text-[11px]">Recommended next step</p>
                 <p className="text-[#17213a] font-medium text-xs mt-1">{sel.recommend}</p>
               </div>
+            </div>
 
-              <div className="flex gap-3 mt-3.5">
-                {sel.primary === 'Assign training' ? (
-                  // Carries the employee the alert is about, so the refresher can
-                  // be assigned to them without re-finding them in the picker.
-                  <Link
-                    to={`/admin/training/assign?mode=existing${sel.employeeId ? `&employee=${sel.employeeId}` : ''}`}
-                    className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full flex items-center justify-center cursor-pointer"
-                  >
-                    {sel.primary}
-                  </Link>
-                ) : sel.primary === 'Review tool request' ? (
-                  <Link
-                    to="/admin/tool-approvals"
-                    className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full flex items-center justify-center cursor-pointer"
-                  >
-                    {sel.primary}
-                  </Link>
-                ) : (
-                  <button
-                    onClick={() => toast(`${sel.primary} — action recorded for ${sel.id}`)}
-                    className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full cursor-pointer"
-                  >
-                    {sel.primary}
-                  </button>
-                )}
-                <button
-                  onClick={resolve}
-                  disabled={sel.status !== 'open'}
-                  className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full cursor-pointer hover:bg-chip disabled:opacity-50"
+            <div className="flex gap-3 p-5 pt-3 border-t border-[#eee6d4] shrink-0">
+              {sel.primary === 'Assign training' ? (
+                // Carries the employee the alert is about, so the refresher can
+                // be assigned to them without re-finding them in the picker.
+                <Link
+                  to={`/admin/training/assign?mode=existing${sel.employeeId ? `&employee=${sel.employeeId}` : ''}`}
+                  className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full flex items-center justify-center cursor-pointer"
                 >
-                  {sel.status === 'open' ? 'Resolve alert' : 'Resolved ✓'}
+                  {sel.primary}
+                </Link>
+              ) : sel.primary === 'Review tool request' ? (
+                <Link
+                  to="/admin/tool-approvals"
+                  className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full flex items-center justify-center cursor-pointer"
+                >
+                  {sel.primary}
+                </Link>
+              ) : (
+                <button
+                  onClick={() => toast(`${sel.primary} — action recorded for ${sel.id}`)}
+                  className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full cursor-pointer"
+                >
+                  {sel.primary}
                 </button>
-              </div>
+              )}
+              <button
+                onClick={resolve}
+                disabled={sel.status !== 'open'}
+                className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full cursor-pointer hover:bg-chip disabled:opacity-50"
+              >
+                {sel.status === 'open' ? 'Resolve alert' : 'Resolved ✓'}
+              </button>
             </div>
           </div>
         ) : (

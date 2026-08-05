@@ -173,14 +173,14 @@ export default function Gateway() {
             <div className="bg-[#fff5de] border border-[#e8c877] rounded-[12px] px-4 py-3 self-center max-w-[560px]">
               <p className="text-[#8a6410] font-semibold text-[13px]">{selected.name} is not an approved tool</p>
               <p className="text-[#8a6410] text-xs mt-1">
-                It has no active visa, so there are no agreed terms for what it does with company data. Your prompts are
-                still protected by the Smart Gateway. Request a visa from My Visas before putting company data in it.
+                It has no approved access, so there are no agreed terms for what it does with company data. Your prompts are
+                still protected by the Smart Gateway. Request tool access from AI Tools before putting company data in it.
               </p>
             </div>
           )}
           {messages.length === 0 && (
             <p className="text-[#667085] text-base text-center mt-32">
-              {unapproved ? 'Pick an approved tool, or request a visa for this one.' : 'Start a conversation with your approved AI tool.'}
+              {unapproved ? 'Pick an approved tool, or request access for this one.' : 'Start a conversation with your approved AI tool.'}
             </p>
           )}
           {messages.map((m, i) =>

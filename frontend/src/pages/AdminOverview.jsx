@@ -4,8 +4,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api.js'
-import RiskPanel from '../components/admin/RiskPanel.jsx'
-import LiveSimToggle from '../components/admin/LiveSimToggle.jsx'
 
 // Department chart: a plausible weekly baseline plus live prompts from the
 // audit log (each masked prompt for a department grows its bar). `abbr`
@@ -67,12 +65,9 @@ export default function AdminOverview() {
           <h1 className="text-[28px] font-bold text-navy-header">Overview</h1>
           <p className="text-[#667085] text-xs mt-1">Company-wide AI usage · refreshed live</p>
         </div>
-        <div className="flex items-center gap-3">
-          <LiveSimToggle />
-          <Link to="/admin/audit-report" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-8 h-[46px] rounded-full flex items-center cursor-pointer">
-            Compliance report&nbsp;&nbsp;↓
-          </Link>
-        </div>
+        <Link to="/admin/audit-report" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-11 h-[46px] rounded-full flex items-center cursor-pointer">
+          Export audit report&nbsp;&nbsp;↓
+        </Link>
       </div>
 
       {/* KPI cards */}
@@ -109,23 +104,12 @@ export default function AdminOverview() {
         </div>
       </div>
 
-<<<<<<< HEAD
       {/* Usage chart + risk alerts — the flexible row. It takes whatever height
           is left over, so the audit log below it never falls off the screen. */}
       <div className="grid grid-cols-[1fr_438px] gap-4 flex-1 min-h-0">
         <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-5 flex flex-col min-h-0">
           <p className="text-navy-header font-semibold text-[15px] shrink-0">AI usage by department · prompts this week</p>
           <div className="flex items-end justify-around flex-1 min-h-[150px] mt-4">
-=======
-      {/* Organisational AI risk score + ROI */}
-      <RiskPanel />
-
-      {/* Usage chart + risk alerts */}
-      <div className="grid grid-cols-[1fr_438px] gap-4 mt-4">
-        <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-5">
-          <p className="text-navy-header font-semibold text-[15px]">AI usage by department · prompts this week</p>
-          <div className="flex items-end justify-around h-[230px] mt-6">
->>>>>>> 0b5fa37732fffb7db3ebc73b7df4befc8a4800ef
             {deptData.map(d => (
               <div key={d.name} className="flex flex-col items-center justify-end h-full">
                 <p className="text-navy-header font-semibold text-xs mb-1.5">{d.value}</p>
