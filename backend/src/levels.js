@@ -27,12 +27,31 @@ export const MAX_LEVEL = LEVELS[LEVELS.length - 1].level
 export const MAX_XP = LEVELS[LEVELS.length - 1].max
 
 // Benefits announced when a level is reached (used by the level-up notification).
+//
+// These are the AI License gates the register actually enforces, not a
+// description of them: level 1 reaches the free models on the approved
+// assistants (`tier: 'free'` in db.orgTools), level 2 reaches the paid ones
+// (`minLevel: 2` on those models) and unlocks tool access requests
+// (REQUEST_MIN_LEVEL below), level 3 reaches GitHub Copilot and level 4 the
+// development tools (`minLevel: 4`). Change a gate in the register and this
+// line has to move with it — it is what the employee is told they earned.
 export const LEVEL_BENEFITS = {
-  1: 'Approved everyday tools · non-personal data only',
-  2: 'ChatGPT and Gemini · internal non-personal data',
-  3: 'GitHub Copilot · source code scope',
-  4: 'Full approved toolset · mentor and endorse for your team',
+  1: 'Free ChatGPT, Gemini and Claude models · non-personal data only',
+  2: 'Paid models on approved tools · request access to new AI tools',
+  3: 'GitHub Copilot · request the Kimi free models',
+  4: 'Codex, Claude Code and Kimi K3 · full approved toolset',
 }
+
+/**
+ * The AI License level an employee needs before they may ask for a new AI tool.
+ *
+ * Level 1 has no tool request feature at all: a Trainee has the approved free
+ * assistants and the training that moves them on, and asking them to evaluate a
+ * vendor before they have finished the core AI-safety modules is the wrong way
+ * round. The employee's AI Tools page, the request API and the admin queue all
+ * read this one number.
+ */
+export const REQUEST_MIN_LEVEL = 2
 
 /**
  * Level state for a total XP figure.

@@ -160,9 +160,20 @@
       sending = false
       endWork()
       hidePanel()
-      if (next.status === 'signedOut' || next.status === 'notEmployee') showSignedOut(next)
-    } else if (panelKind === 'notice') {
-      hidePanel() // protection came back; the "not protected" notice is obsolete
+      if (next.status === 'signedOut' || next.status === 'notEmployee') maybeShowSignedOut(next)
+    } else if (panelKind === 'signedout') {
+      // Protection came back, so the panel telling the employee they are not
+      // signed in is now false. It closes itself rather than waiting to be
+      // dismissed — a sign-in notice that outlives the sign-in is the one thing
+      // it must never do.
+      hidePanel()
+      // Signing in ends this signed-out episode, so the notice is armed again
+      // for the next one. Without this it would be shown once and never again.
+      clearSignedOutNotice()
+      // …and the destination banner is resolved for the employee who just
+      // arrived: their licence level and tool access were unknowable a moment
+      // ago, so whatever this page's standing is, it is only knowable now.
+      reviewDestination(lastModel || '')
     }
   }
 
@@ -197,10 +208,24 @@
   // reload. Throttled so tab-flicking cannot become a request loop.
   let lastNudge = 0
   function nudgeState() {
-    if (!armed || Date.now() - lastNudge < CFG.stateTtlMs) return
+    if (!armed) return
+
+    // Two throttles stand between signing in and this tab noticing: the one
+    // below, and the service worker's own cached record (stateTtlMs), which an
+    // unforced AIP_STATE is answered from. Together they could leave the
+    // "you are not signed in" panel on screen for the better part of a minute
+    // after the employee had signed in — the panel outliving the very condition
+    // it describes.
+    //
+    // So when that panel is the one on screen, this asks urgently: no local
+    // throttle, and `force` so the worker re-fetches instead of repeating the
+    // answer it already has. It is at most one extra request, and only in the
+    // state where the tab is displaying something it has reason to doubt.
+    const urgent = panelKind === 'signedout'
+    if (!urgent && Date.now() - lastNudge < CFG.stateTtlMs) return
     lastNudge = Date.now()
-    ask({ type: 'AIP_STATE' }).then(res => {
-      if (!res.__error) applyState(res, 'nudge')
+    ask({ type: 'AIP_STATE', force: urgent }).then(res => {
+      if (!res.__error) applyState(res, urgent ? 'nudge-urgent' : 'nudge')
     })
   }
 
@@ -288,6 +313,11 @@
     return (tool.sendSelectors || []).concat(CFG.sendFallback).join(', ')
   }
 
+  // "Stop generating" reuses the send button on several tools. Cancelling that
+  // click would leave the employee unable to stop the model — an interception
+  // with nothing to check.
+  const STOP_CONTROL = '[data-testid="stop-button"], [aria-label*="stop" i]'
+
   // The clicked node, resolved to the site's send button (or null when the
   // click was something else entirely).
   function asSendButton(node) {
@@ -297,11 +327,56 @@
     // <button> or role="button" would let those clicks past the checkpoint.
     const btn = node.closest?.(sendSelector()) || node.closest?.('button, [role="button"]')
     if (!btn) return null
-    // ChatGPT reuses the composer's submit button as "stop generating" while a
-    // response streams. Cancelling that click would leave the employee unable to
-    // stop the model — an interception with nothing to check.
-    if (btn.matches('[data-testid="stop-button"], [aria-label*="stop" i]')) return null
+    if (btn.matches(STOP_CONTROL)) return null
     return btn.matches(sendSelector()) ? btn : null
+  }
+
+  /**
+   * Any control inside the composer, used only when a refusal is already in
+   * force for the text sitting in it.
+   *
+   * asSendButton above can only recognise a send control it can *name*, and on
+   * a tool whose button is a div with generated class names and no usable
+   * aria-label there is nothing to name. On DeepSeek that meant a prompt the
+   * gateway had already refused was sent anyway: the checkpoint never ran,
+   * because the click never looked like a send.
+   *
+   * So when the gateway has decided this exact text must not leave, the net is
+   * widened to any button inside the composer's own container. The trade is
+   * deliberate and bounded: at worst an unrelated composer toggle takes one dead
+   * click, and only while a prompt that cannot be sent is sitting in the box. In
+   * every other state the conservative match above is the only one that applies,
+   * so ordinary use of the site is untouched.
+   */
+  function asComposerControl(node) {
+    if (!node || node.nodeType !== 1) return null
+    const btn = node.closest?.('button, [role="button"], [type="submit"]')
+    if (!btn || btn.matches(STOP_CONTROL)) return null
+
+    const el = findComposer()
+    if (!el) return null
+    // The composer's own form, or the nearest few ancestors when it has none —
+    // enough to reach the toolbar the send control sits in, not the whole page.
+    let scope = el.closest('form')
+    if (!scope) {
+      scope = el
+      for (let i = 0; i < 4 && scope.parentElement; i++) scope = scope.parentElement
+    }
+    return scope.contains(btn) && !el.contains(btn) ? btn : null
+  }
+
+  /**
+   * Has the gateway already refused the text currently in the composer?
+   *
+   * Read from the debounced preview, which has run against this exact string —
+   * `lastChecked` is what makes it "this text" rather than "some earlier text".
+   * A banned destination refuses everything; anything else refuses only when
+   * something sensitive was actually found.
+   */
+  function refusalInForce(text) {
+    if (lastChecked !== text || !lastResult) return false
+    if (lastResult.policy?.banned) return true
+    return lastResult.mode === 'Block' && (lastResult.detections || []).length > 0
   }
 
   function findSendButton() {
@@ -353,11 +428,17 @@
     panel.card.innerHTML = ''
   }
 
-  function showPanel(kind, html, actions, wide) {
+  // `size` names a layout modifier rather than meaning "wide":
+  //   'wide'  — the checkpoint's own shell (its own padding and header band)
+  //   'roomy' — an ordinary panel that needs a little more width for a list
+  // It used to be a boolean that mapped to 'aip-wide' for both, so a notice
+  // carrying approved alternatives silently borrowed the checkpoint's
+  // zero-padding cream shell and stopped looking like a notice at all.
+  function showPanel(kind, html, actions, size) {
     const p = ensurePanel()
     panelKind = kind
     p.host.style.display = 'block'
-    p.card.className = wide ? 'aip-card aip-wide' : 'aip-card'
+    p.card.className = size ? `aip-card aip-${size}` : 'aip-card'
     p.card.innerHTML = html
     // Closing is wired here, once, for every panel there will ever be. Each
     // panel used to declare its own `[data-close]` handler, so a panel that
@@ -386,13 +467,16 @@
       .join('')
   }
 
+  // Who is speaking, on one line. The second line — an all-caps "SMART GATEWAY"
+  // kicker under the product name — said nothing the panel below it did not, and
+  // it was the first thing the eye hit. The state it carried is now a 6px dot.
   function header(state) {
     return `
       <div class="aip-head">
         <span class="aip-ring">A</span>
         <div class="aip-title">
           <p class="aip-name">AI Passport</p>
-          <p class="aip-kicker aip-${state}">SMART GATEWAY</p>
+          <span class="aip-kicker aip-${state}" aria-hidden="true"></span>
         </div>
         <button class="aip-x" data-close aria-label="Dismiss">×</button>
       </div>`
@@ -459,9 +543,12 @@
     // a different destination. Saying "company policy" for all four would send
     // the employee to edit a prompt that was never the problem.
     const blockNote = {
-      'tool-unapproved': `${tool.name} is not approved for company data, so this prompt will not be sent from here. Remove the ${total} item${plural} above, or use an approved tool.`,
+      'tool-banned': `${tool.name} is banned by your organisation, so nothing is sent from here — this prompt included.`,
+      'model-banned': `${res.policy?.model?.name || 'The selected model'} is banned by your organisation, so nothing is sent to it at all.${res.policy?.approvedModels?.length ? ` Switch to ${res.policy.approvedModels.join(' or ')}.` : ''}`,
+      'tool-unapproved': `This AI tool is not approved by your organisation, so this prompt will not be sent from here. Remove the ${total} item${plural} above, or use an approved tool.`,
       'tool-suspended': `${tool.name} has been suspended organisation-wide. This prompt will not be sent from here.`,
       'model-unapproved': `${res.policy?.model?.name || 'The selected model'} has not been reviewed, so this prompt will not be sent to it.${res.policy?.approvedModels?.length ? ` Switch to ${res.policy.approvedModels.join(' or ')}.` : ''}`,
+      'model-level': `${res.policy?.model?.name || 'The selected model'} is above your AI License level, so this prompt will not be sent to it.${res.policy?.approvedModels?.length ? ` ${res.policy.approvedModels.join(' or ')} ${res.policy.approvedModels.length === 1 ? 'is' : 'are'} available to you now.` : ''}`,
       'data-scope': `${tool.name} is not cleared to receive ${detectedSummary(res.detections)}. Remove the ${total} item${plural} above before sending.`,
       'org-policy': `Company policy blocks prompts containing personal data. Remove the ${total} item${plural} above before sending.`,
     }[res.policy?.reason || 'org-policy']
@@ -604,6 +691,17 @@
         chars: text.length, via: origin.kind, state: protection.status, model: model || 'unknown',
       })
 
+      // Is this destination banned? Asked first, and asked about every prompt,
+      // because a ban is the one refusal that has nothing to do with what the
+      // employee typed: "hello" to a model withdrawn after a breach is still a
+      // prompt to a model withdrawn after a breach. Every other rule here is
+      // about content and can wait until the content has been looked at.
+      //
+      // The answer is cached per tool + model for a minute in the worker, so
+      // this costs a message rather than a request on all but the first send.
+      const verdict = await ask({ type: 'AIP_TOOL', tool: tool.name, model })
+      if (!verdict.__error && verdict.banned) return showBanned(verdict, model)
+
       // Too short to carry an identifier: the backend is never called for it,
       // matching the same threshold the preview check uses.
       if (text.trim().length < CFG.minPromptLength) {
@@ -645,6 +743,11 @@
       lastChecked = text
       lastResult = res
 
+      // The gateway may have learned of a ban between the arrival check above
+      // and this answer — an admin banning a model reaches an open tab within
+      // the minute — so the fresher verdict wins.
+      if (res.policy?.banned) return showBanned({ ...res.policy, banned: true }, model)
+
       if (!res.detections || res.detections.length === 0) {
         hidePanel()
         // Clean prompt: record the event (this is the audit entry for a sent
@@ -655,7 +758,7 @@
         return
       }
 
-      if (res.mode === 'Block') return showBlocked(res, origin)
+      if (res.mode === 'Block') return showBlocked(res, origin, model)
       if (res.mode === 'Warn only') return showWarnOnly(text, res, origin)
       // Mask and continue: hold the prompt and show the checkpoint. Nothing is
       // submitted until the employee confirms.
@@ -710,8 +813,13 @@
     lastModel = model
     CFG.log('model', `selected: ${model}`)
     // The arrival already reported the model it found, so only a genuine change
-    // is sent separately.
-    if (!first) ask({ type: 'AIP_MODEL_USE', tool: tool.name, model }).catch(() => {})
+    // is sent separately — and the standing banner is re-resolved with it, so a
+    // switch onto a banned model says so before a prompt is typed rather than
+    // after one has been written.
+    if (!first) {
+      ask({ type: 'AIP_MODEL_USE', tool: tool.name, model }).catch(() => {})
+      reviewDestination(model)
+    }
     return model
   }
 
@@ -834,7 +942,7 @@
           if (why) why.hidden = !why.hidden
         },
       },
-      true
+      'wide'
     )
   }
 
@@ -904,55 +1012,141 @@
     dismissToEdit()
   }
 
+  // The incident record for a prompt this checkpoint refused.
+  //
+  // The backend never sees it: the while-typing check runs with `preview: true`
+  // and records nothing, and a refused prompt is never committed. Without this
+  // call the employee is stopped and the organisation learns nothing, which is
+  // the half of "guide, don't punish" that makes the guidance improvable.
+  // Fire-and-forget, and types only — the categories found, never the text.
+  function reportBlocked(reason, model, detections) {
+    ask({
+      type: 'AIP_BLOCKED',
+      tool: tool.name,
+      model: model || '',
+      reason,
+      types: (detections || []).map(d => d.type),
+    }).then(res => {
+      if (res.__error) CFG.logError('blocked', 'incident not recorded', res.__error)
+    })
+  }
+
+  // The one-tap way out. An alternative is only offered when the register knows
+  // a URL for it and this employee is approved for it — a suggestion that leads
+  // nowhere is worse than no suggestion.
+  function alternativesHtml(policy, label = 'APPROVED FOR YOU') {
+    const alternatives = (policy.alternatives || []).slice(0, 2)
+    if (!alternatives.length) return ''
+    return `<div class="aip-alt">
+         <p class="aip-alt-label">${label}</p>
+         ${alternatives.map(a => `
+           <a class="aip-alt-row" href="${esc(a.url)}" target="_blank" rel="noopener">
+             <span class="aip-alt-name">${esc(a.name)}</span>
+             <span class="aip-alt-scope">${esc(a.dataScope || '')}</span>
+             <span class="aip-alt-go">Open&nbsp;→</span>
+           </a>`).join('')}
+       </div>`
+  }
+
+  // Banned: nothing is sent from here, and that is true of an ordinary question
+  // too. This is the only panel that appears without the prompt having been
+  // examined at all — it is about the destination, not the content — so it never
+  // shows detection chips and never offers "edit prompt" as the way out. The way
+  // out is a different model, or a different tool.
+  function showBanned(policy, model) {
+    const modelName = policy.model?.name || model
+    const banned = policy.reason === 'tool-banned' ? 'tool' : 'model'
+    const models = policy.approvedModels || []
+
+    reportBlocked(policy.reason || 'model-banned', model, [])
+    CFG.log('checkpoint', `refused — ${policy.reason}`, { tool: tool.name, model: modelName || 'unknown' })
+
+    showPanel(
+      'blocked',
+      `${header('block')}
+       <p class="aip-lead">${banned === 'tool'
+        ? `${esc(tool.name)} is banned by your organisation`
+        : `${esc(modelName || 'This model')} is banned by your organisation`}</p>
+       <p class="aip-body">${banned === 'tool'
+        ? `Nothing is sent to ${esc(tool.name)} from AI Passport — an ordinary question included. Your prompt is still in the message box; please move this work to an approved tool.`
+        : `${esc(tool.name)} itself is fine. ${esc(modelName || 'The selected model')} has been withdrawn after a security concern, so no prompt is sent to it, whether or not it contains company data.${models.length ? ` Switch to ${esc(models.join(' or '))} and send again — everything works as normal there.` : ''}`}</p>
+       ${banned === 'model' && models.length
+        ? `<div class="aip-alt">
+             <p class="aip-alt-label">APPROVED MODELS ON ${esc(tool.name.toUpperCase())}</p>
+             ${models.map(m => `<div class="aip-alt-row"><span class="aip-alt-name">${esc(m)}</span><span class="aip-alt-scope">Approved for you</span></div>`).join('')}
+           </div>`
+        : alternativesHtml(policy)}
+       <div class="aip-actions">
+         <button class="aip-btn aip-ghost" data-tools>View my AI tools</button>
+         <button class="aip-btn aip-gold" data-close>Got it</button>
+       </div>`,
+      {
+        '[data-tools]': () => {
+          window.open(`${CFG.dashboardBase}/tools`, '_blank', 'noopener')
+        },
+      },
+      'roomy'
+    )
+  }
+
   // Block: the prompt is held in the composer and never sent.
   //
-  // Four different things reach this panel and they are not the same message, so
-  // it says which one happened and what to do about it. The org policy being
-  // Block is a rule about the prompt; the other three are rules about where it
-  // was heading, and each of those has a way out the employee can take right
-  // now — a different tool, a different model, or a different prompt.
+  // Several different things reach this panel and they are not the same message,
+  // so it says which one happened and what to do about it. Each is a rule about
+  // where the prompt was heading, and each has a way out the employee can take
+  // right now — a different tool, a different model, more training, or a
+  // different prompt.
   //
   // What none of them do is stop the employee using the site. The tool is
   // working normally the moment they take the personal data out, which is the
   // whole distinction between refusing the data and banning the tool.
-  function showBlocked(res, origin) {
+  function showBlocked(res, origin, model) {
     const total = countOf(res.detections)
     const items = `${total} item${total === 1 ? '' : 's'}`
     const policy = res.policy || {}
     const reason = policy.reason || 'org-policy'
-    const alternatives = (policy.alternatives || []).slice(0, 2)
     const models = policy.approvedModels || []
     const modelName = policy.model?.name
 
+    // The refusal reaches the admin dashboard as an incident. Reaching an
+    // unapproved tool is a browser tab; trying to put company data into one is
+    // the thing the approval workflow exists to catch.
+    reportBlocked(reason, model, res.detections)
+
+    // The headline carries the organisation's own sentence for the unapproved
+    // case — the wording the employee has to recognise across the extension, the
+    // web gateway and their AI Tools page — and the body carries the detail. The
+    // sentence appears once, at the top, not again three lines down.
     const lead = {
-      'tool-unapproved': `${tool.name} is not approved for this`,
+      'tool-unapproved': 'This AI tool is not approved by your organisation',
       'tool-suspended': `${tool.name} has been suspended`,
       'model-unapproved': `${modelName || 'This model'} is not approved`,
+      'model-level': `${modelName || 'This model'} is above your AI License level`,
       'data-scope': `${tool.name} is not cleared for this data`,
       'org-policy': 'Prompt blocked',
     }[reason]
 
     const body = {
-      'tool-unapproved': `${esc(policy.explain || '')} Your prompt was not sent, and nothing was recorded from it. ${esc(tool.name)} keeps working normally — only company or customer data is held back.`,
+      'tool-unapproved': `${esc(tool.name)} has not been reviewed, so your prompt was not sent and nothing was recorded from it. The tool keeps working normally — only company or customer data is held back.`,
       'tool-suspended': `${esc(policy.explain || '')} Nothing was sent. Please move this work to an approved tool.`,
       'model-unapproved': `${esc(tool.name)} is approved, but ${esc(modelName || 'the selected model')} has not been reviewed, so sensitive prompts are not sent to it.${models.length ? ` Switch to ${esc(models.join(' or '))} and send again.` : ''}`,
+      'model-level': `${esc(modelName || 'The selected model')} is approved for the organisation but needs a higher AI License level than you hold, so sensitive prompts are not sent to it.${models.length ? ` ${esc(models.join(' or '))} ${models.length === 1 ? 'is' : 'are'} available to you now.` : ''} Finishing your assigned training is what raises your level.`,
       'data-scope': `${esc(tool.name)} is approved for ${esc(policy.dataScope || 'a narrower kind of data')}, and this prompt contains ${esc(detectedSummary(res.detections))}. That category is not sent here even masked.`,
       'org-policy': `Company policy blocks prompts containing personal data, so this prompt was not sent. Remove the ${items} above and try again.`,
     }[reason]
 
-    // An alternative is only offered when the register actually knows a URL for
-    // one, and the employee is approved for it. A suggestion that leads nowhere
-    // is worse than no suggestion.
-    const switchTo = alternatives.length && reason !== 'org-policy'
-      ? `<div class="aip-alt">
-           <p class="aip-alt-label">APPROVED FOR YOU</p>
-           ${alternatives.map(a => `
-             <a class="aip-alt-row" href="${esc(a.url)}" target="_blank" rel="noopener">
-               <span class="aip-alt-name">${esc(a.name)}</span>
-               <span class="aip-alt-scope">${esc(a.dataScope || '')}</span>
-               <span class="aip-alt-go">Open&nbsp;→</span>
-             </a>`).join('')}
-         </div>`
+    const switchTo = reason === 'org-policy' ? '' : alternativesHtml(policy)
+
+    // What the tool would have received if it were approved. Shown read-only and
+    // with no way to send it: the employee can see exactly which values were
+    // held back, which is the difference between "your prompt was refused" and
+    // "your prompt was refused, and here is what was in it". There is
+    // deliberately no "send this instead" button — masked company data still
+    // reaches a vendor nobody has reviewed, which is the whole reason this
+    // destination is refused.
+    const safePreview = res.masked
+      ? `<p class="aip-held-label">WHAT WAS HELD BACK</p>
+         <div class="aip-held">${highlightTokens(esc(res.masked))}</div>`
       : ''
 
     showPanel(
@@ -961,18 +1155,20 @@
        <p class="aip-lead">${esc(lead)}</p>
        <div class="aip-chips">${chipsHtml(res.detections)}</div>
        <p class="aip-body">${body}</p>
+       ${safePreview}
        ${switchTo}
        <div class="aip-actions">
+         ${reason === 'org-policy' ? '' : `<button class="aip-btn aip-ghost" data-request>${reason === 'model-level' ? 'Open my training' : 'Request access'}</button>`}
          <button class="aip-btn aip-gold" data-edit>Edit prompt</button>
-         ${reason === 'org-policy' ? '' : '<button class="aip-cp-link" data-request>Request access</button>'}
        </div>`,
       {
         '[data-edit]': dismissToEdit,
         '[data-request]': () => {
-          window.open(`${CFG.dashboardBase}/tools`, '_blank', 'noopener')
+          const to = reason === 'model-level' ? '/training' : '/tools'
+          window.open(`${CFG.dashboardBase}${to}`, '_blank', 'noopener')
         },
       },
-      Boolean(switchTo)
+      switchTo || safePreview ? 'roomy' : ''
     )
   }
 
@@ -1006,11 +1202,57 @@
   // Protection is off because nobody is signed in. Informational and dismissible:
   // the extension is not intercepting anything in this state, so this must not
   // look like something the employee has to resolve before using their AI tool.
+  // ---- the signed-out notice, shown once per signed-out episode -------------
+  //
+  // "Nobody is signed in" is worth saying once. It was being said on every AI
+  // tab the employee opened, which is the shape of a nag rather than a notice:
+  // the extension is not intercepting anything in this state, so the panel asks
+  // for attention it does not need, on a page it does not own, every time.
+  //
+  // The marker lives in chrome.storage.local rather than in this script, because
+  // "every tab" is precisely the problem — a per-tab flag would still fire once
+  // per tab. It is cleared when protection turns active (applyState above), so
+  // signing out again is a new episode and gets its own single notice.
+  const SIGNED_OUT_NOTICE_KEY = 'aipSignedOutNotice'
+
+  async function signedOutNoticeSeen() {
+    try {
+      const stored = await chrome.storage.local.get(SIGNED_OUT_NOTICE_KEY)
+      return Boolean(stored[SIGNED_OUT_NOTICE_KEY])
+    } catch {
+      // Orphaned context or storage unavailable. Err towards silence: a missed
+      // notice costs nothing here, a repeated one is the bug being fixed.
+      return true
+    }
+  }
+
+  function clearSignedOutNotice() {
+    chrome.storage.local.remove(SIGNED_OUT_NOTICE_KEY).catch(() => {})
+  }
+
+  async function maybeShowSignedOut(state) {
+    if (await signedOutNoticeSeen()) {
+      CFG.log('state', 'signed out — notice already shown this session, staying quiet')
+      return
+    }
+    try {
+      await chrome.storage.local.set({ [SIGNED_OUT_NOTICE_KEY]: Date.now() })
+    } catch {
+      /* the notice is still worth showing even if it cannot be remembered */
+    }
+    // The state may have moved on while storage was being read.
+    if (protection.active || panelKind === 'checkpoint') return
+    showSignedOut(state)
+  }
+
+  // Its own panel kind rather than a generic 'notice': this is the one panel
+  // that must vanish the moment the employee signs in, and the destination
+  // banners (unapproved tool, banned model) must not vanish with it.
   function showSignedOut(state) {
     if (panelKind === 'checkpoint') return
     const admin = state.status === 'notEmployee'
     showPanel(
-      'notice',
+      'signedout',
       `${header('off')}
        <p class="aip-lead">Prompts are not being protected</p>
        <p class="aip-body">${admin
@@ -1018,8 +1260,8 @@
          : 'Nobody is signed in to AI Passport, so prompts on this page are not being checked.'
        } ${esc(tool.name)} works as normal — nothing here is blocked.</p>
        <div class="aip-actions">
-         <a class="aip-btn aip-gold" href="${CFG.dashboardBase}/login" target="_blank" rel="noopener">Sign in</a>
          <button class="aip-btn aip-ghost" data-close>Dismiss</button>
+         <a class="aip-btn aip-gold" href="${CFG.dashboardBase}/login" target="_blank" rel="noopener">Sign in</a>
        </div>`
     )
   }
@@ -1131,12 +1373,15 @@
   // listener is delegated from window rather than bound to the button.
   function onClick(e) {
     if (passThrough || !shouldIntercept()) return
-    const btn = asSendButton(e.target)
-    if (!btn) return
     const el = findComposer()
     const text = readText(el)
     if (!text.trim()) return
     if (isApproved(text)) return
+    // A named send control always goes to the checkpoint. Anything else in the
+    // composer does too, but only while this text is already known to be
+    // unsendable — see asComposerControl for why that widening is bounded.
+    const btn = asSendButton(e.target) || (refusalInForce(text) ? asComposerControl(e.target) : null)
+    if (!btn) return
     if (checking || sending) return holdRepeat(e)
     e.preventDefault()
     e.stopImmediatePropagation()
@@ -1251,42 +1496,83 @@
   // A suspended tool is the one case that earns a firmer panel. An organisation
   // that has withdrawn a tool after a vendor incident is not asking anybody to
   // be careful; it is asking them to stop.
-  ask({ type: 'AIP_TOOL_USE', tool: tool.name, model: noteModel(currentModel()) }).catch(() => {})
+  const arrivalModel = noteModel(currentModel())
+  ask({ type: 'AIP_TOOL_USE', tool: tool.name, model: arrivalModel }).catch(() => {})
 
-  ask({ type: 'AIP_TOOL', tool: tool.name }).then(res => {
-    if (!res || res.__error || res.approved !== false) return
-    // Never over an open checkpoint: that panel is holding a prompt.
-    if (panelKind === 'checkpoint') return
+  // The standing banner for a destination that will refuse. Called on arrival
+  // and again whenever the employee changes model, because a picker they moved
+  // is exactly when they need to know — before they have typed a prompt they
+  // cannot send.
+  function reviewDestination(model) {
+    ask({ type: 'AIP_TOOL', tool: tool.name, model: model || '' }).then(res => {
+      if (!res || res.__error) return
+      // Never over an open checkpoint: that panel is holding a prompt. Never
+      // over the signed-out notice either — with nobody signed in there is no
+      // employee for a tool to be approved *for*, so telling them about this
+      // page's standing would be answering a question that has no subject yet.
+      // applyState calls back here the moment they sign in.
+      if (panelKind === 'checkpoint' || panelKind === 'signedout') return
 
-    const suspended = res.access === 'suspended'
-    const alternatives = (res.alternatives || []).slice(0, 2)
-    const switchTo = alternatives.length
-      ? `<div class="aip-alt">
-           <p class="aip-alt-label">APPROVED FOR YOU</p>
-           ${alternatives.map(a => `
-             <a class="aip-alt-row" href="${esc(a.url)}" target="_blank" rel="noopener">
-               <span class="aip-alt-name">${esc(a.name)}</span>
-               <span class="aip-alt-scope">${esc(a.dataScope || '')}</span>
-               <span class="aip-alt-go">Open&nbsp;→</span>
-             </a>`).join('')}
-         </div>`
-      : ''
+      // A ban is stated up front rather than saved for the send. Nothing will go
+      // from here whatever they type, so letting them write a prompt first would
+      // be a wasted minute and a worse surprise.
+      if (res.banned) {
+        // Recorded at the send attempt, not here: arriving is already reported
+        // by AIP_TOOL_USE, and a banner is not an attempt to send anything.
+        const modelName = res.model?.name || model
+        const bannedTool = res.reason === 'tool-banned'
+        const models = res.approvedModels || []
+        return showPanel(
+          'notice',
+          `${header('block')}
+           <p class="aip-lead">${bannedTool
+            ? `${esc(tool.name)} is banned by your organisation`
+            : `${esc(modelName || 'This model')} is banned by your organisation`}</p>
+           <p class="aip-body">${bannedTool
+            ? `Nothing is sent to ${esc(tool.name)} from AI Passport, whether or not a prompt contains company data. Please move this work to an approved tool.`
+            : `${esc(tool.name)} itself is approved. ${esc(modelName || 'The selected model')} was withdrawn after a security concern, so nothing is sent to it at all.${models.length ? ` Switch to ${esc(models.join(' or '))} and carry on as normal.` : ''}`}</p>
+           ${bannedTool ? alternativesHtml(res) : ''}
+           <div class="aip-actions">
+             <button class="aip-btn aip-ghost" data-close>Dismiss</button>
+             <a class="aip-btn aip-gold" href="${CFG.dashboardBase}/tools" target="_blank" rel="noopener">View my AI tools</a>
+           </div>`,
+          {},
+          bannedTool ? 'roomy' : ''
+        )
+      }
 
-    showPanel(
-      'notice',
-      `${header(suspended ? 'block' : 'warn')}
-       <p class="aip-lead">${esc(tool.name)} ${suspended ? 'has been suspended' : 'is not approved for you'}</p>
-       <p class="aip-body">${esc(res.explain || `${tool.name} has not been reviewed for company data.`)}
-         ${suspended
-        ? 'Please move this work to an approved tool.'
-        : `You can keep using ${esc(tool.name)} for ordinary questions — company and customer data will not be sent from here.`}</p>
-       ${switchTo}
-       <div class="aip-actions">
-         <a class="aip-btn aip-ghost" href="${CFG.dashboardBase}/tools" target="_blank" rel="noopener">Request access</a>
-         <button class="aip-btn aip-ghost" data-close>Dismiss</button>
-       </div>`,
-      {},
-      Boolean(switchTo)
-    )
-  })
+      if (res.approved !== false) {
+        // The destination is fine now — clear a banner left by the previous one.
+        if (panelKind === 'notice') hidePanel()
+        return
+      }
+
+      const suspended = res.access === 'suspended'
+      const switchTo = alternativesHtml(res)
+
+      // The headline is the organisation's own sentence and the body is the
+      // detail behind it — never both. `res.explain` opens with that same
+      // sentence for an unreviewed tool, so quoting it whole under the headline
+      // printed "…is not approved by your organisation" twice, three lines apart.
+      showPanel(
+        'notice',
+        `${header(suspended ? 'block' : 'warn')}
+         <p class="aip-lead">${suspended
+          ? `${esc(tool.name)} has been suspended`
+          : 'This AI tool is not approved by your organisation'}</p>
+         <p class="aip-body">${suspended
+          ? `${esc(tool.name)} was withdrawn organisation-wide after a security concern. Please move this work to an approved tool.`
+          : `${esc(tool.name)} has not been through security and compliance review, so there are no agreed terms for what it does with company data. Ordinary questions are unaffected — only company and customer data is held back.`}</p>
+         ${switchTo}
+         <div class="aip-actions">
+           <button class="aip-btn aip-ghost" data-close>Dismiss</button>
+           <a class="aip-btn aip-gold" href="${CFG.dashboardBase}/tools" target="_blank" rel="noopener">Request access</a>
+         </div>`,
+        {},
+        switchTo ? 'roomy' : ''
+      )
+    })
+  }
+
+  reviewDestination(arrivalModel)
 })()

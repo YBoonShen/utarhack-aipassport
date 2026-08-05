@@ -13,7 +13,8 @@ import {
   db, resetStore, recordPromptEvent, recordOfflineEvent, recordOverride, recordAudit, recordSession,
   answerQuiz, quizResults, completeTraining, retryTraining, applyForVisa, decideVisa,
   suspendToolOrgWide, recordToolUse, toolStatus, openAlerts, alertsView, resolveAlert,
-  recordModelUse, gatewayPolicyFor, toolForHost, setModelStatus, toolRegister, toolAccessFor,
+  recordModelUse, recordBlockedAttempt, gatewayPolicyFor, toolForHost, setModelStatus,
+  toolRegister, toolAccessFor, toolModelsFor, freeModelFor, requestableTools, REQUEST_MIN_LEVEL,
   addReviewRequest, leaderboard, progressionSummary,
   allProgressionSummaries, reportSummary, updateSettings,
   setSessionEmployee, notificationsFor, updateNotification, activityFor, publicProfile,
@@ -22,6 +23,7 @@ import {
   MAX_QUESTIONS,
 } from './store.js'
 import { LEVELS } from './levels.js'
+import { MODES, ORG_MODES } from './risk.js'
 import { DEPARTMENTS, EMPLOYEES, DEFAULT_EMPLOYEE_ID, employeeById, employeeIdFromEmail } from './directory.js'
 
 const app = express()
@@ -151,6 +153,19 @@ async function runDetection(prompt) {
   return { masked, detections, layer2 }
 }
 
+/**
+ * Is the gateway refusing to let this prompt go?
+ *
+ * Two different refusals, and the order matters. A **ban** is about the
+ * destination, so it refuses a prompt with nothing in it — that is the whole
+ * difference between "banned" and "unapproved". Everything else is about the
+ * content: Block with nothing detected means there was nothing to hold back, and
+ * an ordinary prompt is never the thing an approval workflow exists to stop.
+ */
+function isRefused(policy, detections) {
+  return Boolean(policy.banned) || (policy.mode === MODES.BLOCK && detections.length > 0)
+}
+
 app.post('/api/detect', async (req, res) => {
   const { prompt, tool, model, preview } = req.body || {}
   if (typeof prompt !== 'string' || prompt.length === 0) {
@@ -185,6 +200,24 @@ app.post('/api/detect', async (req, res) => {
   if (preview) {
     return res.json({
       masked, detections, layer2, levelUp: false, preview: true,
+      mode: policy.mode, policy, blocked: isRefused(policy, detections), explain: db.settings.experience,
+    })
+  }
+
+  // The gateway is refusing this prompt: a banned destination refuses every
+  // prompt, an uncleared one refuses the sensitive part. Nothing is sent, so
+  // nothing is recorded as sent — the incident is what goes in the log instead.
+  // Writing a MASKED prompt event here would put a delivery in the audit trail
+  // that never happened, and leave the refusal itself invisible to the admin.
+  if (isRefused(policy, detections)) {
+    recordBlockedAttempt({
+      tool: tool || 'AI Assistant',
+      model: model || null,
+      reason: policy.reason,
+      types: detections.map(d => d.type),
+    })
+    return res.json({
+      masked, detections, layer2, levelUp: false, blocked: true,
       mode: policy.mode, policy, explain: db.settings.experience,
     })
   }
@@ -302,6 +335,33 @@ app.post('/api/gateway/model-use', (req, res) => {
     approved: result.status === 'APPROVED' || result.status === 'UNKNOWN',
     alert: result.alert ? { id: result.alert.id, severity: result.alert.severity } : null,
     policy: gatewayPolicyFor({ employeeId, tool, model }),
+  })
+})
+
+// The checkpoint refused a prompt on the employee's device, so the backend never
+// saw it. This is that incident reaching the admin dashboard.
+//
+// The Chrome extension runs its while-typing check with `preview: true` — no
+// records — and blocks the send itself, which means /api/detect is never called
+// for a prompt that does not go. Without this route an unapproved tool or a
+// banned model would refuse silently: the employee would be stopped and the
+// organisation would learn nothing. Prompt text is never accepted here, only the
+// detection types.
+app.post('/api/gateway/blocked', (req, res) => {
+  const { tool, model, reason, types } = req.body || {}
+  if (typeof tool !== 'string' || !tool.trim()) {
+    return res.status(400).json({ error: 'Body must be { "tool": "...", "reason": "..." }' })
+  }
+  const result = recordBlockedAttempt({
+    tool,
+    model: typeof model === 'string' && model.trim() ? model : null,
+    reason: String(reason || 'tool-unapproved'),
+    // Types only — a list of category names, never the text they were found in.
+    types: Array.isArray(types) ? types.filter(t => typeof t === 'string').slice(0, 20) : [],
+  })
+  res.json({
+    ok: true,
+    alert: result.alert ? { id: result.alert.id, severity: result.alert.severity } : null,
   })
 })
 
@@ -496,7 +556,27 @@ app.get('/api/activity/mine', (req, res) => {
 
 // ---- visas / tool approvals ------------------------------------------------
 app.get('/api/visas', (req, res) => res.json(db.visaRequests))
-app.post('/api/visas/apply', (req, res) => res.json(applyForVisa(req.body || {})))
+
+// The employee's guided request form, server-side: which AI tools they may ask
+// for, and whether their AI License lets them ask at all. The browser renders
+// this list rather than a set of text boxes, and applyForVisa re-checks the same
+// two rules — a request naming anything else is refused however it was made.
+app.get('/api/tools/requestable', (req, res) => {
+  const employeeId = req.actor.role === 'employee' ? req.actor.id : db.sessionEmployeeId
+  const level = db.employees[employeeId]?.level || 0
+  res.json({
+    canRequest: level >= REQUEST_MIN_LEVEL,
+    minLevel: REQUEST_MIN_LEVEL,
+    level,
+    tools: requestableTools(employeeId),
+  })
+})
+
+app.post('/api/visas/apply', (req, res) => {
+  const result = applyForVisa(req.body || {})
+  if (!result.ok) return res.status(403).json({ error: result.error })
+  res.json(result.request)
+})
 app.post('/api/visas/:id/decision', requireAdmin, (req, res) => {
   const { decision, note } = req.body || {}
   const request = decideVisa(req.params.id, decision, note)
@@ -520,12 +600,23 @@ app.get('/api/tools/mine', (req, res) => {
   const employeeId = req.actor.role === 'employee' ? req.actor.id : db.sessionEmployeeId
   res.json(toolRegister().map(entry => {
     const access = toolAccessFor(employeeId, entry.name)
+    // Models folded the same way the tool is: `access` per model, so the page
+    // can show a Trainee their free models as available and the paid ones as
+    // what Level 2 opens, without holding a level table of its own.
+    const models = toolModelsFor(employeeId, entry.name)
+    const free = freeModelFor(employeeId, entry.name)
     return {
       ...entry,
       access: access.access,
       approved: access.approved,
       explain: access.explain,
       request: access.request,
+      models,
+      // What the AI Tools page puts in the MODEL column at every licence level:
+      // the newest free model on the tool, falling back to the register's own
+      // headline model for a tool with no model policy.
+      displayModel: free?.label || entry.model,
+      category: entry.category || 'assistant',
     }
   }))
 })
@@ -590,8 +681,15 @@ app.post('/api/review-request', (req, res) => {
   res.json(addReviewRequest(ref || 'REF-DEMO-2026-041'))
 })
 
-app.get('/api/settings', (req, res) => res.json(db.settings))
-app.put('/api/settings', requireAdmin, (req, res) => res.json(updateSettings(req.body || {})))
+// `modes` is the list of protection modes an admin may actually choose, sent
+// with the policy rather than hard-coded in the Settings screen — so removing or
+// adding an org-wide mode is a change to risk.js and nowhere else. Block is not
+// in it: it exists only as a verdict the gateway derives for a destination that
+// has not been cleared.
+app.get('/api/settings', (req, res) => res.json({ ...db.settings, modes: ORG_MODES }))
+app.put('/api/settings', requireAdmin, (req, res) => {
+  res.json({ ...updateSettings(req.body || {}), modes: ORG_MODES })
+})
 
 // ---- demo helpers ----------------------------------------------------------
 app.post('/api/reset', (req, res) => {

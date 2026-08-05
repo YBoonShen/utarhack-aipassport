@@ -9,11 +9,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, currentUser } from '../lib/api.js'
 import { ACCESS_STATUS, PENDING_STATUSES, BUILT_IN_ASSISTANT } from '../lib/terms.js'
-import { LEVELS, levelBenefit } from '../lib/levels.js'
+import { LEVELS, levelBenefit, REQUEST_MIN_LEVEL } from '../lib/levels.js'
 import InfoPopover, { InfoList, InfoNote } from '../components/InfoPopover.jsx'
 
-// Data-scope chips shown in the request modal (Figma: Internal + Meeting notes
-// selected by default).
+// Data-scope chips shown in the request modal. The selected tool's own declared
+// scope comes from the register; these are the extra restrictions an employee
+// can promise on top of it.
 const scopeOptions = ['Internal', 'Meeting notes', 'No customer data', 'No audio']
 
 // Status → chip + left status-bar colours, matching Figma. Same colours as
@@ -24,6 +25,7 @@ const statusStyle = {
   locked: { chip: 'bg-[#ededf2] text-[#667085]', label: `● ${ACCESS_STATUS.locked}`, bar: 'bg-[#80858f]' },
   review: { chip: 'bg-[#fcf0d4] text-[#b27a0d]', label: `● ${ACCESS_STATUS.pending}`, bar: 'bg-[#d9991a]' },
   suspended: { chip: 'bg-[#fae5e5] text-[#c72929]', label: `● ${ACCESS_STATUS.blocked}`, bar: 'bg-[#c72929]' },
+  banned: { chip: 'bg-[#fae5e5] text-[#c72929]', label: '● Banned', bar: 'bg-[#c72929]' },
   declined: { chip: 'bg-[#fae5e5] text-[#c72929]', label: `● ${ACCESS_STATUS.declined}`, bar: 'bg-[#c72929]' },
   // A tool in the register that has never been reviewed. Reachable when an
   // employee's request was withdrawn but the tool is still on their list.
@@ -36,29 +38,55 @@ const statusExplainer = {
   locked: 'This tool is approved for the organisation but sits above your current AI License level. Completing the training assigned to you is what raises that level.',
   review: 'Your request is with IT and Compliance. They review the vendor and the data you asked to send it before deciding. You will get a notification either way.',
   suspended: 'An administrator withdrew this tool organisation-wide after a security concern. Nobody can use it until the suspension is lifted, and new requests are not accepted.',
+  banned: 'Your organisation has banned this tool. No prompt is sent to it at all — an ordinary question included — and it cannot be requested.',
   declined: 'This request was not approved. An approved alternative is usually suggested — you can raise a new request if the need has changed.',
-  unreviewed: 'This tool has not been through security and compliance review, so there are no agreed terms covering what it does with company data.',
+  unreviewed: 'This AI tool is not approved by your organisation. It has not been through security and compliance review, so there are no agreed terms covering what it does with company data.',
 }
 
-// How each level is reached. What each level *unlocks* is not repeated here —
-// that is levelBenefit() in lib/levels.js, the one fixed sentence per level that
-// the licence card and the level-up notification also use, so the same level
-// never carries two different descriptions.
+// The status line under each model in the expandable model list.
+const modelAccessLabel = {
+  active: 'Approved',
+  locked: 'Needs a higher level',
+  suspended: 'Withdrawn',
+  banned: 'Banned',
+  unreviewed: 'Not approved',
+}
+
+// How each level is reached, and what it opens on this page. What each level
+// *unlocks* is not repeated here — that is levelBenefit() in lib/levels.js, the
+// one fixed sentence per level that the licence card and the level-up
+// notification also use, so the same level never carries two different
+// descriptions.
 const levels = [
-  { n: 1, name: LEVELS[0].name, desc: 'Everyone starts here. Basic approved AI for everyday, non-sensitive tasks.', badge: 'LEVEL 1' },
-  { n: 2, name: LEVELS[1].name, desc: 'Unlocked by finishing the 3 core AI-safety modules.', badge: 'LEVEL 2' },
+  { n: 1, name: LEVELS[0].name, desc: 'Everyone starts here. The free models on the approved assistants, for everyday non-sensitive work.', badge: 'LEVEL 1' },
+  { n: 2, name: LEVELS[1].name, desc: 'Unlocked by finishing the 3 core AI-safety modules. Opens the paid models and tool access requests.', badge: 'LEVEL 2' },
   { n: 3, name: LEVELS[2].name, desc: 'Needs the Advanced AI-safety path — modules coming soon.', badge: 'COMING SOON' },
-  { n: 4, name: LEVELS[3].name, desc: 'By nomination. Mentors others and helps review AI requests.', badge: 'BY NOMINATION' },
+  // "BY NOMINATION" until now, which described a mechanism that does not exist:
+  // every level here is reached by accumulated safety points and nothing else —
+  // there is no nomination, endorsement or manual promotion anywhere in the
+  // system. Level 4 is gated by the same thing Level 3 is, the advanced modules
+  // that have not shipped yet, so it carries the same badge.
+  { n: 4, name: LEVELS[3].name, desc: 'The end of the Advanced AI-safety path — modules coming soon. Guardians mentor others and help review AI requests.', badge: 'COMING SOON' },
 ]
 
 const cols = 'grid grid-cols-[minmax(180px,1.6fr)_minmax(150px,1.4fr)_minmax(150px,1.4fr)_minmax(150px,1fr)]'
 
-// A light-blue prefilled field in the request modal.
-function ReqField({ label, value, onChange }) {
+// One model on the tool detail sheet. `access` is the server's verdict for this
+// employee, not the register's org-wide status, so a paid model reads "Needs a
+// higher level" to a Trainee and "Approved" to a Navigator — the same answer the
+// Smart Gateway gives when they actually send something to it.
+function ModelRow({ model }) {
+  const ok = model.approved
+  const tone = ok ? 'text-[#078b6c]' : model.access === 'locked' ? 'text-[#667085]' : 'text-[#c72929]'
   return (
-    <div className="bg-[#edf2ff] rounded-[12px] px-4 py-2.5">
-      <p className="text-[#8a7d56] font-semibold text-[11px]">{label}</p>
-      <input value={value} onChange={e => onChange(e.target.value)} className="w-full bg-transparent outline-none text-[15px] text-[#0a204f] mt-1" />
+    <div className="flex items-baseline gap-2.5">
+      <span className={`text-[13px] shrink-0 ${tone}`}>{ok ? '●' : model.access === 'locked' ? '🔒' : '■'}</span>
+      <p className="text-[#0a204f] text-[13.5px] font-semibold min-w-0 break-words">{model.label}</p>
+      <p className={`text-[11.5px] ml-auto shrink-0 ${tone}`}>
+        {model.access === 'locked' && model.minLevel
+          ? `Needs Level ${model.minLevel}`
+          : modelAccessLabel[model.access] || 'Not approved'}
+      </p>
     </div>
   )
 }
@@ -72,26 +100,33 @@ export default function Visas() {
   const [profile, setProfile] = useState({ level: 0 })
   const [loaded, setLoaded] = useState(false)
   const [detail, setDetail] = useState(null) // the tool row opened for detail
+  const [showPaid, setShowPaid] = useState(false) // the paid-model section on the detail sheet
   const [submitting, setSubmitting] = useState(false)
+  const [requestError, setRequestError] = useState('')
   const user = currentUser()
 
-  // Request-form fields (prefilled with the Figma example)
-  const [toolName, setToolName] = useState('MeetingMind')
-  const [model, setModel] = useState('MeetingMind Pro v2')
-  const [vendor, setVendor] = useState('meetingmind.ai')
-  const [category, setCategory] = useState('Meeting summariser')
-  const [purpose, setPurpose] = useState('Summarise internal team meeting notes into action items.')
-  const [scopes, setScopes] = useState(['Internal', 'Meeting notes'])
+  // The guided request form. `catalogue` is the server's answer to "what may
+  // this employee ask for" — the register filtered by the `requestable` flag and
+  // by their own licence level — so the page never invents an option the
+  // approval queue would refuse. It replaced four free-text boxes in which an
+  // employee typed a tool name, a vendor and a website, and the queue took
+  // whatever they wrote.
+  const [catalogue, setCatalogue] = useState({ canRequest: false, minLevel: REQUEST_MIN_LEVEL, tools: [] })
+  const [picked, setPicked] = useState(null) // the chosen tool's name
+  const [purpose, setPurpose] = useState('')
+  const [scopes, setScopes] = useState([])
 
   useEffect(() => {
     let alive = true
     const load = () => {
       api.get('/visas').then(r => alive && setRequests(r)).catch(() => {})
       // /tools/mine, not /tools: the register plus where *this* employee stands
-      // on each row. The comparison used to happen here, which is how the page
-      // could show a tool as approved while the gateway refused the prompt.
+      // on each row, and which models their licence reaches. The comparison used
+      // to happen here, which is how the page could show a tool as approved
+      // while the gateway refused the prompt.
       api.get('/tools/mine').then(t => { if (alive) { setRegister(t); setLoaded(true) } }).catch(() => {})
       api.get('/profile').then(p => alive && setProfile(p)).catch(() => {})
+      api.get('/tools/requestable').then(c => alive && setCatalogue(c)).catch(() => {})
     }
     load()
     // Polled, so an admin approving a request or suspending a tool reaches this
@@ -101,6 +136,10 @@ export default function Visas() {
   }, [])
 
   const level = profile.level || 0
+  // Level 1 has no tool request feature at all — no button, no modal, no field.
+  // The server refuses the request too; this is so the page never offers one.
+  const canRequest = catalogue.canRequest && catalogue.tools.length > 0
+  const chosen = catalogue.tools.find(t => t.name === picked) || null
 
   // This employee's own requests, newest first (the server unshifts each new
   // one). /api/visas serves the whole organisation's queue for the admin
@@ -149,24 +188,31 @@ export default function Visas() {
       // Smart Gateway enforces. The fallback below only covers a row built from
       // a request for a tool the register has never heard of.
       const status = entry?.access
-        || (registered === 'SUSPENDED' ? 'suspended'
-          : registered === 'APPROVED' ? 'active'
-            : pending ? 'review'
-              : refused ? 'declined'
-                : 'unreviewed')
+        || (registered === 'BANNED' ? 'banned'
+          : registered === 'SUSPENDED' ? 'suspended'
+            : registered === 'APPROVED' ? 'active'
+              : pending ? 'review'
+                : refused ? 'declined'
+                  : 'unreviewed')
 
       const sub = {
         suspended: entry?.suspendedOn ? `Suspended ${entry.suspendedOn}` : 'Paused — cannot be used',
-        locked: `Needs Level ${entry?.minLevel}`,
+        banned: 'Banned — no prompt is sent here',
+        locked: `Unlocks at Level ${entry?.minLevel}`,
         active: entry?.minLevel ? `Approved · Level ${entry.minLevel} scope` : 'Approved for use',
         review: request ? `Requested ${request.submitted} · decision in ~3 days` : 'In review',
         declined: request?.decided ? `Decided ${request.decided}` : 'An alternative was suggested',
-        unreviewed: 'Not reviewed — request access before using it',
+        unreviewed: 'Not approved — request access before using it',
       }[status]
 
       const vendor = entry?.vendor || request?.vendor || 'Unreviewed vendor'
+      // Models already folded for this employee by /api/tools/mine: `tier` says
+      // which section a model belongs in, `access` what they may do with it.
       const models = entry?.models || []
-      const modelsApproved = models.filter(m => m.status === 'APPROVED').length
+      const free = models.filter(m => m.tier === 'free')
+      const paid = models.filter(m => m.tier !== 'free')
+      const available = models.filter(m => m.approved).length
+      const developer = (entry?.category || 'assistant') === 'developer'
 
       rows.push({
         name: entry?.name || request.tool,
@@ -177,60 +223,113 @@ export default function Visas() {
         // is actually receiving this?" is the question a tool name alone does
         // not answer — a lookalike site has the same name as the real thing.
         // Then, for a platform that ships a model picker, how much of that
-        // picker the org has cleared: approving ChatGPT is not approving every
-        // model on it, and the Smart Gateway enforces that distinction the
-        // moment a prompt is sent. It used to be the tool-access request
-        // number, which was "—" on every tool nobody had to ask for.
-        subtitle: models.length > 0
-          ? `${vendor} · ${modelsApproved} of ${models.length} models approved`
-          : vendor,
-        model: entry?.model || request?.model || 'Vendor model',
+        // picker this employee may actually use — approving ChatGPT is not
+        // approving every model on it, and their licence level decides which of
+        // the approved ones they reach.
+        subtitle: developer
+          ? `${vendor} · Development tool`
+          : models.length > 0
+            ? `${vendor} · ${available} of ${models.length} models available to you`
+            : vendor,
+        // The MODEL column shows the newest FREE model, at every licence level.
+        // It is the one every employee can actually use; the paid models sit
+        // behind the expandable section on the detail sheet.
+        model: entry?.displayModel || entry?.model || request?.model || 'Vendor model',
         data: entry?.dataScope || (request?.scopes || []).join(' · ') || 'As declared in the request',
         vendor,
+        developer,
         status,
         sub,
         request: request || null,
         flag: entry?.flag || null,
         minLevel: entry?.minLevel || null,
         explain: entry?.explain || null,
-        // Approving a tool is not approving every model on it. A tool with a
-        // model list carries it here so the row can say which ones the employee
-        // may actually pick — the distinction the Smart Gateway enforces, so it
-        // has to be visible before they hit it.
-        models: entry?.models || [],
+        models,
+        free,
+        paid,
       })
     }
 
     const requestFor = name =>
       myRequests.find(r => String(r.tool).toLowerCase() === String(name).toLowerCase()) || null
 
-    // Approved and suspended tools, in register order.
+    // What the page lists, by licence level.
+    //
+    // A Trainee sees the tools that are approved *for them* — the free
+    // assistants — and nothing else: a list of things they cannot use is not
+    // "my AI tools", it is a catalogue, and it buries the three they can. From
+    // Level 2, where tool access requests exist and paid models open, the locked
+    // rows become useful information: they are what the next level unlocks, so
+    // they are shown with the level that opens them.
+    const listLocked = level >= REQUEST_MIN_LEVEL
+
     for (const entry of register) {
-      if (entry.status === 'APPROVED' || entry.status === 'SUSPENDED') add(entry, requestFor(entry.name))
+      const listed = entry.access === 'active'
+        || entry.status === 'SUSPENDED'
+        || entry.status === 'BANNED'
+        || (listLocked && entry.access === 'locked')
+      if (listed) add(entry, requestFor(entry.name))
     }
     // Then anything this employee has asked about that is not already listed.
     for (const request of myRequests) {
       add(register.find(e => e.name.toLowerCase() === String(request.tool).toLowerCase()), request)
     }
     return rows
-  }, [register, myRequests])
+  }, [register, myRequests, level])
 
   const count = s => tools.filter(t => t.status === s).length
 
+  // The paid-model section starts collapsed on every tool: it is the "what else
+  // is there?" answer, not the "what can I use?" one, and leaving it open from
+  // the last tool would make it look like this tool's default state.
+  function openDetail(row) {
+    setShowPaid(false)
+    setDetail(row)
+  }
+
+  // Opening the form picks the first tool on offer, so the common case — one
+  // tool available — is one click and Send. The defaults come from the
+  // register's own record of the tool, which is what "keep it default" means.
+  function openRequest() {
+    const first = catalogue.tools[0]
+    setPicked(first?.name || null)
+    setScopes(first?.scopes || ['Internal', 'Text only'])
+    setPurpose('')
+    setRequestError('')
+    setModal('request')
+  }
+
+  function chooseTool(name) {
+    const next = catalogue.tools.find(t => t.name === name)
+    setPicked(name)
+    setScopes(next?.scopes || ['Internal', 'Text only'])
+    setRequestError('')
+  }
+
   async function submitRequest() {
-    if (!toolName.trim() || submitting) return
+    if (!picked || submitting) return
     setSubmitting(true)
+    setRequestError('')
     try {
-      // The whole form is sent — the model, vendor and category were being
-      // collected and dropped, so an approved tool joined the register with no
-      // description of itself.
-      await api.post('/visas/apply', { tool: toolName, model, vendor, category, purpose, scopes })
-      const [nextRequests, nextRegister] = await Promise.all([api.get('/visas'), api.get('/tools')])
+      // Only the two things the employee genuinely knows are theirs to state:
+      // which tool, and why. Everything else about it — model, vendor, category
+      // — is read from the register by the server, so a request cannot describe
+      // a tool differently from the way the organisation has it recorded.
+      await api.post('/visas/apply', { tool: picked, purpose, scopes })
+      const [nextRequests, nextRegister, nextCatalogue] = await Promise.all([
+        api.get('/visas'), api.get('/tools/mine'), api.get('/tools/requestable'),
+      ])
       setRequests(nextRequests)
       setRegister(nextRegister)
+      setCatalogue(nextCatalogue)
       setModal('sent')
-    } catch {
-      setModal(null)
+    } catch (err) {
+      // The server enforces the same two rules this form does, so a refusal
+      // here means the answer changed underneath it — the tool was approved by
+      // an admin a moment ago, or a request is already in flight. Saying so
+      // beats closing the modal and leaving the employee guessing.
+      setRequestError(err?.body?.error || 'The request could not be sent. Please try again.')
+      api.get('/tools/requestable').then(setCatalogue).catch(() => {})
     } finally {
       setSubmitting(false)
     }
@@ -262,8 +361,9 @@ export default function Visas() {
                 ]}
               />
               <InfoNote title="Need something that is not listed?">
-                Use Request tool access. IT and Compliance review the vendor and the data you want to send it, and you
-                are notified when they decide.
+                {level >= REQUEST_MIN_LEVEL
+                  ? 'Use Request tool access and pick from the AI tools your organisation has opened for requests. IT and Compliance review the vendor and the data you want to send it, and you are notified when they decide.'
+                  : `Tool access requests unlock at Level ${REQUEST_MIN_LEVEL}. Until then the approved free AI tools above are available to you, and finishing your assigned training is what opens the rest.`}
               </InfoNote>
             </InfoPopover>
           </div>
@@ -271,12 +371,17 @@ export default function Visas() {
             The AI tools you are approved to use and the data each one may receive. Higher AI License levels unlock more.
           </p>
         </div>
-        <button
-          onClick={() => setModal('request')}
-          className="border-[1.5px] border-navy-header text-navy-header font-semibold text-sm h-12 px-6 rounded-full cursor-pointer hover:bg-chip shrink-0"
-        >
-          +&nbsp;&nbsp;Request tool access
-        </button>
+        {/* Level 1 has no tool request feature at all — there is no button to
+            press and no form behind it. The server refuses the request too, so
+            this is presentation of a rule rather than the rule itself. */}
+        {canRequest && (
+          <button
+            onClick={openRequest}
+            className="border-[1.5px] border-navy-header text-navy-header font-semibold text-sm h-12 px-6 rounded-full cursor-pointer hover:bg-chip shrink-0"
+          >
+            +&nbsp;&nbsp;Request tool access
+          </button>
+        )}
       </div>
 
       {/* Tool access dashboard */}
@@ -286,7 +391,7 @@ export default function Visas() {
           <p className="text-[#0a204f] font-bold text-sm">{tools.length} AI tools</p>
           <span className="flex items-center gap-2"><span className="text-[#078b6c] text-xs">●</span><span className="text-[#0a204f] font-semibold text-[13px]">{count('active')} approved</span></span>
           <span className="flex items-center gap-2"><span className="text-[#b27a0d] text-xs">●</span><span className="text-[#0a204f] font-semibold text-[13px]">{count('review')} pending</span></span>
-          <span className="flex items-center gap-2"><span className="text-[#c72929] text-xs">■</span><span className="text-[#0a204f] font-semibold text-[13px]">{count('suspended')} blocked</span></span>
+          <span className="flex items-center gap-2"><span className="text-[#c72929] text-xs">■</span><span className="text-[#0a204f] font-semibold text-[13px]">{count('suspended') + count('banned')} blocked</span></span>
           {count('locked') > 0 && (
             <span className="flex items-center gap-2"><span className="text-[#667085] text-xs">🔒</span><span className="text-[#0a204f] font-semibold text-[13px]">{count('locked')} locked · needs a higher level</span></span>
           )}
@@ -317,7 +422,7 @@ export default function Visas() {
               return (
                 <button
                   key={t.name}
-                  onClick={() => setDetail(t)}
+                  onClick={() => openDetail(t)}
                   className="relative w-full text-left bg-white border border-[#e0e0e5] rounded-[12px] overflow-hidden pl-5 pr-4 py-4 cursor-pointer hover:border-navy-header focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-header"
                 >
                   <span className={`absolute left-0 top-0 h-full w-[5px] ${st.bar}`} aria-hidden="true" />
@@ -363,7 +468,7 @@ export default function Visas() {
                 return (
                   <button
                     key={t.name}
-                    onClick={() => setDetail(t)}
+                    onClick={() => openDetail(t)}
                     className={`relative rounded-[8px] overflow-hidden w-full text-left cursor-pointer hover:ring-1 hover:ring-navy-header/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-header ${i % 2 ? 'bg-[#fbfbfc]' : 'bg-white'}`}
                   >
                     <span className={`absolute left-0 top-0 h-full w-[5px] rounded-[3px] ${st.bar}`} aria-hidden="true" />
@@ -485,33 +590,55 @@ export default function Visas() {
                 Approving a tool is not approving everything the vendor ships on
                 it, and that distinction is enforced at the checkpoint — so it
                 has to be readable here rather than discovered when a prompt is
-                refused. */}
-            {detail.models.length > 0 && (
+                refused.
+
+                The free models are on screen because they are the ones every
+                licence level can use; the paid ones are behind the toggle
+                because at Level 1 they are not yet a choice, and at Level 2 and
+                above they are a longer list than the answer to "what can I use
+                right now?" needs to be. */}
+            {detail.free.length > 0 && (
               <div className="mt-5">
-                <p className="text-[#8a7d56] font-semibold text-[11px]">MODELS ON THIS TOOL</p>
+                <p className="text-[#8a7d56] font-semibold text-[11px]">FREE MODELS · AVAILABLE AT EVERY LEVEL</p>
                 <div className="flex flex-col gap-1.5 mt-2">
-                  {detail.models.map(m => {
-                    const ok = m.status === 'APPROVED'
-                    return (
-                      <div key={m.id} className="flex items-baseline gap-2.5">
-                        <span className={`text-[13px] shrink-0 ${ok ? 'text-[#078b6c]' : 'text-[#c72929]'}`}>
-                          {ok ? '●' : '■'}
-                        </span>
-                        <p className="text-[#0a204f] text-[13.5px] font-semibold min-w-0 break-words">{m.label}</p>
-                        <p className={`text-[11.5px] ml-auto shrink-0 ${ok ? 'text-[#078b6c]' : 'text-[#c72929]'}`}>
-                          {ok ? 'Approved' : m.status === 'SUSPENDED' ? 'Suspended' : 'Not approved'}
-                        </p>
-                      </div>
-                    )
-                  })}
+                  {detail.free.map(m => <ModelRow key={m.id} model={m} />)}
                 </div>
-                {detail.models.some(m => m.status !== 'APPROVED') && (
-                  <p className="text-[#667085] text-[12px] mt-2 leading-relaxed">
-                    {detail.name} itself is approved. Prompts containing company or customer data are not sent to the
-                    models marked above — pick an approved one and everything works as normal.
-                  </p>
+              </div>
+            )}
+
+            {detail.paid.length > 0 && (
+              <div className="mt-4">
+                <button
+                  onClick={() => setShowPaid(v => !v)}
+                  aria-expanded={showPaid}
+                  className="w-full flex items-center justify-between gap-3 bg-[#f7f6f1] border border-[#e0ddd0] rounded-[10px] px-3.5 py-2.5 cursor-pointer hover:border-[#d8d0b4]"
+                >
+                  <span className="text-[#8a7d56] font-semibold text-[11px]">
+                    PAID MODELS&nbsp;&nbsp;·&nbsp;&nbsp;{detail.paid.filter(m => m.approved).length} of {detail.paid.length} available to you
+                  </span>
+                  <span className="text-[#2e5ccc] font-semibold text-[12px] shrink-0">
+                    {showPaid ? 'Hide' : 'Show'} {showPaid ? '▲' : '▼'}
+                  </span>
+                </button>
+                {showPaid && (
+                  <div className="flex flex-col gap-1.5 mt-2.5 px-1">
+                    {detail.paid.map(m => <ModelRow key={m.id} model={m} />)}
+                    {detail.paid.some(m => m.access === 'locked') && (
+                      <p className="text-[#667085] text-[12px] mt-1.5 leading-relaxed">
+                        Paid models unlock at AI License Level {detail.paid.find(m => m.access === 'locked')?.minLevel || REQUEST_MIN_LEVEL}.
+                        Until then the free models above work as normal, and sensitive prompts are not sent to the locked ones.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
+            )}
+
+            {detail.models.some(m => m.access === 'banned') && (
+              <p className="text-[#667085] text-[12px] mt-3 leading-relaxed">
+                {detail.name} itself is approved. A banned model is different from an unapproved one: <em>nothing</em> is
+                sent to it, an ordinary question included. Pick another model and everything works as normal.
+              </p>
             )}
 
             {detail.flag && (
@@ -532,9 +659,10 @@ export default function Visas() {
               >
                 Back to AI Tools
               </button>
-              {/* A locked tool needs training, not a request; a suspended one
-                  cannot be requested at all; a request already in review must
-                  not be raised a second time. */}
+              {/* A locked tool needs training, not a request; a suspended or
+                  banned one cannot be requested at all; a request already in
+                  review must not be raised a second time; and below Level 2
+                  there is no request feature to offer. */}
               {detail.status === 'locked' ? (
                 <Link
                   to="/training"
@@ -542,14 +670,15 @@ export default function Visas() {
                 >
                   Open my training&nbsp;&nbsp;→
                 </Link>
-              ) : detail.status === 'suspended' || detail.status === 'review' ? null : detail.status === 'active' ? null : (
-                <button
-                  onClick={() => { setToolName(detail.name); setModel(detail.model); setVendor(detail.vendor); setDetail(null); setModal('request') }}
-                  className="bg-[#d9b32c] hover:bg-gold-dark text-[#0a204f] font-semibold text-sm w-full sm:flex-1 h-12 rounded-full cursor-pointer"
-                >
-                  Request access&nbsp;&nbsp;→
-                </button>
-              )}
+              ) : ['suspended', 'banned', 'review', 'active'].includes(detail.status) ? null
+                : canRequest && catalogue.tools.some(t => t.name === detail.name) ? (
+                  <button
+                    onClick={() => { setDetail(null); chooseTool(detail.name); setPurpose(''); setRequestError(''); setModal('request') }}
+                    className="bg-[#d9b32c] hover:bg-gold-dark text-[#0a204f] font-semibold text-sm w-full sm:flex-1 h-12 rounded-full cursor-pointer"
+                  >
+                    Request access&nbsp;&nbsp;→
+                  </button>
+                ) : null}
             </div>
           </div>
         </div>
@@ -561,22 +690,57 @@ export default function Visas() {
           <div className="bg-[#fffefa] border-[1.5px] border-[#0a204f] rounded-[20px] shadow-[0px_10px_30px_0px_rgba(0,0,0,0.22)] w-full max-w-[600px] p-5 sm:p-[30px] max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <p className="text-[#d9b32c] font-semibold text-[11px]">TOOL ACCESS REQUEST · SENT TO ADMIN</p>
             <p className="text-[#0a204f] font-bold text-[22px] sm:text-[26px] mt-1.5">Request tool access</p>
-            <p className="text-[#667085] text-sm mt-2.5">Tell IT what tool and model you want and why. They review the vendor and data scope before approving.</p>
+            <p className="text-[#667085] text-sm mt-2.5">
+              Choose the AI tool you need. Your organisation decides which tools can be requested, so what you pick here
+              is already a tool IT and Compliance are willing to review.
+            </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
-              <ReqField label="TOOL NAME" value={toolName} onChange={setToolName} />
-              <ReqField label="MODEL / VERSION" value={model} onChange={setModel} />
-              <ReqField label="VENDOR / WEBSITE" value={vendor} onChange={setVendor} />
-              <ReqField label="CATEGORY" value={category} onChange={setCategory} />
+            {/* The guided selection. This replaced four free-text fields —
+                tool name, model, vendor and category — in which an employee
+                typed whatever they liked and the approval queue accepted it.
+                Everything about the tool now comes from the register, so the
+                admin reviews a record rather than a description of one. */}
+            <p className="text-[#8a7d56] font-semibold text-[11px] mt-5">SELECT AN AI TOOL</p>
+            <div className="flex flex-col gap-2.5 mt-2.5">
+              {catalogue.tools.map(t => {
+                const on = picked === t.name
+                return (
+                  <button
+                    key={t.name}
+                    onClick={() => chooseTool(t.name)}
+                    aria-pressed={on}
+                    className={`text-left rounded-[12px] border-2 px-4 py-3 cursor-pointer flex items-start gap-3 ${on ? 'bg-[#edf2ff] border-[#0a204f]' : 'bg-white border-[#e0e0e5] hover:border-[#b6bcc9]'}`}
+                  >
+                    <span className={`w-[18px] h-[18px] rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center ${on ? 'border-[#0a204f]' : 'border-[#98a2b3]'}`}>
+                      {on && <span className="w-2 h-2 rounded-full bg-[#0a204f]" />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-[#0a204f] font-bold text-[15px]">{t.name}</span>
+                        <span className="text-[#667085] text-[11.5px]">{t.vendor} · {t.category}</span>
+                      </span>
+                      <span className="block text-[#0a204f] text-[12.5px] mt-1">{t.model}</span>
+                      {t.note && <span className="block text-[#667085] text-[12px] mt-1 leading-relaxed">{t.note}</span>}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
+
             <div className="bg-[#edf2ff] rounded-[12px] px-4 py-2.5 mt-3">
               <p className="text-[#8a7d56] font-semibold text-[11px]">BUSINESS PURPOSE</p>
-              <textarea value={purpose} onChange={e => setPurpose(e.target.value)} rows={2} className="w-full bg-transparent outline-none text-[15px] text-[#0a204f] resize-none mt-1" />
+              <textarea
+                value={purpose}
+                onChange={e => setPurpose(e.target.value)}
+                rows={2}
+                placeholder={chosen ? `What you need ${chosen.name} for, in one line.` : 'What you need this tool for, in one line.'}
+                className="w-full bg-transparent outline-none text-[15px] text-[#0a204f] placeholder-[#98a2b3] resize-none mt-1"
+              />
             </div>
 
             <p className="text-[#8a7d56] font-semibold text-[11px] mt-4">DECLARED DATA SCOPE · select what the tool may receive</p>
             <div className="flex flex-wrap gap-2 mt-2.5">
-              {scopeOptions.map(s => {
+              {[...new Set([...(chosen?.scopes || []), ...scopeOptions])].map(s => {
                 const on = scopes.includes(s)
                 return (
                   <button
@@ -592,6 +756,12 @@ export default function Visas() {
 
             <p className="text-[#667085] font-medium text-[12.5px] mt-4">Typical review time: 3 working days. You will get a notification when a decision is made.</p>
 
+            {requestError && (
+              <div className="bg-[#fae5e5] border border-[#c72929] rounded-[10px] px-3.5 py-3 mt-4">
+                <p className="text-[#c72929] text-[12.5px]">{requestError}</p>
+              </div>
+            )}
+
             <div className="flex flex-col sm:flex-row gap-3 mt-6">
               <button onClick={() => setModal(null)} className="border-[1.5px] border-[#0a204f] text-[#0a204f] font-semibold text-sm w-full sm:w-[176px] h-12 rounded-full cursor-pointer hover:bg-chip">
                 Cancel
@@ -600,7 +770,7 @@ export default function Visas() {
                   against the vertical axis, which zeroed the basis and collapsed
                   this button to a ~20px sliver on a phone — the one control that
                   actually submits the request. It only shares the row from sm. */}
-              <button onClick={submitRequest} disabled={submitting || !toolName.trim()} className="bg-[#d9b32c] hover:bg-gold-dark text-[#0a204f] font-semibold text-sm w-full sm:flex-1 h-12 rounded-full cursor-pointer disabled:opacity-60">
+              <button onClick={submitRequest} disabled={submitting || !picked} className="bg-[#d9b32c] hover:bg-gold-dark text-[#0a204f] font-semibold text-sm w-full sm:flex-1 h-12 rounded-full cursor-pointer disabled:opacity-60">
                 {submitting ? 'Sending…' : 'Send request to admin  →'}
               </button>
             </div>
@@ -619,7 +789,7 @@ export default function Visas() {
                 <p className="text-[#0a204f] font-bold text-[22px] mt-0.5">Sent to admin for review</p>
               </div>
             </div>
-            <p className="text-[#667085] text-sm mt-5">{toolName} ({model}) is now with IT and Compliance. Typical decision: 3 working days.</p>
+            <p className="text-[#667085] text-sm mt-5">{picked}{chosen ? ` (${chosen.model})` : ''} is now with IT and Compliance. Typical decision: 3 working days.</p>
             <p className="text-[#667085] text-sm mt-3">You will get a notification when it is approved, and the tool will appear in your AI Tools list.</p>
             <button onClick={() => setModal(null)} className="bg-[#d9b32c] hover:bg-gold-dark text-[#0a204f] font-semibold text-sm w-full h-12 rounded-full mt-7 cursor-pointer">
               Back to AI Tools&nbsp;&nbsp;→

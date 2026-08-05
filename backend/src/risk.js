@@ -80,6 +80,10 @@ export function repeatVerdict(counts) {
 export const TOOL_SEVERITY = {
   UNAPPROVED: SEVERITY.MEDIUM,
   SUSPENDED: SEVERITY.HIGH,
+  // A banned tool is the organisation's most explicit instruction: not "review
+  // this" but "nobody may send anything here". Reaching one anyway is HIGH on
+  // its first occurrence, like an override.
+  BANNED: SEVERITY.HIGH,
 }
 
 /** One alert per employee + tool per this long, so a session isn't a queue. */
@@ -102,6 +106,7 @@ export const TOOL_REPEAT_WINDOW_MINUTES = 60
 export const MODEL_SEVERITY = {
   UNAPPROVED: SEVERITY.MEDIUM,
   SUSPENDED: SEVERITY.HIGH,
+  BANNED: SEVERITY.HIGH,
 }
 
 /** One alert per employee + tool + model per this long. */
@@ -134,8 +139,30 @@ export const OVERRIDE_SEVERITY = SEVERITY.HIGH
 // Every one of those can only ever *tighten* the org's mode. A tool's own
 // settings can never loosen the policy an admin set, so this can never become
 // the reason something leaked.
+//
+// A **ban** is the one verdict that is not about the prompt at all. "Unapproved"
+// says nobody has agreed what this tool may receive, so company data is held
+// back and ordinary work continues. "Banned" says the organisation has already
+// decided nothing may be sent here — a model withdrawn after a breach is not
+// safer because the prompt happens to be harmless — so a banned destination
+// refuses every prompt, clean or not. That is reported as its own flag rather
+// than folded into `mode`, because a mode describes what happens to sensitive
+// content and a ban has nothing to do with content.
 
 export const MODES = { WARN: 'Warn only', MASK: 'Mask and continue', BLOCK: 'Block' }
+
+/**
+ * The modes an admin may actually set organisation-wide.
+ *
+ * Block is not one of them. Blocking every sensitive prompt across the whole
+ * organisation is the "just say no" posture the case study rules out — it moves
+ * the work to a personal laptop where nothing can see it — so Block survives
+ * only as a verdict this file *derives* for a destination that has not been
+ * cleared. The Settings screen offers the two org-wide modes and nothing else.
+ */
+export const ORG_MODES = [MODES.MASK, MODES.WARN]
+
+export const isOrgMode = mode => ORG_MODES.includes(mode)
 
 /** Loosest → strictest. `tighten()` picks the higher of two modes, never lower. */
 export const MODE_RANK = { [MODES.WARN]: 1, [MODES.MASK]: 2, [MODES.BLOCK]: 3 }
@@ -149,26 +176,46 @@ export function tighten(a, b) {
 /**
  * The mode that actually applies to one prompt, and why.
  *
- * `access` is the employee's standing on the tool (see toolAccessFor), `model`
- * the model's status, `blockOn` the detection types this tool is not cleared to
- * receive, and `types` what was found in the prompt.
+ * `access` is the employee's standing on the tool (see toolAccessFor),
+ * `modelStatus` the register's word on the selected model, `modelAccess` that
+ * status folded with the employee's licence level (see toolModelsFor),
+ * `blockOn` the detection types this tool is not cleared to receive, and
+ * `types` what was found in the prompt.
+ *
+ * `banned` is true only for a destination nothing may be sent to. Every caller
+ * that decides whether to send has to read it *before* it looks at detections,
+ * because it is the one refusal that applies to a prompt with nothing in it.
  */
-export function effectiveMode({ orgMode, access, modelStatus, blockOn = [], types = [] }) {
+export function effectiveMode({ orgMode, access, modelStatus, modelAccess, blockOn = [], types = [] }) {
   const refused = types.filter(t => blockOn.includes(t))
 
+  // Bans first: they answer regardless of what the prompt contains.
+  if (access === 'banned') {
+    return { mode: MODES.BLOCK, reason: 'tool-banned', refused: types, banned: true }
+  }
+  if (modelStatus === 'BANNED' || modelAccess === 'banned') {
+    return { mode: MODES.BLOCK, reason: 'model-banned', refused: types, banned: true }
+  }
   if (access === 'suspended') {
-    return { mode: MODES.BLOCK, reason: 'tool-suspended', refused: types }
+    return { mode: MODES.BLOCK, reason: 'tool-suspended', refused: types, banned: false }
   }
   if (access && access !== 'active') {
-    return { mode: MODES.BLOCK, reason: 'tool-unapproved', refused: types }
+    return { mode: MODES.BLOCK, reason: 'tool-unapproved', refused: types, banned: false }
+  }
+  // A model above the employee's licence level is a training gap, not a vendor
+  // risk — the model itself is cleared, this person is not cleared for it — so
+  // it holds sensitive content back under its own reason rather than reading as
+  // "nobody reviewed this".
+  if (modelAccess === 'locked') {
+    return { mode: MODES.BLOCK, reason: 'model-level', refused: types, banned: false }
   }
   if (modelStatus === 'SUSPENDED' || modelStatus === 'UNAPPROVED') {
-    return { mode: MODES.BLOCK, reason: 'model-unapproved', refused: types }
+    return { mode: MODES.BLOCK, reason: 'model-unapproved', refused: types, banned: false }
   }
   if (refused.length > 0) {
-    return { mode: MODES.BLOCK, reason: 'data-scope', refused }
+    return { mode: MODES.BLOCK, reason: 'data-scope', refused, banned: false }
   }
-  return { mode: orgMode, reason: 'org-policy', refused: [] }
+  return { mode: orgMode, reason: 'org-policy', refused: [], banned: false }
 }
 
 /** Human label for a detection type, matching the employee-facing wording. */

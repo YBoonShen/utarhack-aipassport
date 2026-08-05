@@ -276,7 +276,7 @@ export default function TrainingResults() {
           <div className="bg-[#132e66] rounded-[14px] p-5 mt-4 flex items-center gap-4">
             <Stamp title={mod.stampTitle} />
             <div>
-              <p className="text-white font-semibold text-base">Training stamp {outcome === 'first' ? 'earned' : 'updated'}</p>
+              <p className="text-white font-semibold text-base">Certification {outcome === 'first' ? 'earned' : 'updated'}</p>
               <p className="text-white text-sm mt-1.5">Added to your AI Passport<br />{today}</p>
             </div>
           </div>
@@ -321,8 +321,8 @@ export default function TrainingResults() {
               {lock.locked
                 ? `You can retake this assessment in ${lock.remainingLabel} — available ${lock.availableLabel}.`
                 : bestPoints >= mod.points
-                  ? `Retaking restarts the assessment from Question 1. You already hold the full ${mod.points} points, so this is revision — your stamp and points stay as they are.`
-                  : `Retaking restarts the assessment from Question 1. Your stamp and ${bestPoints} points stay; only a better result adds points, up to ${mod.points}.`}
+                  ? `Retaking restarts the assessment from Question 1. You already hold the full ${mod.points} points, so this is revision — your certification and points stay as they are.`
+                  : `Retaking restarts the assessment from Question 1. Your certification and ${bestPoints} points stay; only a better result adds points, up to ${mod.points}.`}
             </p>
             <p className="text-slate2 text-xs mt-1.5">
               A retry unlocks {RETRY_LOCK_HOURS} hours after each evaluation, so there is time to review the lesson first.

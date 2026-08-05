@@ -7,10 +7,14 @@
 import { Link } from 'react-router-dom'
 import { LEVELS, MAX_XP } from '../lib/levels.js'
 
+// The longer, celebratory form of levelBenefit() in lib/levels.js — same
+// unlocks, in a sentence rather than a label. Both describe the gates the tool
+// register actually enforces (minLevel on a tool and on each model), so a level
+// never promises something the AI Tools page then withholds.
 const BENEFITS = {
-  2: 'You can now access the benefits associated with this AI literacy level — ChatGPT and Gemini for internal, non-personal work.',
-  3: 'Ambassadors unlock GitHub Copilot and the source-code scope, and can vouch for safe tool use in their team.',
-  4: 'Guardians hold the full approved toolset and can mentor and endorse safe AI use across the organisation.',
+  2: 'Navigators reach the paid models on every approved tool, and can request access to new AI tools for review.',
+  3: 'Ambassadors unlock GitHub Copilot and the source-code scope, can request the Kimi free models, and can vouch for safe tool use in their team.',
+  4: 'Guardians unlock the development tools — Codex and Claude Code — plus Kimi K3, and can mentor and endorse safe AI use across the organisation.',
 }
 
 const SEAL = { 2: '🎉', 3: '🎉', 4: '🛡️' }

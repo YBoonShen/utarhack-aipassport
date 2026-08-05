@@ -190,7 +190,7 @@ export default function Employees() {
       <div className="flex flex-col sm:flex-row items-start justify-between gap-3 shrink-0">
         <div>
           <h1 className="text-[28px] font-bold text-[#17213a]">Employees</h1>
-          <p className="text-[#667085] text-sm mt-1">Support AI literacy and safe use with role-appropriate training and controls.</p>
+          <p className="text-[#667085] text-sm mt-1.5">Support AI literacy and safe use with role-appropriate training and controls.</p>
         </div>
         <Link to="/admin/training" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] px-6 h-11 rounded-full flex items-center cursor-pointer shrink-0">Assign Training</Link>
       </div>

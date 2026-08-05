@@ -124,7 +124,7 @@ export default function EditQuestions() {
           <p className="text-gold font-semibold text-[11px] tracking-wide">EDIT QUESTIONS</p>
           <h1 className="text-[28px] font-bold text-[#17213a] mt-1">{module.title}</h1>
           <p className="text-[#667085] text-sm mt-1.5">
-            Select a question to edit its wording and answers, or add a new one. Nothing is saved until you confirm the module.
+            Edit a question&rsquo;s wording and answers, or add one — nothing is saved until you confirm.
           </p>
         </div>
         <span className={`text-[11.5px] font-semibold rounded-full px-3 py-1.5 shrink-0 ${module.status === 'live' ? 'bg-[#e7f4ee] text-[#328768]' : 'bg-[#ededf2] text-slate2'}`}>

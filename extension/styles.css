@@ -8,115 +8,170 @@
   box-sizing: border-box;
 }
 
+/* The notice/warning/blocked panel.
+
+   This is an overlay on somebody else's product, so it earns its place by being
+   quiet: one white surface, one accent, and a clear order of reading — who is
+   speaking, what happened, what to do. It previously fought for attention with a
+   heavy navy border, a cream fill, a two-line header, an all-caps kicker and two
+   equally-weighted outlined buttons, none of which the employee needed to read.
+
+   The rules it now follows are the ordinary ones: a single elevated surface
+   instead of a border; 8px spacing rhythm; three type sizes and two text
+   colours, not five; and exactly one emphasised action per panel, with the
+   secondary one as plain text. */
+
 .aip-card {
-  width: 340px;
+  width: 360px;
   max-width: calc(100vw - 40px);
-  background: #fffefa;
-  border: 1.5px solid #0c2556;
+  background: #fff;
+  border: 1px solid rgba(11, 37, 86, 0.08);
   border-radius: 16px;
-  box-shadow: 0 12px 32px rgba(5, 18, 46, 0.28);
-  padding: 16px;
+  box-shadow: 0 1px 3px rgba(11, 37, 86, 0.16), 0 8px 28px rgba(11, 37, 86, 0.14);
+  padding: 20px;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: #111d35;
+  color: #1a2b4b;
 }
 
 .aip-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .aip-ring {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
-  border: 2px solid #e0b31e;
+  border: 1.5px solid #e0b31e;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #e0b31e;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 11px;
 }
 
 .aip-title {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
 
 .aip-name {
   margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-  color: #0c2556;
+  font-size: 13px;
+  font-weight: 600;
+  color: #5f6b80;
   line-height: 1.2;
+  letter-spacing: 0.01em;
 }
 
+/* The panel's state, as a 6px dot rather than a second line of all-caps text.
+   Same signal, a fraction of the ink. */
 .aip-kicker {
-  margin: 2px 0 0;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
 }
 
 .aip-ok { color: #05946e; }
 .aip-warn { color: #b27a0d; }
 .aip-block { color: #c72929; }
-.aip-off { color: #5c6a82; }
+.aip-off { color: #98a2b3; }
 
 .aip-x {
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
+  margin: -4px -6px -4px 0;
   flex-shrink: 0;
   border: none;
   border-radius: 50%;
-  background: #f2f4f8;
-  color: #0c2556;
-  font-size: 16px;
+  background: none;
+  color: #5f6b80;
+  font-size: 17px;
   line-height: 1;
   cursor: pointer;
 }
 
 .aip-x:hover {
-  background: #e4e7ec;
+  background: rgba(11, 37, 86, 0.06);
 }
 
 .aip-lead {
-  margin: 14px 0 0;
-  font-size: 15px;
-  font-weight: 700;
-  color: #0c2556;
+  margin: 16px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+  color: #12203a;
 }
 
 .aip-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
+/* Tonal rather than outlined: the chips are evidence, not controls, and an
+   outline on each one turned a list of three into a fence. */
 .aip-chip {
-  background: #fff0f0;
-  border: 1px solid #d92d20;
+  background: #fce9e7;
+  border: none;
   color: #b42318;
-  border-radius: 999px;
-  padding: 3px 10px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 .aip-body {
-  margin: 10px 0 0;
-  font-size: 12.5px;
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #5f6b80;
+}
+
+/* The masked prompt shown on a refusal: what the tool *would* have received, so
+   the employee can see which values were caught. Deliberately neutral rather
+   than the checkpoint's green "safe version" surface — nothing here is being
+   offered for sending, and green would suggest otherwise. */
+.aip-held-label {
+  margin: 16px 0 6px;
+  color: #80868b;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+
+.aip-held {
+  background: #f4f6fa;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
   line-height: 1.55;
-  color: #475467;
+  color: #5f6b80;
+  word-break: break-word;
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.aip-held .aip-tok {
+  color: #05946e;
+  font-weight: 600;
 }
 
 .aip-note {
   margin: 8px 0 0;
-  font-size: 10.5px;
+  font-size: 11.5px;
   color: #98a2b3;
   word-break: break-word;
 }
@@ -124,19 +179,23 @@
 .aip-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 20px;
 }
 
 .aip-btn {
-  flex: 1 1 auto;
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 999px;
-  font-size: 12.5px;
-  font-weight: 600;
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 20px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   cursor: pointer;
-  border: 1.5px solid transparent;
+  border: none;
+  transition: background-color 120ms ease;
 }
 
 /* The sign-in action is a real link (it opens the dashboard), so it needs the
@@ -148,9 +207,9 @@ a.aip-btn {
   text-decoration: none;
 }
 
+/* One emphasised action per panel. */
 .aip-gold {
   background: #e0b31e;
-  border-color: #e0b31e;
   color: #0c2556;
 }
 
@@ -158,14 +217,15 @@ a.aip-btn {
   background: #c99f1a;
 }
 
+/* …and the secondary is plain text, not a second button competing with it. */
 .aip-ghost {
-  background: #fffefa;
-  border-color: #0c2556;
+  background: none;
   color: #0c2556;
+  padding: 0 16px;
 }
 
 .aip-ghost:hover {
-  background: #f2f4f8;
+  background: rgba(11, 37, 86, 0.06);
 }
 
 /* ---- checkpoint ----------------------------------------------------------
@@ -173,6 +233,13 @@ a.aip-btn {
    prompt above, safe version below, and nothing leaves the browser until the
    employee presses the gold button. Same structure and palette as that page,
    re-laid out for a narrow in-page panel. */
+
+/* An ordinary panel that needs a little more width — one carrying a list of
+   approved alternatives. Width only: it keeps the notice shell, unlike
+   `aip-wide` below, which is the checkpoint's own layout. */
+.aip-card.aip-roomy {
+  width: 400px;
+}
 
 .aip-card.aip-wide {
   width: 440px;
@@ -346,45 +413,49 @@ a.aip-btn {
    what it says. The panel has to offer somewhere to go: a refusal with no way
    forward is the "just block it" design this product exists to avoid. */
 
+/* A plain list separated from the body by one hairline, rather than a tinted,
+   bordered card sitting inside another card. Two nested surfaces to hold two
+   rows was the single biggest source of the congestion here. */
 .aip-alt {
-  background: #f7f9ff;
-  border: 1px solid #d7e0f5;
-  border-radius: 10px;
-  padding: 10px 12px;
-  margin-top: 12px;
+  border-top: 1px solid rgba(11, 37, 86, 0.1);
+  padding-top: 12px;
+  margin-top: 16px;
 }
 
 .aip-alt-label {
-  color: #8a7d56;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  margin-bottom: 6px;
+  color: #80868b;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  margin-bottom: 2px;
 }
 
+/* Full-bleed rows: the negative margin lets the hover state read as a list item
+   the width of the panel instead of a rectangle floating inside it. */
 .aip-alt-row {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 7px 0;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  margin: 0 -8px;
+  border-radius: 8px;
   text-decoration: none;
-  border-top: 1px solid #e6ecf9;
 }
 
-.aip-alt-row:first-of-type {
-  border-top: none;
+.aip-alt-row:hover {
+  background: rgba(11, 37, 86, 0.05);
 }
 
 .aip-alt-name {
-  color: #0c2556;
-  font-size: 13px;
-  font-weight: 700;
+  color: #12203a;
+  font-size: 14px;
+  font-weight: 500;
   flex: 0 0 auto;
 }
 
 .aip-alt-scope {
-  color: #667085;
-  font-size: 11px;
+  color: #80868b;
+  font-size: 12px;
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -393,12 +464,8 @@ a.aip-btn {
 }
 
 .aip-alt-go {
-  color: #2e5ccc;
-  font-size: 12px;
-  font-weight: 600;
+  color: #1a56db;
+  font-size: 13px;
+  font-weight: 500;
   flex: 0 0 auto;
-}
-
-.aip-alt-row:hover .aip-alt-go {
-  text-decoration: underline;
 }

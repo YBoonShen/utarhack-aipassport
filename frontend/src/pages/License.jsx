@@ -106,7 +106,7 @@ function StampPopover({ s, completions, progress, assigned, onClose }) {
             <span className="font-bold text-2xl" style={{ color: s.color }}>✓</span>
           </div>
           <div>
-            <p className="font-semibold text-[11px]" style={{ color: s.color }}>TRAINING STAMP · COMPLETED</p>
+            <p className="font-semibold text-[11px]" style={{ color: s.color }}>CERTIFICATION · COMPLETED</p>
             <p className="text-navy-header font-bold text-xl mt-0.5">{s.title}</p>
           </div>
         </div>
@@ -126,7 +126,7 @@ function StampPopover({ s, completions, progress, assigned, onClose }) {
             // The stamp stays on the passport either way — it records something
             // that happened — but the button has to stop offering a module the
             // server will refuse.
-            : 'This module is not on your training list at the moment, so it cannot be reopened. Your stamp and its points stay on your passport.'}
+            : 'This module is not on your training list at the moment, so it cannot be reopened. Your certification and its points stay on your record.'}
         </p>
         {record && record.pointsEarned >= record.modulePoints && (
           <p className="text-[#667085] text-[12px] mt-1.5">
@@ -213,7 +213,7 @@ const SAFETY_INFO = [
     lines: [
       ['Letting the gateway mask and send', 'costs you nothing — a protected prompt is the system working.'],
       ['Sending the original anyway', 'at a checkpoint resets your safe streak to zero and deducts 20 safety points. You are notified when this happens.'],
-      ['Completing assigned training', 'adds safety points and a training stamp to your passport.'],
+      ['Completing assigned training', 'adds safety points and a certification to your record.'],
     ],
   },
 ]
@@ -277,12 +277,16 @@ export default function License() {
   const trainingPointsEarned = Object.values(profile.trainingProgress || {})
     .reduce((sum, r) => sum + (r.pointsEarned || 0), 0)
 
+  // Field labels say what the value is, not what the metaphor calls it.
+  // "CREDENTIAL ID" rather than "EMPLOYEE ID" because profile.licenseNo is the
+  // credential serial (AIP-2026-004173) and the photo panel below already
+  // carries the employee number (E-217) — two fields, two distinct labels.
   const identityFields = [
     ['NAME', profile.name],
     ['DEPARTMENT', profile.dept],
-    ['LICENSE NO.', profile.licenseNo],
+    ['CREDENTIAL ID', profile.licenseNo],
     ['DATE ISSUED', profile.issued],
-    ['LICENSE CLASS', `Level ${lvl.level} · ${lvl.levelName}`],
+    ['ACCESS LEVEL', `Level ${lvl.level} · ${lvl.levelName}`],
     ['SAFETY POINTS', `${lvl.totalXP.toLocaleString()} pts`],
   ]
   const earnedStamps = profile.stamps.map((s, i) => ({ ...s, rotate: stampRotations[i % stampRotations.length] }))
@@ -323,7 +327,12 @@ export default function License() {
         {/* Digital AI Passport */}
         <div className="bg-white border-2 border-navy-header rounded-[18px] overflow-hidden flex flex-col">
           <div className="bg-navy-header min-h-14 sm:h-14 flex items-center justify-between gap-3 px-4 sm:px-6 py-2 sm:py-0 shrink-0">
-            <p className="text-gold-brand font-bold text-[11px] sm:text-sm tracking-[1.4px]">DIGITAL AI LICENSE · EMPLOYEE PASSPORT</p>
+            {/* One metaphor per card. This header used to run two at once —
+                "DIGITAL AI LICENSE · EMPLOYEE PASSPORT" — which left the reader
+                working out whether a licence and a passport were the same
+                record. The card still LOOKS like an ID card, because a corporate
+                ID badge genuinely looks like this; only the wording is literal. */}
+            <p className="text-gold-brand font-bold text-[11px] sm:text-sm tracking-[1.4px]">AI CREDENTIAL · EMPLOYEE RECORD</p>
             <p className="text-white font-semibold text-[11px] shrink-0">MYS&nbsp;&nbsp;·&nbsp;&nbsp;AIP</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-6 sm:gap-7 px-4 sm:px-7 py-6 flex-1">
@@ -380,14 +389,9 @@ export default function License() {
         {/* Side rail */}
         <div className="flex flex-col gap-4">
           <div className="bg-navy-header rounded-[16px] p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <p className="text-gold-brand font-bold text-[11px] tracking-[1.32px] truncate">AI SAFETY SCORE</p>
-                <SafetyInfo />
-              </div>
-              <span className="text-[#9fb0d4] text-[10px] flex items-center gap-1.5 shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#34d399]" />live
-              </span>
+            <div className="flex items-center gap-2 min-w-0">
+              <p className="text-gold-brand font-bold text-[11px] tracking-[1.32px] truncate">AI SAFETY SCORE</p>
+              <SafetyInfo />
             </div>
             {/* 8dp grid: 24px between the ring and the figures beside it, 16px
                 between the figures and the streak chip under them. */}
@@ -474,11 +478,14 @@ export default function License() {
         </div>
       </div>
 
-      {/* Training Stamps */}
+      {/* Certifications. The ink-seal artwork is unchanged — a decorative seal
+          is how a certificate has looked for a century, and it costs the reader
+          nothing. It is the LABEL that has to be literal: "stamp" named the
+          picture, "certification" names the thing the employee actually holds. */}
       <div className="flex items-end justify-between gap-4 mt-9">
         <div>
-          <h2 className="text-[22px] font-bold text-navy-header">Training Stamps</h2>
-          <p className="text-[#667085] text-xs mt-1">Complete a module to add a verified stamp to your passport.</p>
+          <h2 className="text-[22px] font-bold text-navy-header">Certifications</h2>
+          <p className="text-[#667085] text-xs mt-1">Complete a module to add a verified certification to your record.</p>
         </div>
         {/* py/-my pair: a comfortable touch target, same position on the page. */}
         <Link to="/training" className="text-[#365fd9] font-semibold text-xs shrink-0 py-3 -my-3 inline-flex items-center">View training&nbsp;&nbsp;→</Link>

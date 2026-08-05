@@ -33,11 +33,16 @@ export const MAX_XP = LEVELS[LEVELS.length - 1].max
 // employees holding the same level read exactly the same thing, and nothing
 // here varies with a person, their XP within the band, or the time of day.
 export const LEVEL_BENEFITS = {
-  1: 'Approved everyday tools · non-personal data only',
-  2: 'ChatGPT and Gemini · internal non-personal data',
-  3: 'GitHub Copilot · source code scope',
-  4: 'Full approved toolset · mentor and endorse for your team',
+  1: 'Free ChatGPT, Gemini and Claude models · non-personal data only',
+  2: 'Paid models on approved tools · request access to new AI tools',
+  3: 'GitHub Copilot · request the Kimi free models',
+  4: 'Codex, Claude Code and Kimi K3 · full approved toolset',
 }
+
+/** Mirror of REQUEST_MIN_LEVEL in backend/src/levels.js — the level at which
+ *  the tool access request feature appears at all. The server enforces it; this
+ *  is so the page does not offer a button that would then be refused. */
+export const REQUEST_MIN_LEVEL = 2
 
 /** The fixed unlock line for a level. Falls back to Level 1's on a bad level. */
 export function levelBenefit(level) {
