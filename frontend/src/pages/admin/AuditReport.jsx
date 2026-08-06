@@ -1,19 +1,38 @@
 // 14A Admin - AI Compliance Report.
-import { useEffect, useState } from 'react'
-import { api } from '../../lib/api.js'
+//
+// Everything on this page comes from /api/report, and everything in the file
+// the admin downloads comes from the same object. That is deliberate: a report
+// whose export is assembled from a second set of numbers is a report nobody can
+// hand to a regulator, because the two can disagree without anybody noticing.
+import { useEffect, useRef, useState } from 'react'
+import { api, logFailure } from '../../lib/api.js'
+import {
+  bandColor, reportHTML, evidenceCSV, reportFileName, periodLabel, kpiRows,
+} from '../../lib/reportDocument.js'
 
-const bandColor = { Low: '#058f6b', Moderate: '#d5a71f', Elevated: '#e0771b', High: '#db2629' }
-const rm = n => 'RM ' + Number(n || 0).toLocaleString()
+const toneColor = { low: '#058f6b', med: '#d5a71f', high: '#db2629' }
+// Framework rows are green only when their evidence is actually present — see
+// the `state` the backend derives. A page that can only ever say "covered" is
+// decoration.
+const stateStyle = {
+  ok: { bg: '#e7f4ee', pill: '#078b6c', mark: 'OK' },
+  watch: { bg: '#fdf6e3', pill: '#c48f16', mark: '!' },
+}
 
 export default function AuditReport() {
   const [report, setReport] = useState(null)
   const [summary, setSummary] = useState(null)
   const [regen, setRegen] = useState(false)
+  const [menu, setMenu] = useState(false)
+  const menuRef = useRef(null)
 
   useEffect(() => {
     let alive = true
     const load = () => {
       api.get('/report').then(r => alive && setReport(r)).catch(() => {})
+      // The summary is the one part that can legitimately be unavailable (no
+      // model key, a failed call). It falls back to a marked empty state rather
+      // than blocking the figures, which are already on screen.
       api.get('/report/summary').then(s => alive && setSummary(s)).catch(() => alive && setSummary({ summary: '', source: 'offline' }))
     }
     load()
@@ -21,61 +40,98 @@ export default function AuditReport() {
     return () => { alive = false; clearInterval(t) }
   }, [])
 
+  // Close the download menu on an outside click or Escape — it sits over the
+  // report, so leaving it open swallows the next thing the admin tries to read.
+  useEffect(() => {
+    if (!menu) return
+    const away = e => { if (!menuRef.current?.contains(e.target)) setMenu(false) }
+    const esc = e => e.key === 'Escape' && setMenu(false)
+    document.addEventListener('mousedown', away)
+    document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc) }
+  }, [menu])
+
   async function regenerate() {
     setRegen(true)
-    try { setSummary(await api.get('/report/summary')) } catch { /* keep current summary */ } finally { setRegen(false) }
+    try {
+      // `refresh=1` is what makes this button mean something: without it the
+      // server answers from the cache that serves the five-second poll.
+      setSummary(await api.get('/report/summary?refresh=1'))
+    } catch (err) {
+      logFailure('regenerate executive summary', err) // keep the current summary
+    } finally {
+      setRegen(false)
+    }
   }
 
   const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   const risk = report?.risk
-  const k = report?.kpis
   // `period` is { from, to } on the wire. Rendering the object straight into JSX
   // threw "Objects are not valid as a React child" and took this page's header
   // down with it; the exported HTML printed "[object Object]" for the same
-  // reason. Formatted once here so both readers of it agree.
-  const periodLabel = report?.period ? `${report.period.from} – ${report.period.to}` : 'loading'
-  const kpiCards = k ? [
-    [k.promptsProtected.toLocaleString(), 'Prompts protected'],
-    [k.itemsMasked.toLocaleString(), 'Sensitive items masked'],
-    [rm(k.valueProtected), 'Exposure value protected'],
-    [k.toolsApproved, 'Tools reviewed & approved'],
-    [k.risksResolved, 'Risks resolved'],
-    [k.confirmedLeaks, 'Confirmed data leaks'],
-  ] : []
+  // reason. Formatted once, in the document module, so both readers agree.
+  const period = periodLabel(report)
+  const kpiCards = kpiRows(report)
 
-  function download() {
-    if (!report) return
-    const fw = report.frameworks.map(f => `<tr><td>${f.name}</td><td>${f.detail}</td><td style="color:#058f6b;font-weight:bold">${f.status}</td></tr>`).join('')
-    const ctrl = report.controls.map(c => `<tr><td>${c.type}</td><td>${c.framework}</td><td>${c.evidence}</td></tr>`).join('')
-    const kpiRows = kpiCards.map(([v, label]) => `<tr><td>${label}</td><td>${v}</td></tr>`).join('')
-    const ev = report.topEvents.map(e => `<tr><td>${e.time}</td><td>${e.user}</td><td>${e.dept}</td><td>${e.tool}</td><td>${e.action}</td><td>${e.record}</td></tr>`).join('')
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>AI Passport - Compliance Report</title>
-<style>body{font-family:Arial,Helvetica,sans-serif;margin:40px;color:#0a204f;max-width:900px}
-h1{margin:2px 0}h2{color:#0a204f;margin-top:30px;border-bottom:2px solid #d9b32c;padding-bottom:5px}
-.kick{color:#d9b32c;font-weight:bold;font-size:12px;letter-spacing:1px}
-.risk{display:inline-block;background:${bandColor[risk.band]};color:#fff;font-weight:bold;padding:6px 16px;border-radius:20px;font-size:14px}
-.sum{background:#f7f4ea;border-left:4px solid #d9b32c;padding:14px 18px;border-radius:6px;font-size:14px;line-height:1.6}
-table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:10px}td,th{border:1px solid #e0e0e5;padding:7px 10px;text-align:left}
-th{background:#0b2457;color:#d9b32c}.foot{margin-top:26px;font-size:11px;color:#667085}</style></head><body>
-<p class="kick">AI GOVERNANCE - COMPLIANCE AUDIT REPORT</p>
-<h1>${report.org}</h1><p>Reporting period ${periodLabel} - Generated ${today}</p>
-<p style="margin-top:14px">Organisational AI Risk Score: <span class="risk">${risk.score}/100 - ${risk.band}</span></p>
-<h2>Executive summary</h2><div class="sum">${(summary?.summary || '').replace(/</g, '&lt;')}</div>
-<p style="font-size:11px;color:#667085">${summary?.source === 'gemini' ? 'Written by Gemini from live audit data.' : 'Generated by the governance analyst from live audit data.'}</p>
-<h2>Framework coverage</h2><table><tr><th>Framework</th><th>Evidence</th><th>Status</th></tr>${fw}</table>
-<h2>Control mapping</h2><table><tr><th>Data category</th><th>Framework control</th><th>Evidence</th></tr>${ctrl}</table>
-<h2>Period summary</h2><table><tr><th>Metric</th><th>Value</th></tr>${kpiRows}</table>
-<h2>Evidence - recent masked records</h2><table><tr><th>Time</th><th>User</th><th>Dept</th><th>Tool</th><th>Action</th><th>Stored masked record</th></tr>${ev}</table>
-<p class="foot">Generated from the append-only audit log. Only masked records are included - no raw personal data leaves the platform.</p>
-</body></html>`
-    const blob = new Blob([html], { type: 'text/html' })
+  // ---- the export ----------------------------------------------------------
+  //
+  // Three ways out of the browser, one document — the template lives in
+  // lib/reportDocument.js so it can be checked without clicking a button.
+
+  function saveFile(content, type, extension) {
+    const blob = new Blob([content], { type })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `aipassport-compliance-report-${new Date().toISOString().slice(0, 10)}.html`
+    a.download = reportFileName(extension)
+    document.body.appendChild(a)
     a.click()
-    URL.revokeObjectURL(url)
+    a.remove()
+    // Revoking in the same tick cancels the download in Firefox — the click is
+    // queued, not completed, when this line runs.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
   }
+
+  function downloadHTML() {
+    saveFile(reportHTML(report, summary, today), 'text/html', 'html')
+  }
+
+  function downloadCSV() {
+    saveFile(evidenceCSV(report), 'text/csv;charset=utf-8', 'csv')
+  }
+
+  // Printing goes through a hidden iframe rather than window.open: a popup
+  // blocker silently eats the second one, and "nothing happened" is the worst
+  // possible answer for a download button.
+  function printReport() {
+    const frame = document.createElement('iframe')
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
+    frame.srcdoc = reportHTML(report, summary, today)
+    frame.onload = () => {
+      frame.contentWindow.focus()
+      frame.contentWindow.print()
+      // Removed once the print dialog has had the document; too early and the
+      // dialog prints a blank page.
+      setTimeout(() => frame.remove(), 60_000)
+    }
+    document.body.appendChild(frame)
+  }
+
+  function choose(fn) {
+    setMenu(false)
+    if (!report) return
+    try {
+      fn()
+    } catch (err) {
+      logFailure('compliance report export', err)
+    }
+  }
+
+  const exports = [
+    ['Print / Save as PDF', 'Opens the print dialog', printReport],
+    ['Download HTML file', 'The full report, one file', downloadHTML],
+    ['Download evidence CSV', 'Recent masked records only', downloadCSV],
+  ]
 
   return (
     <div>
@@ -84,16 +140,40 @@ th{background:#0b2457;color:#d9b32c}.foot{margin-top:26px;font-size:11px;color:#
           <h1 className="text-[30px] font-bold text-[#0a204f]">AI Compliance Report</h1>
           <p className="text-[#667085] text-sm mt-1.5">Live from the audit log. Masked data only. Generated {today}.</p>
         </div>
-        <button onClick={download} disabled={!report} className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[200px] h-12 rounded-full cursor-pointer disabled:opacity-60">
-          Download report&nbsp;&nbsp;v
-        </button>
+
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setMenu(m => !m)}
+            disabled={!report}
+            aria-haspopup="menu"
+            aria-expanded={menu}
+            className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[200px] h-12 rounded-full cursor-pointer disabled:opacity-60"
+          >
+            Download report&nbsp;&nbsp;{menu ? '^' : 'v'}
+          </button>
+          {menu && (
+            <div role="menu" className="absolute right-0 mt-2 w-[268px] bg-white border border-[#e0e0e5] rounded-[12px] shadow-lg overflow-hidden z-20">
+              {exports.map(([label, note, fn]) => (
+                <button
+                  key={label}
+                  role="menuitem"
+                  onClick={() => choose(fn)}
+                  className="w-full text-left px-4 py-3 hover:bg-[#faf7ec] cursor-pointer border-b border-[#f0eee6] last:border-b-0"
+                >
+                  <p className="text-[#0a204f] font-semibold text-[13px]">{label}</p>
+                  <p className="text-[#667085] text-[11px] mt-0.5">{note}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="bg-white border border-[#e0e0e5] rounded-[16px] p-8 mt-6">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-gold-brand font-bold text-xs">AI GOVERNANCE - COMPLIANCE AUDIT REPORT</p>
-            <p className="text-[#0a204f] font-bold text-base mt-1.5">{report?.org || 'Example Sdn Bhd'} - Reporting period {periodLabel}</p>
+            <p className="text-[#0a204f] font-bold text-base mt-1.5">{report?.org || 'Example Sdn Bhd'} - Reporting period {period}</p>
           </div>
           {risk && (
             <div className="text-right shrink-0">
@@ -101,6 +181,9 @@ th{background:#0b2457;color:#d9b32c}.foot{margin-top:26px;font-size:11px;color:#
               <span className="inline-block text-white font-bold text-sm rounded-full px-4 py-1.5 mt-1" style={{ background: bandColor[risk.band] }}>
                 {risk.score}/100 - {risk.band}
               </span>
+              <p className="text-[11px] mt-1" style={{ color: risk.delta <= 0 ? '#058f6b' : '#db2629' }}>
+                {risk.delta <= 0 ? '▼' : '▲'} {Math.abs(risk.delta)} vs yesterday
+              </p>
             </div>
           )}
         </div>
@@ -125,16 +208,21 @@ th{background:#0b2457;color:#d9b32c}.foot{margin-top:26px;font-size:11px;color:#
 
         <p className="text-[#8a7d56] font-semibold text-[11px] mt-7">FRAMEWORK COVERAGE</p>
         <div className="flex flex-col gap-2.5 mt-3">
-          {(report?.frameworks || []).map(f => (
-            <div key={f.name} className="bg-[#e7f4ee] rounded-[10px] h-14 px-4.5 flex items-center gap-3">
-              <span className="text-[#078b6c] font-bold text-base">OK</span>
-              <div className="flex-1">
-                <p className="text-[#0a204f] font-bold text-[15px]">{f.name}</p>
-                <p className="text-[#667085] text-[13px]">{f.detail}</p>
+          {(report?.frameworks || []).map(f => {
+            const s = stateStyle[f.state] || stateStyle.ok
+            return (
+              <div key={f.name} className="rounded-[10px] min-h-14 px-4.5 py-2.5 flex items-center gap-3" style={{ background: s.bg }}>
+                <span className="font-bold text-base w-5 text-center shrink-0" style={{ color: s.pill }}>{s.mark}</span>
+                <div className="flex-1">
+                  <p className="text-[#0a204f] font-bold text-[15px]">{f.name}</p>
+                  <p className="text-[#667085] text-[13px]">{f.detail}</p>
+                </div>
+                <span className="text-white font-bold text-[11px] rounded-full px-3.5 h-[26px] flex items-center shrink-0" style={{ background: s.pill }}>
+                  {f.status.toUpperCase()}
+                </span>
               </div>
-              <span className="bg-[#078b6c] text-white font-bold text-[11px] rounded-full px-3.5 h-[26px] flex items-center">{f.status.toUpperCase()}</span>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         <p className="text-[#8a7d56] font-semibold text-[11px] mt-7">PERIOD SUMMARY</p>
@@ -147,6 +235,24 @@ th{background:#0b2457;color:#d9b32c}.foot{margin-top:26px;font-size:11px;color:#
           ))}
         </div>
 
+        {risk && (
+          <>
+            <p className="text-[#8a7d56] font-semibold text-[11px] mt-7">WHAT IS DRIVING THE RISK SCORE</p>
+            <div className="flex flex-col gap-1.5 mt-3">
+              {risk.factors.map(f => (
+                <div key={f.key} className="flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: toneColor[f.tone] }} />
+                  <p className="text-[#344054] text-[12px] font-medium w-[170px] shrink-0">{f.label}</p>
+                  <div className="flex-1 h-1.5 bg-[#f0ece0] rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(100, f.points * 4)}%`, background: toneColor[f.tone] }} />
+                  </div>
+                  <p className="text-[#667085] text-[11px] w-[250px] shrink-0 text-right">{f.points} pts · {f.detail}</p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         <p className="text-[#8a7d56] font-semibold text-[11px] mt-7">CONTROL MAPPING - WHAT WE PROTECT AND WHY</p>
         <div className="border border-[#e5e5eb] rounded-[10px] overflow-hidden mt-3">
           <div className="grid grid-cols-[1.4fr_1.2fr_1.4fr] bg-navy-header text-gold-brand font-semibold text-[10px] tracking-[0.5px] px-4 py-2.5">
@@ -157,6 +263,25 @@ th{background:#0b2457;color:#d9b32c}.foot{margin-top:26px;font-size:11px;color:#
               <p className="text-[#0a204f] font-medium pr-2">{c.type}</p>
               <p className="text-[#475467] pr-2">{c.framework}</p>
               <p className="text-[#667085]">{c.evidence}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* The annexe the download promises. On screen too, so the admin can see
+            what they are about to hand over before they hand it over. */}
+        <p className="text-[#8a7d56] font-semibold text-[11px] mt-7">EVIDENCE - RECENT MASKED RECORDS</p>
+        <div className="border border-[#e5e5eb] rounded-[10px] overflow-hidden mt-3">
+          <div className="grid grid-cols-[64px_74px_64px_100px_92px_1fr] bg-navy-header text-gold-brand font-semibold text-[10px] tracking-[0.5px] px-4 py-2.5">
+            <p>TIME</p><p>USER</p><p>DEPT</p><p>TOOL</p><p>ACTION</p><p>STORED MASKED RECORD</p>
+          </div>
+          {(report?.topEvents || []).map((e, i) => (
+            <div key={e.id} className={`grid grid-cols-[64px_74px_64px_100px_92px_1fr] px-4 py-2.5 text-[11.5px] items-center ${i % 2 ? 'bg-white' : 'bg-[#fcfaf3]'}`}>
+              <p className="text-[#667085]">{e.time}</p>
+              <p className="text-[#0a204f] font-medium">{e.user}</p>
+              <p className="text-[#475467]">{e.dept}</p>
+              <p className="text-[#475467] pr-2">{e.tool}</p>
+              <p className="font-semibold" style={{ color: e.risk === 'HIGH' ? '#db2629' : e.risk === 'MEDIUM' ? '#c48f16' : '#058f6b' }}>{e.action}</p>
+              <p className="text-[#667085] truncate">{e.record}</p>
             </div>
           ))}
         </div>

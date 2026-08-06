@@ -322,18 +322,21 @@ The four files that decide whether somebody is signed in, and as whom:
 Written state lives in `backend/data/` (gitignored): `accounts.json` (hashes only),
 `sessions.json`, `progress.json`.
 
-## Optional — better name detection
+## Optional — better name detection, and an AI-written executive summary
 
-Layer 2 (person names) works offline out of the box using a context heuristic. For
-sharper results, add a free Gemini key:
+Two things use the model, and both work without it. Layer 2 (person names) falls back
+to a context heuristic; the compliance report's executive summary falls back to a
+governance analyst that composes the same paragraph from the same figures. Neither
+fallback is ever labelled as AI output — the report says "GOVERNANCE ANALYST" when
+that is what wrote it. For sharper results on both, add a free Gemini key:
 
 ```bash
 cd backend
 cp .env.example .env      # Windows: copy .env.example .env
 ```
 Then open `backend/.env` and set `GEMINI_API_KEY=` to a key from
-<https://aistudio.google.com>. Restart the backend. The Checkpoint modal always labels
-which source ran. Never commit `.env` — it is gitignored.
+<https://aistudio.google.com>. Restart the backend. The Checkpoint modal and the
+compliance report both label which source ran. Never commit `.env` — it is gitignored.
 
 The free tier allows ~20 requests a minute, and the extension checks the prompt on
 every typing pause, so the layer caches each answer by exact prompt text (5 min) and
@@ -444,7 +447,8 @@ network.
 | POST   | /api/review-request        | Public transparency portal → creates an admin risk alert |
 | GET    | /api/audit                 | Admin — live audit log (masked records only, review status folded in) |
 | GET    | /api/stats                 | Admin KPIs — single source of truth for all screens |
-| GET    | /api/report                | Admin — one-click compliance report totals, derived from the audit log (period baseline + everything recorded since) |
+| GET    | /api/report                | Admin — the one-click compliance report: period totals, organisational AI risk score, framework coverage, control mapping and the evidence annexe, all derived from the audit log (period baseline + everything recorded since) |
+| GET    | /api/report/summary        | Admin — the report's executive summary, written from those same figures. `?refresh=1` bypasses the cache ("Regenerate with AI"). Answers `source: 'gemini'` or `'analyst'`, never one labelled as the other |
 | GET/PUT| /api/settings              | Gateway policy — **Mask** or **Warn only** really applies. Block is not an org-wide mode (see below); a request naming it is ignored |
 | POST   | /api/reset                 | Reset demo data |
 

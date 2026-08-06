@@ -19,12 +19,13 @@ import {
   recordModelUse, recordBlockedAttempt, gatewayPolicyFor, toolForHost, setModelStatus,
   toolRegister, toolAccessFor, toolModelsFor, freeModelFor, requestableTools, REQUEST_MIN_LEVEL,
   addReviewRequest, leaderboard, progressionSummary,
-  allProgressionSummaries, reportSummary, updateSettings,
+  allProgressionSummaries, updateSettings,
   setSessionEmployee, ensureEmployeeProfile, notificationsFor, updateNotification, activityFor, publicProfile,
   libraryForAdmin, moduleById, publicModule, createModule, updateModule, setModuleStatus,
   modulesForEmployee, canAccessModule, assignTraining, assignmentRecords, assignmentsForEmployee,
   MAX_QUESTIONS,
 } from './store.js'
+import { complianceReport, executiveSummary, analystSummary, avgLicenseLevel } from './compliance.js'
 import { LEVELS } from './levels.js'
 import { MODES, ORG_MODES } from './risk.js'
 import { DEPARTMENTS, EMPLOYEES, employeeById, isDepartment, registerEmployee } from './directory.js'
@@ -1062,8 +1063,10 @@ app.get('/api/stats', (req, res) => {
     openAlerts: openAlerts().length,
     // Org-wide average across the 303 seeded employees, of whom the signed-in
     // one is live. 2.1 is that population's standing average at their seeded
-    // Level 2; their levelling up nudges it.
-    avgLicense: Number((2.1 + (db.profile.level - 2) * 0.1).toFixed(1)),
+    // Level 2; their levelling up nudges it. Derived in compliance.js because
+    // the report's risk score reads the same figure — two definitions of "how
+    // licensed is this workforce" would eventually disagree on the same screen.
+    avgLicense: avgLicenseLevel(),
     pendingApprovals: db.visaRequests.filter(r => ['SECURITY REVIEW', 'COMPLIANCE'].includes(r.status)).length,
     // Events masked on-device during a gateway outage and recorded afterwards.
     recoveredEvents: db.report.recoveredEvents,
@@ -1071,8 +1074,28 @@ app.get('/api/stats', (req, res) => {
 })
 
 // One-click compliance report (O3). The numbers live here, not in the page, so
-// what a regulator downloads is what the audit log holds.
-app.get('/api/report', requireAdmin, (req, res) => res.json(reportSummary()))
+// what a regulator downloads is what the audit log holds. complianceReport()
+// spreads reportSummary()'s flat totals in alongside the document sections, so
+// this route answers both the old shape and the new one.
+app.get('/api/report', requireAdmin, (req, res) => res.json(complianceReport()))
+
+// The executive summary at the top of that report, written from the same
+// figures. Separate from /api/report because it is the one part that can take a
+// second to produce (a model call) and the one part that may fail — the report
+// must still render when the summary does not, so a failure here can never take
+// the numbers down with it.
+//
+// `?refresh=1` is "Regenerate with AI": it bypasses the cache that keeps the
+// screen's five-second poll from spending a request per tick.
+app.get('/api/report/summary', requireAdmin, async (req, res) => {
+  try {
+    res.json(await executiveSummary({ refresh: req.query.refresh === '1' }))
+  } catch {
+    // The writer of last resort. Never a 500: an empty summary box on a report
+    // whose figures are all present reads as the whole page being broken.
+    res.json({ summary: analystSummary(complianceReport()), source: 'analyst', cached: false })
+  }
+})
 
 // ---- risk alerts ----
 // Sorted by severity with a live `due` countdown — see alertsView(). The rules
