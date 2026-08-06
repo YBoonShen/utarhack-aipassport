@@ -38,8 +38,10 @@ Full setup instructions, including installing Node.js, are in the [main README](
 
 The extension has no login of its own — it follows your dashboard session.
 
-Open <http://localhost:5173>, sign in (any email works; `admin@abcd.com` opens the admin
-console), then click the AI Passport toolbar icon. It should say **Protected**.
+Open <http://localhost:5173> and sign in — `jiayin.tan@abcd.com` / `Passport#2026` for the
+employee, `admin@abcd.com` / `AdminPass#2026` for the admin console (the backend prints
+both in its window at startup). Then click the AI Passport toolbar icon. It should say
+**Protected**.
 
 If it says *Sign in to protect your prompts*, you aren't signed in yet — or the extension
 hasn't noticed. It rechecks about once a minute; you never need to reload the page.

@@ -18,6 +18,10 @@ export const DEPARTMENTS = [
   { code: 'Ops', name: 'Operations' },
 ]
 
+// Mutable on purpose — see registerEmployee() at the bottom. The seeded rows
+// are the organisation as it stands before anybody signs up; new starters are
+// appended to this same array, because "who is a real employee" has to be one
+// list. Everything that imports EMPLOYEES shares this reference.
 export const EMPLOYEES = [
   { id: 'E-217', initials: 'JY', dept: 'Eng', xp: 1240 },
   { id: 'S-044', initials: 'MW', dept: 'Sales', xp: 980 },
@@ -49,16 +53,57 @@ export function employeesInDepartment(code) {
   return EMPLOYEES.filter(e => e.dept === code)
 }
 
-// Demo sign-in: the email's local part selects which directory employee you
-// are, so a reviewer can sign in as E-217, then as E-198, and see that an
-// assignment reached exactly one of them. `e-198@abcd.com` and `e198@abcd.com`
-// both work; anything unrecognised is the default demo employee.
-export function employeeIdFromEmail(email) {
-  const local = String(email || '').split('@')[0].trim().toUpperCase()
-  if (!local) return DEFAULT_EMPLOYEE_ID
-  const exact = EMPLOYEES.find(e => e.id === local)
-  if (exact) return exact.id
-  const compact = local.replace(/[^A-Z0-9]/g, '')
-  const loose = EMPLOYEES.find(e => e.id.replace('-', '') === compact)
-  return loose ? loose.id : DEFAULT_EMPLOYEE_ID
+// ---- new starters ----------------------------------------------------------
+//
+// An account created through the sign-up form belongs to somebody the seeded
+// directory has never heard of, and that matters more than it looks: store.js
+// resolves an unknown employee id back to DEFAULT_EMPLOYEE_ID, so without a
+// directory entry every new sign-up would open Tan Jia Yin's passport — their
+// history, their level, their training. Registering them here is what makes a
+// new account a genuinely separate person.
+
+// First letter of the department code, which is the convention the seeded ids
+// already follow (E-217 Engineering, S-044 Sales, F-102 Finance…).
+const DEPT_PREFIX = { Eng: 'E', Sales: 'S', Finance: 'F', Mkt: 'M', HR: 'H', Ops: 'O' }
+
+// Seeded ids run in the low hundreds; new starters begin at 300 so a generated
+// id is never mistaken for one of the demo records.
+const FIRST_NEW_NUMBER = 300
+
+/** The next free employee id in a department, e.g. `E-300`, then `E-301`. */
+export function nextEmployeeId(dept = 'Eng') {
+  const prefix = DEPT_PREFIX[dept] || DEPT_PREFIX.Eng
+  const used = new Set(EMPLOYEES.map(e => e.id))
+  let n = FIRST_NEW_NUMBER
+  while (used.has(`${prefix}-${n}`)) n++
+  return `${prefix}-${n}`
 }
+
+/**
+ * Add an employee to the directory, or return the existing record.
+ *
+ * Idempotent, because it runs both when an account is created and again for
+ * every stored account when the server restarts. It never overwrites a seeded
+ * record: a sign-up cannot rewrite an existing employee's department.
+ */
+export function registerEmployee({ id, initials, dept = 'Eng', xp = 0 }) {
+  const employeeId = String(id || '').trim().toUpperCase()
+  if (!employeeId) return null
+  const existing = employeeById(employeeId)
+  if (existing) return existing
+  const record = {
+    id: employeeId,
+    initials: String(initials || employeeId.slice(0, 2)).toUpperCase().slice(0, 2),
+    dept: isDepartment(dept) ? dept : 'Eng',
+    xp,
+  }
+  EMPLOYEES.push(record)
+  return record
+}
+
+// employeeIdFromEmail() used to live here: it read the email's local part and
+// returned whichever directory employee it looked like, falling back to the demo
+// employee. That *was* the sign-in — type `e-198@abcd.com`, be E-198 — and it is
+// deleted rather than kept as a fallback, because a function that turns an
+// unauthenticated string into an employee identity has no safe caller. Who signs
+// in is resolved from the proven account in accounts.js and nowhere else.

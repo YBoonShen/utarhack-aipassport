@@ -66,9 +66,16 @@ function blankProfile(id) {
     dept: record?.dept || 'Eng',
     licenseNo: `AIP-2026-${id.replace(/\D/g, '').padStart(6, '0')}`,
     issued: '02 Jan 2026',
+    // Every account starts here, and it is derived rather than asserted: 0
+    // points is Level 1 by levelFor(), so there is no way to create an account
+    // that begins anywhere else.
     level: 1,
     levelName: 'Trainee',
     points: 0,
+    // Which AI tool the Gateway opens on for this employee. Only ever a tool
+    // the register already approves for them — it is a preference, not an
+    // access grant, and toolAccessFor() still decides what may be sent.
+    defaultTool: 'AI Assistant',
     activityXP: 0,
     trainingProgress: {},
     streakDays: 0,
@@ -94,6 +101,9 @@ function demoProfile() {
     ...blankProfile(DEFAULT_EMPLOYEE_ID),
     name: 'Tan Jia Yin',
     licenseNo: 'AIP-2026-004173',
+    // ChatGPT is approved outright for her in the register (no minLevel), so
+    // the Gateway opens on it rather than on the internal assistant.
+    defaultTool: 'ChatGPT',
     // level / levelName / points / target / progressPercentage … are all
     // derived — syncProgression() fills them in from activityXP + training XP.
     level: 2,
@@ -551,6 +561,7 @@ const PROFILE_FIELDS = [
   'activityXP', 'level', 'trainingProgress', 'completedModules', 'moduleCompletions',
   'trainingCompleted', 'stamps', 'streakDays', 'promptsProtected', 'itemsMasked',
   'overrides', 'quiz', 'quizAttempt', 'name', 'initials', 'dept', 'licenseNo',
+  'defaultTool',
 ]
 
 function snapshot() {
@@ -644,6 +655,41 @@ export function setSessionEmployee(id) {
   db.employees[known] ??= blankProfile(known)
   syncProgression()
   return db.profile
+}
+
+/**
+ * The passport for a signed-in account, created on first sign-in.
+ *
+ * Called by the login routes with the identity the *account registry* holds, so
+ * a new employee's own name and department land on their own passport instead
+ * of the placeholder blankProfile() would give them. Only fills fields in on
+ * creation: signing in again must never rewrite a passport that has history on
+ * it.
+ *
+ * A profile created here begins at 0 points, which levelFor() reads as Level 1.
+ */
+export function ensureEmployeeProfile({ id, name, initials, dept, defaultTool } = {}) {
+  if (!id) return null
+  db.employees[id] ??= blankProfile(id)
+  const profile = db.employees[id]
+
+  // Whether this passport is still a placeholder, rather than whether we just
+  // created it. They are not the same thing, and assuming they were was a bug:
+  // a session restored from disk makes the request middleware call
+  // setSessionEmployee() — which creates a bare `Employee M-300` shell — before
+  // the sign-in that knows the person's name ever runs. Keying on the
+  // placeholder means the name lands whichever order those two happen in, and
+  // still never overwrites a passport somebody has actually used.
+  const placeholder = !profile.name || profile.name === `Employee ${id}`
+  if (placeholder) {
+    if (name) profile.name = name
+    if (initials) profile.initials = initials
+    if (dept) profile.dept = dept
+  }
+  // The default tool follows the account rather than the passport, so an admin
+  // changing somebody's default takes effect at their next sign-in.
+  if (defaultTool) profile.defaultTool = defaultTool
+  return profile
 }
 
 /** The employee a request is about — the session's, never a client-supplied id. */
@@ -911,6 +957,41 @@ export function recordSession(kind, user) {
     role: user.role === 'admin' ? 'Admin' : 'Employee',
     tool: 'AI Passport',
     resource: 'AI Passport console',
+    control: 'NIST PR.AC',
+  })
+}
+
+/**
+ * A new account was provisioned — the first entry in that person's audit trail.
+ *
+ * Without this the log started mid-story: an admin saw `Employee F-301 signed
+ * in` for an employee id that appeared from nowhere, which is the one gap a
+ * governance product cannot have. Account provisioning is what ISO 27001 A.9.2.1
+ * and NIST PR.AC-1 are about — an identity was issued, and issuing it granted
+ * access to the approved toolset at some level.
+ *
+ * Four things go in, and one deliberately does not:
+ *   • who    — the employee id
+ *   • how    — self-registration, or SSO on a verified domain. Very different
+ *              risks, so they are never collapsed into "created".
+ *   • what   — the AI License level the account was granted, because that is
+ *              what decides which models it can reach on day one.
+ *   • where  — the department, which is how a department-wide assignment
+ *              reaches them.
+ *
+ * Not the name and not the email. The audit log is privacy-minimised by design
+ * — employee ids and role data, no personal identifiers — and an account
+ * creation event is no reason to make the first exception.
+ */
+export function recordAccountCreated({ id, dept, via = 'self-registration', level = 1 }) {
+  return recordAudit({
+    action: 'CREATED',
+    record: `Employee ${id} account created · ${via} · Level ${level}`,
+    actor: id,
+    dept,
+    role: 'Employee',
+    tool: 'AI Passport',
+    resource: 'AI Passport account',
     control: 'NIST PR.AC',
   })
 }
@@ -2787,6 +2868,13 @@ export function progressionSummary(profile = db.profile) {
   return {
     id: p.id,
     name: p.name,
+    // The three fields the admin directory needs to render somebody it has
+    // never seen before. The seeded rows carry their own copies in
+    // frontend/src/lib/employees.js; an employee who registered this morning
+    // exists only here, so the row has to be buildable from this summary alone.
+    initials: p.initials,
+    promptsProtected: p.promptsProtected || 0,
+    openAlerts: db.alerts.filter(a => a.status === 'open' && a.employeeId === p.id).length,
     dept: p.dept,
     level: p.level,
     levelName: p.levelName,

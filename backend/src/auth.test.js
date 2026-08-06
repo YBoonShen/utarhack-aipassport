@@ -23,9 +23,13 @@ import path from 'node:path'
 // are read once, at module load. A scratch file keeps the demo's own sessions —
 // whoever is signed in right now — out of the test's way.
 const SESSION_FILE = path.join(os.tmpdir(), `aip-sessions-test-${process.pid}.json`)
+const ACCOUNT_FILE = path.join(os.tmpdir(), `aip-accounts-test-${process.pid}.json`)
 process.env.AUTH_SESSION_FILE = SESSION_FILE
 process.env.AUTH_SESSION_IDLE_MS = '800'
 process.env.AUTH_SESSION_MAX_MS = '2000'
+// Same reason as the session file: the accounts registry holds real (hashed)
+// credentials for whoever uses the demo, and a test must not write into it.
+process.env.AUTH_ACCOUNT_FILE = ACCOUNT_FILE
 
 const auth = await import('./auth.js')
 const { app } = await import('./server.js')
@@ -145,8 +149,14 @@ async function call(pathname, { token, method = 'GET', body, headers = {} } = {}
   return { status: res.status, body: await res.json().catch(() => null) }
 }
 
-const signIn = (role, email) =>
-  call('/auth/login', { method: 'POST', body: { role, email } })
+// The seeded demo credentials. There is no `role` in this body any more: the
+// server decides what the account is, and the test could not claim to be an
+// administrator here even if it wanted to.
+const EMPLOYEE_LOGIN = { email: 'jiayin.tan@abcd.com', password: 'Passport#2026' }
+const ADMIN_LOGIN = { email: 'admin@abcd.com', password: 'AdminPass#2026' }
+
+const signIn = credentials =>
+  call('/auth/login', { method: 'POST', body: credentials })
 
 await test('a fresh browser is signed out — nobody is, and the server says so', async () => {
   auth.resetSessions()
@@ -158,7 +168,7 @@ await test('a fresh browser is signed out — nobody is, and the server says so'
 
 await test('signing in returns a session token and the server\'s own record of the user', async () => {
   auth.resetSessions()
-  const res = await signIn('employee', 'jiayin.tan@abcd.com')
+  const res = await signIn(EMPLOYEE_LOGIN)
   assert.equal(res.status, 200)
   assert.equal(typeof res.body.token, 'string')
   assert.ok(res.body.token.length >= 32)
@@ -168,7 +178,7 @@ await test('signing in returns a session token and the server\'s own record of t
 
 await test('the token, and only the token, produces an authenticated session', async () => {
   auth.resetSessions()
-  const { body: { token, user } } = await signIn('employee', 'jiayin.tan@abcd.com')
+  const { body: { token, user } } = await signIn(EMPLOYEE_LOGIN)
 
   const good = await call('/auth/session', { token })
   assert.equal(good.status, 200)
@@ -199,7 +209,7 @@ await test('claiming to be an administrator in a header is refused', async () =>
 
 await test('an employee session cannot reach the admin console\'s data', async () => {
   auth.resetSessions()
-  const { body: { token } } = await signIn('employee', 'jiayin.tan@abcd.com')
+  const { body: { token } } = await signIn(EMPLOYEE_LOGIN)
   // 403, not 401: there *is* a verified session — it is simply not an admin's.
   const res = await call('/audit', { token })
   assert.equal(res.status, 403)
@@ -207,7 +217,7 @@ await test('an employee session cannot reach the admin console\'s data', async (
 
 await test('an admin session reaches it', async () => {
   auth.resetSessions()
-  const { body: { token } } = await signIn('admin', 'admin@abcd.com')
+  const { body: { token } } = await signIn(ADMIN_LOGIN)
   const res = await call('/audit', { token })
   assert.equal(res.status, 200)
   assert.ok(Array.isArray(res.body.events))
@@ -215,7 +225,7 @@ await test('an admin session reaches it', async () => {
 
 await test('the extension follows whoever signed in on the dashboard', async () => {
   auth.resetSessions()
-  await signIn('employee', 'jiayin.tan@abcd.com')
+  await signIn(EMPLOYEE_LOGIN)
   // No token: this is the extension's tokenless view of the shared session.
   const seen = await call('/auth/session')
   assert.equal(seen.status, 200)
@@ -225,7 +235,7 @@ await test('the extension follows whoever signed in on the dashboard', async () 
 
 await test('signing out ends the session for the web app and the extension at once', async () => {
   auth.resetSessions()
-  const { body: { token } } = await signIn('employee', 'jiayin.tan@abcd.com')
+  const { body: { token } } = await signIn(EMPLOYEE_LOGIN)
 
   const out = await call('/auth/logout', { token, method: 'POST' })
   assert.equal(out.status, 200)
@@ -244,7 +254,7 @@ await test('signing out ends the session for the web app and the extension at on
 
 await test('an expired session is refused, with the reason the client needs', async () => {
   auth.resetSessions()
-  const { body: { token } } = await signIn('employee', 'jiayin.tan@abcd.com')
+  const { body: { token } } = await signIn(EMPLOYEE_LOGIN)
   assert.equal((await call('/profile', { token })).status, 200)
 
   // Idle past AUTH_SESSION_IDLE_MS (800ms above) with no requests in between.
@@ -260,7 +270,7 @@ await test('an expired session is refused, with the reason the client needs', as
 
 await test('a demo reset signs everybody out rather than leaving orphaned tokens', async () => {
   auth.resetSessions()
-  const { body: { token } } = await signIn('admin', 'admin@abcd.com')
+  const { body: { token } } = await signIn(ADMIN_LOGIN)
   await call('/reset', { method: 'POST' })
   assert.equal((await call('/audit', { token })).status, 401)
 })
@@ -268,4 +278,5 @@ await test('a demo reset signs everybody out rather than leaving orphaned tokens
 server.close()
 resetStore()
 fs.rmSync(SESSION_FILE, { force: true })
+fs.rmSync(ACCOUNT_FILE, { force: true })
 console.log(`\n${passed} auth tests passed`)

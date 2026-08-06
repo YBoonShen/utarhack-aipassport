@@ -15,11 +15,56 @@ const statusChip = {
   'Support due': 'bg-[#fff0f0] text-[#d92d20]',
   Review: 'bg-[#fff5de] text-[#d97706]',
   Ambassador: 'bg-[#eef2ff] text-[#365fd9]',
+  'New starter': 'bg-[#f0f5ff] text-[#1447b2]',
 }
 
 // The directory records now live in lib/employees.js so Assign Training picks
 // recipients from exactly the same people this table shows.
 const employees = EMPLOYEES
+
+/**
+ * A directory row for somebody the seeded list has never heard of.
+ *
+ * New starters exist only in the backend — they registered after this build
+ * shipped — so their row is built entirely from /api/progression. Without this
+ * the admin could not see an account at all until somebody hard-coded them
+ * here, which meant the audit log could show `Employee F-301 signed in` for an
+ * id the directory had no row for.
+ */
+function rowFromLive(record) {
+  return {
+    avatar: record.initials || record.id.slice(0, 2),
+    id: record.id,
+    dept: record.dept,
+    level: `L${record.level}`,
+    training: record.assignedModules
+      ? Math.round((record.modulesCompleted / record.assignedModules) * 100)
+      : 0,
+    protectedCount: record.promptsProtected || 0,
+    alerts: record.openAlerts || 0,
+    status: statusFor(record),
+    xp: record.totalXP,
+    modules: record.modules || [],
+    live: true,
+  }
+}
+
+/**
+ * The status chip for a live row.
+ *
+ * The seeded rows carry a hand-written status; these have to derive one, and it
+ * is derived in the order the admin would triage in — an open alert outranks
+ * outstanding training, which outranks everything else. A brand-new account is
+ * called what it is rather than "On track": nothing has gone wrong, but nothing
+ * has happened yet either, and those are not the same report.
+ */
+function statusFor(record) {
+  if (record.openAlerts > 0) return 'Support due'
+  if (record.assignedModules > record.modulesCompleted) return 'Refresher'
+  if (record.level >= 3) return 'Ambassador'
+  if (!record.totalXP && !record.modulesCompleted) return 'New starter'
+  return 'On track'
+}
 
 // Employee progression detail — level, total XP and what each training module
 // actually contributed. Attempts are shown next to the XP so a module retaken
@@ -148,7 +193,11 @@ export default function Employees() {
     return () => { alive = false; clearInterval(t) }
   }, [])
 
-  const directory = employees.map(e => {
+  // Two sources, one directory. The seeded records are the organisation as it
+  // stood when this build shipped, enriched with whatever those employees have
+  // actually earned since; anyone the backend knows and this list does not is a
+  // new starter, appended with a row built from their progression alone.
+  const seeded = employees.map(e => {
     const record = live.find(l => l.id === e.id)
     if (!record) return e
     return {
@@ -162,6 +211,12 @@ export default function Employees() {
         : 0,
     }
   })
+
+  const seededIds = new Set(employees.map(e => e.id))
+  // Newest first: the admin opening this page after somebody registered should
+  // not have to page to the end to find them.
+  const newStarters = live.filter(l => !seededIds.has(l.id)).map(rowFromLive).reverse()
+  const directory = [...newStarters, ...seeded]
 
   const filtered = directory.filter(e =>
     (dept === 'All' || e.dept === dept) &&
