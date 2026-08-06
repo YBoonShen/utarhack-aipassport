@@ -295,7 +295,13 @@ app.post('/api/detect', async (req, res) => {
     })
   }
 
-  const { event, levelUp } = recordPromptEvent({ detections, masked, tool: tool || 'AI Assistant' })
+  const { event, levelUp } = recordPromptEvent({
+    detections, masked, tool: tool || 'AI Assistant',
+    // `notify` names an unreviewed destination: the prompt still went, masked
+    // like any other, so the admin-facing rule for it lives on this path
+    // rather than on the refusal one — see recordPromptEvent / noteNotifiedPrompt.
+    notify: policy.notify,
+  })
   const audit = await logDetection({ detections, masked })
   res.json({
     masked, detections, layer2, levelUp,

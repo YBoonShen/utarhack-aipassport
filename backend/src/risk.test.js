@@ -18,6 +18,7 @@ import {
   toolModelsFor, freeModelFor, modelAccessFor, approvedModels,
   auditView, actOnAlert, activityFor,
   REPEAT_WARN_AT, REPEAT_ESCALATE_AT, REPEAT_WINDOW_MINUTES, REQUEST_MIN_LEVEL,
+  DAILY_SENSITIVE_WARN_AT, DAILY_SENSITIVE_ESCALATE_AT,
 } from './store.js'
 import { dueLabel, pruneRepeats, repeatCounts, repeatVerdict, SEVERITY, MODES, tighten } from './risk.js'
 
@@ -131,6 +132,98 @@ test('counts are per employee', () => {
     { employeeId: 'E-198', type: 'IC', at: Date.now() },
   ]
   assert.deepEqual(repeatCounts(events, 'E-217'), { IC: 1 })
+})
+
+// ---- rule 1c: sensitive prompt volume on approved destinations, per day ----
+// Different from rule 1: no single identifier type has to repeat. Three
+// separate masked prompts in one day — each a different kind of identifier —
+// still add up to a habit worth a conversation.
+
+const distinctType = i => [{ type: ['IC', 'PHONE', 'EMAIL', 'PASSPORT', 'FINANCIAL'][i % 5], count: 1 }]
+
+test(`${DAILY_SENSITIVE_WARN_AT} sensitive prompts in one day raises one MEDIUM alert, even with different identifiers`, () => {
+  for (let i = 0; i < DAILY_SENSITIVE_WARN_AT; i++) maskPrompt(distinctType(i))
+  const raised = alertsFor('Multiple sensitive prompts today').filter(a => a.employeeId === 'E-217')
+  assert.equal(raised.length, 1)
+  assert.equal(raised[0].severity, SEVERITY.MEDIUM)
+  assert.equal(raised[0].occurrences, DAILY_SENSITIVE_WARN_AT)
+  // Rule 1 (the same identifier repeating) never fires: each type appeared once.
+  assert.equal(alertsFor('Repeated identifiers in prompts').filter(a => a.employeeId === 'E-217').length, 0)
+})
+
+test(`${DAILY_SENSITIVE_ESCALATE_AT} sensitive prompts in one day escalates the same alert to HIGH`, () => {
+  for (let i = 0; i < DAILY_SENSITIVE_ESCALATE_AT; i++) maskPrompt(distinctType(i))
+  const raised = alertsFor('Multiple sensitive prompts today').filter(a => a.employeeId === 'E-217')
+  assert.equal(raised.length, 1, 'still exactly one card')
+  assert.equal(raised[0].severity, SEVERITY.HIGH)
+  assert.equal(raised[0].occurrences, DAILY_SENSITIVE_ESCALATE_AT)
+})
+
+test('two employees do not add up to one daily pattern', () => {
+  setSessionEmployee('E-217')
+  maskPrompt([{ type: 'IC', count: 1 }])
+  maskPrompt([{ type: 'PHONE', count: 1 }])
+  setSessionEmployee('E-198')
+  maskPrompt([{ type: 'EMAIL', count: 1 }])
+  assert.equal(alertsFor('Multiple sensitive prompts today').filter(a => a.employeeId === 'E-198').length, 0)
+  assert.equal(alertsFor('Multiple sensitive prompts today').filter(a => a.employeeId === 'E-217').length, 0)
+})
+
+test('a prompt notified about on an unreviewed tool does not feed the approved-destination daily count', () => {
+  // The daily-volume rule is scoped to genuinely approved destinations — a
+  // notified prompt on an unreviewed tool is already its own HIGH finding
+  // (rule 2d), so counting it here too would be the same finding twice.
+  recordPromptEvent({ detections: [{ type: 'IC', count: 1 }], masked: 'a [MASKED-IC]', tool: 'DeepSeek', notify: true })
+  recordPromptEvent({ detections: [{ type: 'PHONE', count: 1 }], masked: 'b [MASKED-PHONE]', tool: 'DeepSeek', notify: true })
+  recordPromptEvent({ detections: [{ type: 'EMAIL', count: 1 }], masked: 'c [MASKED-EMAIL]', tool: 'DeepSeek', notify: true })
+  assert.equal(alertsFor('Multiple sensitive prompts today').filter(a => a.employeeId === 'E-217').length, 0)
+})
+
+// ---- rule 2d: a sensitive prompt masked and sent to an unreviewed tool -----
+// The redesigned policy (risk.js effectiveMode) no longer refuses a sensitive
+// prompt just because the destination is unreviewed — it masks and sends it,
+// same as an approved tool, and sets `notify: true` so the caller can say so.
+// This is the admin-facing half of that: the send still needs to reach the
+// queue, at HIGH, even though nothing was blocked.
+
+test('a sensitive prompt notified about on an unreviewed tool is HIGH, even though it was sent', () => {
+  const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC', 'NAME'] })
+  assert.equal(policy.notify, true)
+  assert.equal(policy.mode, MODES.MASK)
+
+  const { event } = recordPromptEvent({
+    detections: [{ type: 'IC', count: 1 }, { type: 'NAME', count: 1 }],
+    masked: 'customer [MASKED-NAME] [MASKED-IC]',
+    tool: 'DeepSeek',
+    notify: true,
+  })
+  const raised = openAlerts().filter(a => a.title === 'Sensitive prompt sent to an unapproved tool')
+  assert.equal(raised.length, 1)
+  assert.equal(raised[0].severity, SEVERITY.HIGH)
+  assert.match(raised[0].what, /has not been reviewed/)
+  assert.match(raised[0].evidence, /IC number, personal name/)
+  // The masked prompt itself is still an ordinary MASKED event — sent, not
+  // refused — and the alert is linked to it as evidence.
+  assert.equal(event.action, 'MASKED')
+  assert.ok(raised[0].events.includes(event.id))
+})
+
+test('re-sending to the same unreviewed tool escalates one card, not a queue', () => {
+  const send = () => recordPromptEvent({ detections: IC, masked: 'a [MASKED-IC]', tool: 'DeepSeek', notify: true })
+  send(); send(); send()
+  const raised = alertsFor('Sensitive prompt sent to an unapproved tool').filter(a => a.employeeId === 'E-217')
+  assert.equal(raised.length, 1)
+  assert.equal(raised[0].occurrences, 3)
+})
+
+test('a clean prompt to an unreviewed tool never raises this alert', () => {
+  recordPromptEvent({ detections: [], masked: 'hello there', tool: 'DeepSeek', notify: true })
+  assert.equal(alertsFor('Sensitive prompt sent to an unapproved tool').length, 0)
+})
+
+test('the same prompt on an approved tool never raises the unreviewed-tool alert', () => {
+  maskPrompt() // ChatGPT, notify defaults to false
+  assert.equal(alertsFor('Sensitive prompt sent to an unapproved tool').length, 0)
 })
 
 // ---- rule 2: unapproved tool ------------------------------------------------

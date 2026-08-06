@@ -70,6 +70,30 @@ export function repeatVerdict(counts) {
   }
 }
 
+// ---- rule 1c: sensitive prompt volume on approved destinations, per day ----
+// Rule 1 counts one *identifier type* repeating in a 15-minute burst. That
+// misses a different pattern: three separate masked prompts spread across a
+// whole day, each a different identifier, none of them repeating enough on its
+// own to trip rule 1. It is scoped to destinations nobody is being notified
+// about (see rule 2d) — a genuinely approved tool — because a mixed volume of
+// masked prompts heading for an unreviewed one is already covered, at HIGH, by
+// the notice itself.
+
+export const DAILY_SENSITIVE_WARN_AT = 3
+/** …and that escalate the same alert to HIGH rather than raising a second. */
+export const DAILY_SENSITIVE_ESCALATE_AT = 5
+
+/** Calendar-day bucket key (UTC), for counters that should reset with the date. */
+export function dayKey(at = Date.now()) {
+  return new Date(at).toISOString().slice(0, 10)
+}
+
+/** Silent below the threshold — the common case, and the one that must stay quiet. */
+export function dailySensitiveVerdict(count) {
+  if (count < DAILY_SENSITIVE_WARN_AT) return null
+  return { count, severity: count >= DAILY_SENSITIVE_ESCALATE_AT ? SEVERITY.HIGH : SEVERITY.MEDIUM }
+}
+
 // ---- rule 1b: a credential or secret, on the first occurrence ---------------
 // The rule above is deliberately patient: one masked IC number is the gateway
 // working, and alerting on it would teach an admin to ignore the queue. That
@@ -112,6 +136,17 @@ export const TOOL_SEVERITY = {
 
 /** One alert per employee + tool per this long, so a session isn't a queue. */
 export const TOOL_REPEAT_WINDOW_MINUTES = 60
+
+// ---- rule 2d: a sensitive prompt masked and sent to an unreviewed tool -----
+// recordToolUse (above) fires on arrival — a tab opened, nothing sent yet, so
+// MEDIUM is guidance. This is the more serious fact: the employee went on to
+// type something sensitive and it actually went, masked, to a destination
+// nobody has reviewed (`notify: true` from effectiveMode — see above; an
+// unreviewed tool is no longer refused, only flagged). The gateway protected
+// the content the same way it would on an approved tool, but "company data,
+// even masked, headed for a tool with no agreed terms" is still the finding an
+// admin has to see, so it is HIGH regardless of the destination's own status.
+export const NOTIFY_SENSITIVE_SEVERITY = SEVERITY.HIGH
 
 // ---- rule 2b: unapproved model ----------------------------------------------
 // A greenlit tool is not a greenlit vendor catalogue. Platforms ship new models

@@ -42,7 +42,8 @@ import {
   MODEL_SEVERITY, MODEL_REPEAT_WINDOW_MINUTES,
   REPEAT_WINDOW_MINUTES, REPEAT_ESCALATE_AT, effectiveMode, isOrgMode,
   pruneRepeats, repeatCounts, repeatVerdict, identifierLabel, dueAtFor, dueLabel,
-  criticalTypes, CRITICAL_SEVERITY,
+  criticalTypes, CRITICAL_SEVERITY, dayKey, dailySensitiveVerdict,
+  DAILY_SENSITIVE_WARN_AT, DAILY_SENSITIVE_ESCALATE_AT, NOTIFY_SENSITIVE_SEVERITY,
 } from './risk.js'
 
 const COLLEAGUES = [
@@ -458,6 +459,11 @@ function seed() {
     // In-memory by design — it is a live signal about the last few minutes, not
     // a record. The audit log is where the events themselves are kept.
     riskWindow: [],
+
+    // Behind rule 1c (daily sensitive-prompt volume): { employeeId, at }, one
+    // entry per masked prompt on a genuinely approved destination. Pruned to
+    // the current calendar day on every write — see noteDailySensitivePrompts.
+    dailySensitive: [],
 
     // Every notification carries the employee it belongs to — /api/notifications
     // only ever returns the signed-in employee's own.
@@ -1126,6 +1132,133 @@ function noteMaskedIdentifiers(detections, promptEvent = null, tool = 'AI Assist
   }
   // The masked prompt event is this alert's evidence, so the card can be traced
   // back to the records that raised it.
+  if (promptEvent) linkAlertEvent(alert, promptEvent)
+  return alert
+}
+
+/**
+ * Rule 1c — sensitive prompt volume on a genuinely approved destination, per
+ * day.
+ *
+ * Three masked prompts today is a habit worth a conversation even when no
+ * single identifier type repeated enough to trip rule 1 on its own — a phone
+ * number, then a name, then a financial figure, each protected, still adds up
+ * to a person routinely pasting sensitive content into an AI tool. Five in the
+ * same day escalates the alert that already exists rather than opening a
+ * second one. Scoped to approved destinations only: a mixed volume heading for
+ * an unreviewed tool is already covered, at HIGH, by noteNotifiedPrompt below.
+ */
+function noteDailySensitivePrompts(promptEvent = null, tool = 'AI Assistant') {
+  const employeeId = db.profile.id
+  const at = Date.now()
+  const today = dayKey(at)
+  db.dailySensitive.push({ employeeId, at })
+  db.dailySensitive = db.dailySensitive.filter(e => dayKey(e.at) === today)
+
+  const count = db.dailySensitive.filter(e => e.employeeId === employeeId).length
+  const verdict = dailySensitiveVerdict(count)
+  if (!verdict) return null
+
+  const dept = db.profile.dept
+  const { alert, isNew, escalated } = raiseAlert({
+    key: `daily-sensitive:${employeeId}:${today}`,
+    severity: verdict.severity,
+    employeeId,
+    dept,
+    occurrences: verdict.count,
+    title: 'Multiple sensitive prompts today',
+    meta: `${departmentName(dept)} · User ${employeeId} · ${verdict.count} sensitive prompts today`,
+    detailMeta: `${departmentName(dept)} · User ${employeeId} · detected today at ${nowTime()}`,
+    what: `${verdict.count} prompts from this employee were masked today on approved AI tools. Every one was protected before transmission — nothing left the organisation — but the volume suggests sensitive data is routinely being pasted in rather than written around.`,
+    evidence: `${verdict.count} sensitive prompts masked · ${todayDate()} · approved destinations only`,
+    evidenceNote: 'Layer 1/2 pattern match · masked records only, no raw prompt stored',
+    recommend: verdict.count >= DAILY_SENSITIVE_ESCALATE_AT
+      ? 'Assign the Data Privacy refresher and ask the manager to check in today.'
+      : 'Assign the 5-minute Data Privacy refresher.',
+    primary: 'Assign training',
+  })
+
+  if (isNew || escalated) {
+    linkAlertEvent(alert, recordAudit({
+      action: 'ALERT',
+      resource: alert.id,
+      tool: 'AI Passport',
+      record: `${isNew ? 'Risk alert raised' : 'Risk alert escalated'} · ${verdict.count} sensitive prompts today`,
+      control: 'PDPA P7',
+      status: 'FLAGGED',
+      risk: verdict.severity,
+      reason: 'daily-sensitive-volume',
+      alertId: alert.id,
+      outcome: isNew
+        ? `Risk alert ${alert.id} opened at ${verdict.severity}`
+        : `Risk alert ${alert.id} escalated to ${verdict.severity}`,
+    }))
+    addNotification({
+      category: 'SMART GATEWAY',
+      title: 'Multiple sensitive prompts today',
+      body: `${verdict.count} of your prompts have been masked today. Nothing was exposed — a short refresher will help you avoid pasting sensitive data in the first place.`,
+      what: `The Smart Gateway protected every one of these prompts, so no personal data left your browser. It flagged the volume because writing around sensitive data is faster than having it masked each time.`,
+      facts: [
+        ['Sensitive prompts today', String(verdict.count)],
+        ['AI tool', tool],
+        ['Data exposed', 'None — every instance was masked'],
+        ['Suggested', 'Spotting Personal Data in Prompts'],
+      ],
+      action: { label: 'Open training', to: '/training' },
+    })
+  }
+  if (promptEvent) linkAlertEvent(alert, promptEvent)
+  return alert
+}
+
+/**
+ * Rule 2d — a sensitive prompt masked and sent to a tool nobody has reviewed.
+ *
+ * effectiveMode() no longer refuses this (risk.js) — the prompt goes, masked
+ * like any other, and `notify` is the caller's cue to say so. That is the
+ * right call for the employee (their work is not blocked over a review nobody
+ * has finished yet), but it is still the finding an admin needs: company data,
+ * even masked, headed for a destination with no agreed terms. One alert per
+ * employee + tool per hour, the same discipline as recordToolUse and
+ * recordBlockedAttempt.
+ */
+function noteNotifiedPrompt(detections, promptEvent = null, tool = 'AI Assistant') {
+  const employeeId = db.profile.id
+  const dept = db.profile.dept
+  const found = detections.map(d => identifierLabel(d.type)).join(', ')
+  const bucket = Math.floor(Date.now() / (TOOL_REPEAT_WINDOW_MINUTES * 60_000))
+
+  const { alert, isNew, escalated } = raiseAlert({
+    key: `notify:${employeeId}:${tool.toLowerCase()}:${bucket}`,
+    severity: NOTIFY_SENSITIVE_SEVERITY,
+    employeeId,
+    dept,
+    title: 'Sensitive prompt sent to an unapproved tool',
+    meta: `${departmentName(dept)} · ${tool} · not approved`,
+    detailMeta: `${departmentName(dept)} · User ${employeeId} · detected today at ${nowTime()}`,
+    what: `${tool} has not been reviewed by the organisation, and an employee sent it a prompt containing ${found}. The Smart Gateway masked it before it left the browser — the same protection an approved tool gets — but it is still heading for a destination with no agreed terms for what it does with company data.`,
+    evidence: `${found} masked and sent · ${tool} · not approved`,
+    evidenceNote: 'Layer 1/2 pattern match · masked records only, no raw prompt stored',
+    recommend: `Review the ${tool} tool access request, or confirm the employee found the approved alternative offered.`,
+    primary: 'Review tool request',
+  })
+
+  if (isNew || escalated) {
+    linkAlertEvent(alert, recordAudit({
+      action: 'ALERT',
+      resource: alert.id,
+      tool: 'AI Passport',
+      record: `${isNew ? 'Risk alert raised' : 'Risk alert escalated'} · sensitive prompt sent to unapproved tool ${tool}`,
+      control: 'AIGE 4.2',
+      status: 'FLAGGED',
+      risk: NOTIFY_SENSITIVE_SEVERITY,
+      reason: 'tool-unapproved',
+      alertId: alert.id,
+      outcome: isNew
+        ? `Risk alert ${alert.id} opened at ${NOTIFY_SENSITIVE_SEVERITY}`
+        : `Risk alert ${alert.id} escalated to ${NOTIFY_SENSITIVE_SEVERITY}`,
+    }))
+  }
   if (promptEvent) linkAlertEvent(alert, promptEvent)
   return alert
 }
@@ -1812,7 +1945,7 @@ export function recordBlockedAttempt({ tool, model, reason, types = [] }) {
 // `award` is false for it: XP is a reward for behaviour the gateway actually
 // witnessed, and back-dating points for events it never saw live is precisely
 // what an auditor would pull on.
-export function recordPromptEvent({ detections, masked, tool = 'AI Assistant', time, offline = false, award = true }) {
+export function recordPromptEvent({ detections, masked, tool = 'AI Assistant', time, offline = false, award = true, notify = false }) {
   const total = detections.reduce((n, d) => n + d.count, 0)
   const clean = total === 0
   const critical = criticalTypes(detections)
@@ -1857,7 +1990,14 @@ export function recordPromptEvent({ detections, masked, tool = 'AI Assistant', t
     // A live event feeds the repeated-identifier window. A recovered one does
     // not: it is minutes or hours old, so counting it as "just now" would let a
     // gateway outage manufacture a pattern that never happened in real time.
-    if (!offline) noteMaskedIdentifiers(detections, event, tool)
+    if (!offline) {
+      noteMaskedIdentifiers(detections, event, tool)
+      // `notify` means this destination is unreviewed — rule 2d already covers
+      // it, at HIGH, so the daily-volume rule stays scoped to destinations that
+      // are genuinely approved rather than double-counting the same finding.
+      if (notify) noteNotifiedPrompt(detections, event, tool)
+      else noteDailySensitivePrompts(event, tool)
+    }
     const types = detections.map(d => `${d.type.toLowerCase()} ×${d.count}`).join(', ')
     // An offline event was already explained on-device by the checkpoint the
     // employee confirmed. Notifying again when it reaches the log would be the
@@ -3233,4 +3373,5 @@ export { REQUEST_MIN_LEVEL } from './levels.js'
 export {
   SEVERITY, RESPONSE_HOURS, REPEAT_WINDOW_MINUTES, REPEAT_WARN_AT, REPEAT_ESCALATE_AT,
   TOOL_REPEAT_WINDOW_MINUTES, ORG_MODES, MODES, CRITICAL_TYPES, CRITICAL_SEVERITY,
+  DAILY_SENSITIVE_WARN_AT, DAILY_SENSITIVE_ESCALATE_AT,
 } from './risk.js'
