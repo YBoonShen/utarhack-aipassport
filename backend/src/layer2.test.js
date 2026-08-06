@@ -44,6 +44,12 @@ const cases = [
   ['(lim meng) approved the change.', '[MASKED-NAME]', 'meng'],
   // Names mixed with other sensitive data — Layer 1 must still do its half.
   ['Call lim MeNg Meng at 012-3456789 about invoice INV-2291 for RM 4,500.', '[MASKED-PHONE]', 'MeNg'],
+  // Irregular casing anchored by a gazetteer name — the offline safety net that
+  // covers Gemini being rate-limited. "shen" anchors the whole span.
+  ['here is bOon SheN', '[MASKED-NAME]', 'SheN'],
+  ['the invoice is for boon shen please', '[MASKED-NAME]', 'shen'],
+  // "boon" is an ordinary English word, not a name on its own.
+  ['this is a real boon for us', null, '[MASKED-NAME]'],
 ]
 
 let pass = 0

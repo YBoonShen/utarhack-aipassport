@@ -43,7 +43,7 @@ const GEMINI_TIMEOUT_MS = 8000
 //     stops asking instead of spending a request and an 8s timeout finding out.
 const CACHE_MAX = 200
 const CACHE_TTL_MS = 5 * 60_000
-const COOLDOWN_MS = 60_000
+const COOLDOWN_MS = 20_000
 const cache = new Map() // text -> { at, names }
 let quotaBlockedUntil = 0
 
@@ -189,6 +189,22 @@ const NAME_GAZETTEER = new Set([
   'kumar', 'priya', 'raj', 'ravi', 'suresh', 'devi', 'anand', 'ganesh',
   'muthu', 'nadarajah', 'ramasamy', 'letchumi',
   'sarah', 'samantha', 'daniel', 'jason', 'kevin', 'aaron', 'nadia',
+  // Team + a broader set of given names (Chinese, Malay, Western). This is the
+  // offline safety net: it anchors source 4, so an irregularly-cased name like
+  // "bOon SheN" or "boon shen" is caught even when Gemini is rate-limited.
+  'shen', 'seng', 'huat', 'guan', 'beng', 'choon', 'keat', 'swee',
+  'hock', 'leong', 'weng', 'meng', 'chee', 'wai', 'yee', 'fong', 'jun', 'hao',
+  'zhen', 'teik', 'han', 'jing', 'yang', 'sheng',
+  'fatimah', 'khadijah', 'syafiq', 'danial', 'aiman', 'harith', 'iman', 'aqil',
+  'arif', 'adib', 'amir', 'iskandar', 'imran', 'khairul', 'luqman', 'naim',
+  'farah', 'hana', 'sofia', 'balqis', 'zahra', 'adam', 'irfan', 'haziq',
+  'xavier', 'oliver', 'ethan', 'liam', 'noah', 'lucas', 'logan', 'jacob',
+  'sebastian', 'matthew', 'benjamin', 'henry', 'alexander', 'oscar', 'felix',
+  'adrian', 'dominic', 'michael', 'james', 'david', 'robert', 'william',
+  'richard', 'thomas', 'christopher', 'joseph', 'andrew', 'joshua', 'nathan',
+  'emily', 'emma', 'olivia', 'isabella', 'charlotte', 'amelia', 'harper',
+  'ella', 'scarlett', 'chloe', 'zoe', 'nora', 'hazel', 'laura', 'anna',
+  'maria', 'elena', 'nina', 'clara', 'sophia', 'natasha', 'jessica', 'rachel',
 ])
 // The negative signal — ordinary English words plus product/tech/business terms
 // that are frequently capitalised. A capitalised span made only of these is not a
