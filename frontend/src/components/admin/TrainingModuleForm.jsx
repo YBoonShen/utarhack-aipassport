@@ -585,10 +585,15 @@ export function QuestionList({ questions, onAdd, onEdit, onRemove }) {
 
 // Matches Figma "Create module card" — used standalone (18C) and under
 // "New Training" on Assign Training.
-export function CreateModuleCard({ kicker, draft, setDraft, onOpenQuestion, onEditQuestion, onCreate, secondaryLabel, onSecondary, error, saving }) {
+export function CreateModuleCard({ kicker, draft, setDraft, onOpenQuestion, onEditQuestion, onCreate, secondaryLabel, onSecondary, error, saving, autosaveLabel }) {
   return (
     <div className="bg-white border border-[#d8d0b4] rounded-[16px] p-5 sm:p-7 mt-5">
-      <p className="text-gold font-semibold text-[11px] tracking-wide">{kicker}</p>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-gold font-semibold text-[11px] tracking-wide">{kicker}</p>
+        {/* Quiet, not a banner — the questions are already safe on the server
+            by the time this says so, so it is confirmation, not a warning. */}
+        {autosaveLabel && <p className="text-slate2 text-[11.5px] font-medium">{autosaveLabel}</p>}
+      </div>
       <p className="text-navy font-bold text-[22px] mt-1">{kicker === 'NEW TRAINING' ? 'Create a module' : 'Module details'}</p>
       <p className="text-slate2 text-sm mt-1">Add a title and questions{kicker === 'NEW TRAINING' ? ', then assign it to employees or departments.' : '.'} Every module can mix multiple-choice and type-your-own practice, up to {MAX_QUESTIONS} questions.</p>
 

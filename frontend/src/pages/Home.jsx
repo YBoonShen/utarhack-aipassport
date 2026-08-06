@@ -201,6 +201,8 @@ export default function Home() {
   // rather than off the collapsed size, so it stays honest after expanding: at
   // the expanded ceiling it becomes the number the Notifications page holds.
   const moreCount = allActivity.length - activity.length
+  // Whether the toggle beside the "Recent activity" heading renders at all.
+  const showToggle = moreCount > 0 || activityExpanded
 
   // Progress within the current level band (lib/levels.js), not a share of the
   // whole 0 → 8,000 system.
@@ -246,19 +248,19 @@ export default function Home() {
       </div>
 
       <p className="text-[#667085] font-semibold text-[13px] mt-8">Your progress</p>
-      {/* The two cards end on the same line, and the space that makes that true
-          is put somewhere deliberate rather than left as a void at the bottom of
-          whichever card had less to say.
-            • both cards are flex columns, so the shorter one's last element —
-              "View my license", the "View more" footer — is pushed to the card's
-              own bottom edge and reads as a footer instead of a stray gap;
-            • an empty feed centres its one sentence, which is what an empty
-              state should look like anyway.
-          Expanded is the exception: an opened list can run hundreds of pixels
-          past the passport card, and stretching to match would put a strip of
-          blank navy under the gold button — the original bug. While it is open
-          the cards size to their own content, which is also when the reader is
-          looking at the list rather than at the pair. */}
+      {/* The two cards end on the same line. Stretching to match was tried
+          before and reverted, because the "View more" footer sat inside the
+          shorter card and rode a stretched `flex-1` list down to the bottom
+          edge — leaving a dead gap between the last row and a footer stranded
+          near the passport card's floor. Now that the older-activity toggle
+          has moved up beside the heading (see below), the collapsed card has
+          no footer to pin: its content is centred in the stretched space
+          instead, the same treatment the empty state already used, so extra
+          room reads as breathing space rather than a void.
+          Expanded stays the exception — an opened list can run hundreds of
+          pixels past the passport card, and stretching to match would put a
+          band of blank navy under the gold button. While it is open, both
+          cards size to their own content. */}
       <div className={`grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4 lg:gap-6 mt-3 ${
         activityExpanded ? 'lg:items-start' : 'lg:items-stretch'
       }`}>
@@ -305,10 +307,10 @@ export default function Home() {
               <p className="text-[#cbd5e1] text-xs mt-1">safe streak</p>
             </div>
           </div>
-          {/* `lg:mt-auto` is what pins this to the card's bottom edge when the
-              activity card is the taller of the two — the gap lands above a
-              button that is clearly the end of the card, instead of below it.
-              `lg:pt-6` keeps the 24px it already had when nothing is stretched. */}
+          {/* `lg:mt-auto` pins this to the card's bottom edge when the row is
+              stretched to match the activity card — the gap lands above a
+              button that plainly reads as the end of the card, not below it.
+              `lg:pt-6` keeps the 24px gap it already had when nothing stretches. */}
           <div className="mt-6 lg:mt-auto lg:pt-6 flex">
             <Link to="/license" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-5 h-11 rounded-full inline-flex items-center justify-center w-fit ml-auto lg:ml-0">
               View my license →
@@ -317,22 +319,39 @@ export default function Home() {
         </div>
 
         <div className="bg-white border border-[#e0e0e5] rounded-[16px] p-6 flex flex-col">
-          <p className="text-navy-header font-bold text-lg">Recent activity</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-navy-header font-bold text-lg">Recent activity</p>
+            {/* Same control that used to sit in a footer under the last row,
+                moved beside the heading — the placement AI Tools gives its own
+                page-level action ("Request tool access" beside the h1) rather
+                than a link floating under the last row. */}
+            {showToggle && (
+              <button
+                onClick={() => setActivityExpanded(v => !v)}
+                aria-expanded={activityExpanded}
+                className="text-[#2e5ccc] font-semibold text-[13.5px] py-3 -my-3 inline-flex items-center gap-1.5 cursor-pointer hover:underline shrink-0"
+              >
+                {activityExpanded ? 'Show less' : `View ${moreCount} older ${moreCount === 1 ? 'activity' : 'activities'}`}
+                <span aria-hidden="true">{activityExpanded ? '↑' : '↓'}</span>
+              </button>
+            )}
+          </div>
           {activity.length === 0 ? (
-            // Centred rather than parked under the heading: an employee with no
-            // activity is the case where this card is shortest and the stretch
-            // gap is largest, and a centred empty state is what that space is
-            // supposed to look like. max-w keeps it from running the full width
-            // of the card as one thin line.
+            // Centred in the stretched remainder rather than parked right under
+            // the heading — the same reasoning as the passport card's pinned
+            // button: give the leftover space somewhere deliberate to go.
             <div className="flex-1 flex items-center justify-center">
               <p className="text-[#667085] text-[13.5px] text-center max-w-[340px] py-6">
                 No activity yet. Protected prompts, completed training and tool decisions will appear here.
               </p>
             </div>
           ) : (
-            // flex-1: the list takes the height the card was stretched to, so
-            // the footer below sits on the card's bottom edge.
-            <div className="flex flex-col gap-4 mt-4 flex-1">
+            // `justify-center`: when the row is stretched to match the passport
+            // card, a short list centres in the extra height instead of sitting
+            // flush under the heading with a bare gap below it. No-op once the
+            // card is sized to its own content (nothing stretched, nothing
+            // expanded), so a full list still starts right after the heading.
+            <div className="flex-1 flex flex-col justify-center gap-4 mt-4">
               {activity.map(a => {
                 const s = activityStyle[a.category] || defaultStyle
                 return (
@@ -361,29 +380,13 @@ export default function Home() {
             </div>
           )}
 
-          {/* Older activity, on request. A card footer rather than a link
-              floating under the last row, so it reads as a control on the card
-              and not as part of the final activity. The count is in the label
-              because "View more" alone does not say whether it is worth the tap.
-              py-3/-my-3 keeps a 44px touch target without moving the row — the
-              same pair the activity rows' own links use. */}
-          {(moreCount > 0 || activityExpanded) && (
-            <div className="mt-4 pt-4 border-t border-[#eceef2] flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <button
-                onClick={() => setActivityExpanded(v => !v)}
-                aria-expanded={activityExpanded}
-                className="text-[#2e5ccc] font-semibold text-[13.5px] py-3 -my-3 inline-flex items-center gap-1.5 cursor-pointer hover:underline"
-              >
-                {activityExpanded ? 'Show less' : `View ${moreCount} older ${moreCount === 1 ? 'activity' : 'activities'}`}
-                <span aria-hidden="true">{activityExpanded ? '↑' : '↓'}</span>
-              </button>
-              {/* Only once the in-card list has hit its ceiling — the full feed
-                  lives on the Notifications page, and this is the way to it. */}
-              {activityExpanded && moreCount > 0 && (
-                <Link to="/notifications" className="text-[#667085] hover:text-navy-header font-semibold text-[12.5px] py-3 -my-3 inline-flex items-center">
-                  See all {allActivity.length} →
-                </Link>
-              )}
+          {/* Only once the in-card list has hit its ceiling — the full feed
+              lives on the Notifications page, and this is the way to it. */}
+          {activityExpanded && moreCount > 0 && (
+            <div className="mt-4 pt-4 border-t border-[#eceef2] flex justify-end">
+              <Link to="/notifications" className="text-[#667085] hover:text-navy-header font-semibold text-[12.5px] py-3 -my-3 inline-flex items-center">
+                See all {allActivity.length} →
+              </Link>
             </div>
           )}
         </div>

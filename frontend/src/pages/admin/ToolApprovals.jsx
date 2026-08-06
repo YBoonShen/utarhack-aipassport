@@ -16,6 +16,7 @@ const statusChip = {
   APPROVED: 'bg-[#e9f8f2] text-[#078b6c]',
   REDIRECTED: 'bg-[#f1eddf] text-[#667085]',
   DECLINED: 'bg-[#fff0f0] text-[#d92d20]',
+  REVOKED: 'bg-[#fff0f0] text-[#d92d20]',
 }
 
 const cardStyles = {
@@ -24,6 +25,7 @@ const cardStyles = {
   APPROVED: 'border border-[#078b6c] bg-white',
   REDIRECTED: 'border border-[rgba(10,32,79,0.5)] bg-white',
   DECLINED: 'border border-[#d92d20] bg-white',
+  REVOKED: 'border border-[#d92d20] bg-white',
 }
 
 // Presentation extras per request status (vendor checks etc. are review-team data
@@ -34,6 +36,7 @@ const checksByStatus = {
   APPROVED: [['✓', 'Security review passed'], ['✓', 'Compliance review passed'], ['✓', 'Decision recorded']],
   REDIRECTED: [['✓', 'Approved alternative covers the need'], ['✓', 'One-click switch offered'], ['✓', 'Request closed as redirected']],
   DECLINED: [['✓', 'Security review completed'], ['!', 'Vendor risk exceeded policy'], ['✓', 'Approved alternative suggested']],
+  REVOKED: [['✓', 'Previously approved'], ['!', 'Access withdrawn by admin'], ['✓', 'Smart Gateway notice reinstated']],
 }
 
 const noteByStatus = {
@@ -42,6 +45,7 @@ const noteByStatus = {
   APPROVED: 'Approved. Next review in 90 days.',
   REDIRECTED: 'No new vendor risk added. Request closed as redirected.',
   DECLINED: 'Declined. The requester was pointed to an approved alternative.',
+  REVOKED: 'Access revoked. The employee is treated as unreviewed again from their next visit.',
 }
 
 // ---- explainable AI risk score ----
@@ -90,6 +94,7 @@ const stageOfStatus = {
   APPROVED: 3,
   REDIRECTED: 3,
   DECLINED: 3,
+  REVOKED: 3,
 }
 const stageLabels = ['Submitted', 'Security', 'Compliance', 'Decision']
 
@@ -243,7 +248,7 @@ export default function ToolApprovals() {
   // step, the current step highlighted, later steps still pending. A decided
   // request (approved/redirected/declined) completes every stage.
   const currentStage = sel ? (stageOfStatus[sel.status] ?? 1) : 1
-  const decided = sel && ['APPROVED', 'REDIRECTED', 'DECLINED'].includes(sel.status)
+  const decided = sel && ['APPROVED', 'REDIRECTED', 'DECLINED', 'REVOKED'].includes(sel.status)
   const stages = stageLabels.map((label, i) => {
     const done = i < currentStage || (decided && i === currentStage)
     return { label, n: done ? '✓' : String(i + 1), done, active: i === currentStage && !decided }
@@ -494,6 +499,26 @@ export default function ToolApprovals() {
                   </button>
                   <button onClick={() => decide('decline')} disabled={busy} className="text-[#d92d20] font-semibold text-xs px-4 h-11 cursor-pointer ml-auto disabled:opacity-60">
                     Decline
+                  </button>
+                </>
+              ) : sel.status === 'APPROVED' ? (
+                <>
+                  <button
+                    onClick={() => toast(`${sel.tool} · ${sel.id} · view the recorded review and decision`)}
+                    className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-xs px-7 h-11 rounded-full cursor-pointer"
+                  >
+                    View approval
+                  </button>
+                  {/* Pulls back this one employee's grant only — the tool's
+                      org-wide register is never touched by an individual visa
+                      either way, so nothing here can affect anyone else's
+                      access. toolAccessFor() reflects it immediately; the
+                      extension picks it up within its own 60s cache window. */}
+                  <button onClick={() => decide('revoke')} disabled={busy} className="text-[#d92d20] font-semibold text-xs px-4 h-11 cursor-pointer disabled:opacity-60">
+                    {busy ? 'Saving…' : 'Revoke access'}
+                  </button>
+                  <button onClick={archive} className="text-[#667085] font-semibold text-xs px-4 h-11 cursor-pointer ml-auto">
+                    Archive
                   </button>
                 </>
               ) : (

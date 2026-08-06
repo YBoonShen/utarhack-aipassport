@@ -326,6 +326,7 @@ async function render() {
       locked: `needs Level ${resolved.minLevel ?? '—'}`,
       review: 'not reviewed yet · request in review · checkpoint running',
       declined: 'not reviewed · request declined · checkpoint running',
+      revoked: 'not reviewed · access revoked · checkpoint running',
       unreviewed: 'not reviewed by your organisation · checkpoint running',
     }[resolved.access] || 'not reviewed by your organisation · checkpoint running'
     return paintSite('warn', `${tool.name} · ${why}`)
