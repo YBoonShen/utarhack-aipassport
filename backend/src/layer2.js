@@ -5,12 +5,25 @@
 // labelled 'gemini' or 'heuristic' so we never pretend the fallback is AI.
 import { maskPrompt } from './detector.js'
 
-// Flash-lite is fast (~1s), cheap and has the highest free-tier quota — ideal for
-// a demo where several people hit the gateway at once — and it extracts names as
-// well as the bigger models. The retired `gemini-2.5-flash` 404s for new keys and
-// the thinking `gemini-flash-latest` alias takes ~4s (it tripped the old timeout).
-// Override with GEMINI_MODEL in .env if you want a specific one.
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite'
+// Flash-lite is fast (~0.8s), cheap and has the highest free-tier quota — ideal
+// for a demo where several people hit the gateway at once — and it extracts
+// names as well as the bigger models. Flash proper measures ~1.7s on the same
+// prompt, which is a long time to hold up somebody's typing for no better
+// answer. Override with GEMINI_MODEL in .env if you want a specific one.
+//
+// The version moves, and it moves *silently*: a retired model answers 404 and
+// this layer degrades to the heuristic exactly as designed, so a key that is
+// perfectly valid looks like a key that does not work. `gemini-2.5-flash` went
+// first; `gemini-2.5-flash-lite` followed, and it is the worse trap of the two
+// because ListModels still returns it — it is only generateContent that
+// refuses, with "no longer available to new users". If Layer 2 or the report's
+// executive summary quietly stops using the model, check this line first:
+//
+//   curl "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY"
+//
+// Exported because the compliance report's summary writer calls the same API.
+// Two copies of this constant is how both of them broke on the same retirement.
+export const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite'
 const GEMINI_TIMEOUT_MS = 8000
 
 // ---- staying inside a free key's quota ---------------------------------------

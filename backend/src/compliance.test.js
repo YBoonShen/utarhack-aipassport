@@ -186,5 +186,158 @@ await (async () => {
   console.log('  ✓ a change in the figures rewrites the summary')
 })()
 
+// ---- the AI writer ---------------------------------------------------------
+//
+// Everything above runs the offline path. This section runs the *other* one —
+// the branch that only executes once somebody puts a real GEMINI_API_KEY in
+// backend/.env, which means it is the branch nobody ever sees fail. If the
+// request were malformed or the response parsed wrongly, the layer would
+// degrade silently to the analyst and the key would look like the problem.
+//
+// The API is stubbed rather than called: these must pass on a laptop with no
+// key, no network and no quota.
+
+const realFetch = globalThis.fetch
+
+/** Run `fn` with the Gemini API answering exactly `respond(url, options)`. */
+async function withGemini(respond, fn) {
+  process.env.GEMINI_API_KEY = 'test-key-not-a-real-one'
+  globalThis.fetch = respond
+  try {
+    resetStore()
+    resetSummaryCache()
+    return await fn()
+  } finally {
+    globalThis.fetch = realFetch
+    delete process.env.GEMINI_API_KEY
+    resetSummaryCache()
+  }
+}
+
+/** A Gemini success response carrying `text` as the model's answer. */
+const answers = text => async () => ({
+  ok: true,
+  json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }),
+})
+
+const PARAGRAPH = 'The gateway checked every prompt this period and removed the personal data it found before any of it reached an assistant, which is the whole of what the organisation set out to prove. Governance moved with it rather than behind it.'
+
+async function aiTest(name, fn) {
+  await fn()
+  passed++
+  console.log(`  ✓ ${name}`)
+}
+
+await aiTest('a model answer is used, and labelled as the model\'s', async () => {
+  const result = await withGemini(answers(PARAGRAPH), () => executiveSummary())
+  assert.equal(result.source, 'gemini')
+  assert.equal(result.summary, PARAGRAPH)
+})
+
+await aiTest('the request names the model and carries the figures, not the prompt text', async () => {
+  let seen = null
+  await withGemini(async (url, options) => {
+    seen = { url, body: JSON.parse(options.body) }
+    return (await answers(PARAGRAPH)())
+  }, () => executiveSummary())
+
+  assert.ok(seen.url.includes('generativelanguage.googleapis.com'))
+  assert.ok(seen.url.includes(':generateContent'))
+  assert.ok(seen.url.includes('key=test-key-not-a-real-one'))
+  assert.equal(seen.body.contents[0].parts.length, 1)
+
+  // The figures go up; nothing an employee typed ever does.
+  const sent = seen.body.contents[0].parts[0].text
+  assert.ok(sent.includes('4,120'), 'prompts protected')
+  assert.ok(sent.includes('612'), 'items masked')
+  assert.ok(sent.includes('Example Sdn Bhd'))
+  assert.ok(sent.includes('Do not invent'), 'the no-invented-numbers instruction')
+})
+
+// A thinking model returns a "thought" part before the answer, so parts[0] is
+// not always the prose. This is the exact bug layer2.js already carries a
+// comment about — the summary path must not reintroduce it.
+await aiTest('a thinking model\'s multi-part answer is joined, not truncated', async () => {
+  const result = await withGemini(async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{ content: { parts: [
+        { text: 'Let me consider the figures. ' },
+        { text: PARAGRAPH },
+      ] } }],
+    }),
+  }), () => executiveSummary())
+
+  assert.equal(result.source, 'gemini')
+  assert.ok(result.summary.includes(PARAGRAPH))
+})
+
+// The prompt asks for plain prose. Models add markdown anyway, and a report
+// with literal asterisks in the executive summary is not one you hand over.
+await aiTest('markdown and line breaks are stripped out of the answer', async () => {
+  const result = await withGemini(answers(`**Summary.**\n\n${PARAGRAPH}\n- a bullet it was told not to write`), () => executiveSummary())
+  assert.ok(!/[*#`]/.test(result.summary))
+  assert.ok(!result.summary.includes('\n'))
+})
+
+// Every failure below is one a free key produces in normal use: 429 on quota,
+// 503 when overloaded, a dropped connection. None may reach the page.
+for (const [label, respond] of [
+  ['a 429 (quota exhausted)', async () => ({ ok: false, status: 429, json: async () => ({}) })],
+  ['a 503 (model overloaded)', async () => ({ ok: false, status: 503, json: async () => ({}) })],
+  ['a dropped connection', async () => { throw new Error('ECONNRESET') }],
+  ['an unparseable body', async () => ({ ok: true, json: async () => { throw new Error('not json') } })],
+  ['an empty candidate list', async () => ({ ok: true, json: async () => ({ candidates: [] }) })],
+]) {
+  await aiTest(`${label} falls back to the analyst, never to a blank summary`, async () => {
+    const result = await withGemini(respond, () => executiveSummary())
+    assert.equal(result.source, 'analyst')
+    assert.ok(result.summary.length > 100)
+  })
+}
+
+// An answer too short to be an executive summary is a failed generation, not a
+// summary. Better the analyst's four sentences than the model's one word.
+await aiTest('an implausibly short answer is refused', async () => {
+  const result = await withGemini(answers('All good.'), () => executiveSummary())
+  assert.equal(result.source, 'analyst')
+})
+
+// The placeholder that ships in .env.example must not be treated as a key —
+// otherwise every install burns a request and an 8s timeout discovering it.
+await aiTest('the .env.example placeholder is not mistaken for a key', async () => {
+  let called = false
+  process.env.GEMINI_API_KEY = 'your-gemini-key'
+  globalThis.fetch = async () => { called = true; throw new Error('should never be called') }
+  try {
+    resetStore()
+    resetSummaryCache()
+    const result = await executiveSummary()
+    assert.equal(called, false, 'no request may be made on the placeholder key')
+    assert.equal(result.source, 'analyst')
+  } finally {
+    globalThis.fetch = realFetch
+    delete process.env.GEMINI_API_KEY
+    resetSummaryCache()
+  }
+})
+
+// The button's whole purpose: with a key, clicking it must ask the model again.
+await aiTest('regenerate asks the model again rather than replaying the answer', async () => {
+  let calls = 0
+  await withGemini(async () => {
+    calls++
+    return (await answers(`${PARAGRAPH} Revision ${calls}.`)())
+  }, async () => {
+    const first = await executiveSummary()
+    const cached = await executiveSummary()
+    const again = await executiveSummary({ refresh: true })
+
+    assert.equal(calls, 2, 'one call, one cache hit, one forced regeneration')
+    assert.equal(cached.summary, first.summary)
+    assert.notEqual(again.summary, first.summary, 'a regeneration must produce new prose')
+  })
+})
+
 resetStore()
 console.log(`\n${passed} compliance report tests passed`)

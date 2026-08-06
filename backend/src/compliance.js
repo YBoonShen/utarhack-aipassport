@@ -11,6 +11,7 @@
 // the two places that could drift — the page and the downloaded file — read the
 // same payload, so what a regulator downloads is what the screen showed.
 import { db, reportSummary } from './store.js'
+import { GEMINI_MODEL } from './layer2.js'
 
 export const ORG_NAME = 'Example Sdn Bhd'
 
@@ -302,7 +303,9 @@ export function complianceReport() {
 //   'analyst' — composed here from the same figures when there is no key, the
 //               call fails, or the answer comes back unusable.
 
-const SUMMARY_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite'
+// The same model Layer 2 uses, from the same constant. They were two copies of
+// the same string until a model retirement 404'd both at once and neither said
+// so — see the note above GEMINI_MODEL in layer2.js.
 const SUMMARY_TIMEOUT_MS = 12_000
 
 // The figures only change when the audit log does, so a page polling every five
@@ -358,7 +361,7 @@ async function geminiSummary(report) {
   const key = process.env.GEMINI_API_KEY
   if (!key || key === 'your-gemini-key') return null
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${SUMMARY_MODEL}:generateContent?key=${key}`
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`
   const body = {
     contents: [{
       parts: [{
@@ -376,7 +379,14 @@ Figures:
 ${facts(report)}`,
       }],
     }],
-    generationConfig: { temperature: 0.4, maxOutputTokens: 500 },
+    // A five-sentence paragraph is ~200 tokens; the rest of the budget is
+    // headroom for a thinking model. On a 2.5 model that reasons before it
+    // answers, thinking tokens count against this limit, so a tight budget
+    // gets spent thinking and returns a truncated answer — which cleanSummary
+    // then refuses, and the report silently falls back to the analyst. The
+    // symptom of that is "I added my key and nothing changed", which is the
+    // hardest kind of failure to diagnose from the outside.
+    generationConfig: { temperature: 0.4, maxOutputTokens: 1200 },
   }
 
   const controller = new AbortController()
