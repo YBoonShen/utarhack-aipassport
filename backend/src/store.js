@@ -422,6 +422,18 @@ function seed() {
         requestCategory: 'General assistant',
         requestScopes: ['Internal', 'No personal data', 'Text only'],
         requestNote: 'Reasoning-heavy assistant · V4-Flash for everyday chat, V4-Pro for coding and deep reasoning. IT and Compliance review the vendor terms before any company data may be sent to it.',
+        // The two tiers the requestNote above already describes, finally given
+        // their own model records. Without these, matchModel() has nothing to
+        // resolve a picker label against and every DeepSeek model reads UNKNOWN
+        // forever — the same gap Kimi had before its models array was added, so
+        // an admin banning or gating one DeepSeek tier could never actually take
+        // effect through the checkpoint.
+        models: [
+          { id: 'deepseek-v4-flash', label: 'DeepSeek-V4-Flash', aliases: ['v4-flash', 'deepseek-v4-flash', 'flash'], tier: 'free', status: 'APPROVED' },
+          // minLevel 2 on the paid tier, matching every other tool's convention
+          // (ChatGPT, Claude, Gemini) rather than leaving it unrestricted.
+          { id: 'deepseek-v4-pro', label: 'DeepSeek-V4-Pro', aliases: ['v4-pro', 'deepseek-v4-pro', 'pro'], tier: 'paid', minLevel: 2, status: 'APPROVED' },
+        ],
       },
       {
         // Requestable from Level 3 rather than Level 2, and its own models are
@@ -443,7 +455,12 @@ function seed() {
         requestScopes: ['Internal', 'No personal data', 'Text only'],
         requestNote: 'Agentic assistant · K2.6 and K2.7 Code on the free tier, K3 on paid plans. The free models unlock at Level 3; K3 needs Level 4.',
         models: [
-          { id: 'kimi-k2-6', label: 'Kimi K2.6', aliases: ['k2.6', 'kimi k2.6'], tier: 'free', minLevel: 3, status: 'APPROVED' },
+          // "Instant" is what kimi.com actually shows on arrival — it is the
+          // picker's default, not a model the employee has to choose — so a
+          // picker reading straight off the page lands on this alias before it
+          // ever lands on "K2.6". Without it, the very first prompt on a fresh
+          // tab read as an unidentified model rather than the approved free one.
+          { id: 'kimi-k2-6', label: 'Kimi K2.6', aliases: ['k2.6', 'kimi k2.6', 'instant', 'kimi instant'], tier: 'free', minLevel: 3, status: 'APPROVED' },
           { id: 'kimi-k2-7-code', label: 'Kimi K2.7 Code', aliases: ['k2.7 code', 'kimi k2.7 code', 'k2.7'], tier: 'free', minLevel: 3, status: 'APPROVED' },
           { id: 'kimi-k3', label: 'Kimi K3', aliases: ['kimi k3', 'k3'], tier: 'paid', minLevel: 4, status: 'APPROVED' },
         ],

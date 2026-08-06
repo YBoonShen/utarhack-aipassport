@@ -141,12 +141,32 @@ globalThis.AIP_CONFIG = {
       // Named selectors are a best guess on a site with no stable markup for its
       // send control — see fragileSend below.
       fragileSend: true,
+      // Previously unset, which meant currentModel() always read '' here: the
+      // register's per-model rules (see store.js's DeepSeek `models` entry) had
+      // no way to ever apply through the extension, whatever an admin set.
+      modelSelectors: [
+        '[data-testid*="model" i]',
+        'button[aria-haspopup="menu"][aria-label*="model" i]',
+        'button[aria-label*="model" i]',
+      ],
     },
     {
       name: 'Kimi',
       hosts: ['kimi.com', 'moonshot.cn'],
       selectors: ['[data-testid="msh-chatinput-editor"]', 'div[contenteditable="true"]'],
       sendSelectors: ['[data-testid*="send-button" i]', '.send-button', '[aria-label*="send" i]'],
+      // Same gap as DeepSeek: no selector here at all meant the model half of
+      // the register (Kimi K2.6 vs K2.7 Code vs K3) never reached the
+      // checkpoint. "msh-" is the prefix the composer selector above already
+      // confirms this site uses for its own testids, so it is tried first.
+      // kimi.com opens straight onto "Instant" with nothing picked — see the
+      // `instant` alias on kimi-k2-6 in store.js — so reading the label here
+      // must work with no picker ever opened, not only after one is.
+      modelSelectors: [
+        '[data-testid*="msh-model" i]',
+        '[data-testid*="model-select" i]',
+        'button[aria-label*="model" i]',
+      ],
       fragileSend: true,
     },
   ],

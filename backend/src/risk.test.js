@@ -13,7 +13,7 @@ import {
   db, resetStore, setSessionEmployee, recordPromptEvent, recordOfflineEvent, recordOverride,
   recordToolUse, toolStatus, alertsView, resolveAlert, decideVisa, suspendToolOrgWide,
   notificationsFor, openAlerts, updateSettings,
-  toolAccessFor, toolForHost, alternativesFor, modelStatus, recordModelUse, setModelStatus,
+  toolAccessFor, toolForHost, alternativesFor, modelStatus, matchModel, recordModelUse, setModelStatus,
   gatewayPolicyFor, recordBlockedAttempt, requestableTools, applyForVisa,
   toolModelsFor, freeModelFor, modelAccessFor, approvedModels,
   auditView, actOnAlert, activityFor,
@@ -433,7 +433,10 @@ test('level 2 can request the tools the register offers', () => {
   assert.deepEqual(offered.map(t => t.name), ['DeepSeek'])
   // Every field the admin queue will show comes from the register, not the form.
   assert.equal(offered[0].vendor, 'DeepSeek')
-  assert.equal(offered[0].model, 'DeepSeek-V4-Pro')
+  // The model this employee would actually reach — the free tier, now that
+  // DeepSeek has real model records — not the register's headline display
+  // model (V4-Pro, gated at Level 2 like every other tool's paid tier).
+  assert.equal(offered[0].model, 'DeepSeek-V4-Flash')
 
   const result = applyForVisa({ tool: 'DeepSeek', purpose: 'Summarise public research notes.' })
   assert.equal(result.ok, true)
@@ -478,6 +481,43 @@ test('level 3 reaches the Kimi free models, level 4 reaches K3', () => {
   db.employees['E-217'].level = 4
   assert.deepEqual(approvedModels('Kimi', 'E-217'), ['Kimi K2.6', 'Kimi K2.7 Code', 'Kimi K3'])
   assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'Kimi', model: 'K3', types: ['IC'] }).mode, MODES.MASK)
+})
+
+// kimi.com opens straight onto "Instant" with nothing chosen — it is the
+// picker's default, not a model the employee ever picks — so the extension's
+// very first read of the page has to resolve it, not only a read taken after
+// somebody opened the model menu. Before the `instant` alias this matched
+// nothing: the free model the register already approves was reaching the
+// checkpoint as UNKNOWN on every fresh tab.
+test('Kimi\'s default "Instant" label resolves to the approved free model, not UNKNOWN', () => {
+  assert.equal(matchModel('Kimi', 'Instant')?.label, 'Kimi K2.6')
+  assert.equal(matchModel('Kimi', 'Kimi Instant')?.label, 'Kimi K2.6')
+  assert.equal(modelStatus('Kimi', 'Instant'), 'APPROVED')
+
+  db.employees['E-217'].level = 3
+  decideVisa(applyForVisa({ tool: 'Kimi', purpose: 'Agentic research.' }).request.id, 'approve')
+  assert.equal(modelAccessFor('E-217', 'Kimi', 'Instant'), 'active')
+  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'Kimi', model: 'Instant', types: ['IC'] }).mode, MODES.MASK)
+})
+
+// DeepSeek had no `models` array at all until now, so matchModel() had nothing
+// to resolve a picker label against and every DeepSeek model read UNKNOWN —
+// meaning an admin gating or banning one of its two tiers could never actually
+// take effect through the checkpoint, unlike the equivalent Kimi rule above.
+test("DeepSeek's model tiers resolve like any other tool's", () => {
+  assert.equal(matchModel('DeepSeek', 'V4-Flash')?.label, 'DeepSeek-V4-Flash')
+  assert.equal(matchModel('DeepSeek', 'DeepSeek-V4-Pro')?.label, 'DeepSeek-V4-Pro')
+  assert.equal(modelStatus('DeepSeek', 'V4-Flash'), 'APPROVED')
+
+  setModelStatus('DeepSeek', 'deepseek-v4-pro', 'BANNED')
+  const banned = gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', model: 'V4-Pro', types: [] })
+  assert.equal(banned.mode, MODES.BLOCK)
+  assert.equal(banned.reason, 'model-banned')
+  assert.equal(banned.banned, true)
+
+  const stillFree = gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', model: 'V4-Flash', types: ['IC'] })
+  assert.equal(stillFree.mode, MODES.MASK)
+  assert.equal(stillFree.banned, false)
 })
 
 // ---- Kimi: the same three states, end to end ---------------------------------
