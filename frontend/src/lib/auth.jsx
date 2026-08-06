@@ -23,7 +23,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import {
-  fetchSession, login as apiLogin, logout as apiLogout,
+  fetchSession, login as apiLogin, loginWithGoogle as apiLoginWithGoogle, logout as apiLogout,
   currentUser, getToken, onAuthInvalid,
 } from './api.js'
 
@@ -143,12 +143,19 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener('storage', onStorage)
   }, [revalidate])
 
-  const signIn = useCallback(async (role, email) => {
-    const user = await apiLogin(role, email)
+  // Both sign-ins end the same way, because both have already been proven by
+  // the server before they get here: `user` is the server's record of who the
+  // credential belongs to, and the role on it is the role. Nothing about the
+  // form the person filled in reaches this state.
+  const adopt = useCallback(user => {
     seq.current++ // any check still in the air belongs to the session before this
     setState({ status: AUTH.AUTHENTICATED, user, reason: null })
     return user
   }, [])
+
+  const signIn = useCallback(async (email, password) => adopt(await apiLogin(email, password)), [adopt])
+
+  const signInWithGoogle = useCallback(async payload => adopt(await apiLoginWithGoogle(payload)), [adopt])
 
   const signOut = useCallback(async () => {
     // The local state goes first and unconditionally: a sign-out the server
@@ -159,7 +166,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ ...state, signIn, signOut, revalidate }}>
+    <AuthContext.Provider value={{ ...state, signIn, signInWithGoogle, signOut, revalidate }}>
       {children}
     </AuthContext.Provider>
   )

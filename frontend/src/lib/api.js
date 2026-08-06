@@ -192,13 +192,46 @@ function emitAuthInvalid(reason) {
   }
 }
 
-// The email decides both the role and, for an employee, which directory record
-// signs in — so the same demo can show a training reaching one employee and not
-// another. The server resolves it, mints the session and returns its token.
-export async function login(role, email) {
-  const { user, token, expiresAt } = await api.post('/auth/login', { role, email })
+// ---- signing in ------------------------------------------------------------
+//
+// The browser sends a credential and receives a session. It does not send a
+// role: which console opens is decided by the account the server proves, not by
+// anything typed into this app. (It used to send `{ role }` straight from the
+// email box, which is authentication by text field.)
+
+export async function login(email, password) {
+  const { user, token, expiresAt } = await api.post('/auth/login', { email, password })
   storeSession({ user, token, expiresAt })
   return user
+}
+
+/**
+ * Sign in with Google.
+ *
+ * `credential` is the ID token Google Identity Services handed the page — it is
+ * passed straight through and verified on the server, because a token this app
+ * merely *received* proves nothing until Google's signature on it is checked.
+ * `demoEmail` is the no-Google-project fallback the server only honours in demo
+ * mode (see /api/auth/google).
+ */
+export async function loginWithGoogle({ credential, demoEmail } = {}) {
+  const { user, token, expiresAt } = await api.post('/auth/google', { credential, demoEmail })
+  storeSession({ user, token, expiresAt })
+  return user
+}
+
+/** Whether SSO is configured, and with what. Safe to call unauthenticated. */
+export async function ssoConfig() {
+  return api.get('/auth/sso/config')
+}
+
+/**
+ * Create an account. Deliberately does *not* sign the new employee in: the
+ * account is only proven once its password has been used, which is also the
+ * screen Figma 00F leads to ("Continue to sign in").
+ */
+export async function register(details) {
+  return api.post('/auth/register', details)
 }
 
 /**

@@ -85,20 +85,92 @@ short JSON response. If you do, the backend is alive.
 
 ## Step 3 — Sign in
 
-The demo has no real password check — **the email decides which side you see**:
+Passwords are real. The password you type is checked against a stored scrypt hash —
+there is no "any password works" path, and nothing you type decides whether you get
+the admin console. **Two accounts are provisioned** when the backend first starts:
 
-| To open | Type this email | Password |
+| To open | Email | Password |
 |---|---|---|
-| Employee passport | anything, e.g. `jiayin.tan@abcd.com` | anything |
-| A *different* employee | an employee ID, e.g. `e-198@abcd.com` | anything |
-| Admin console | `admin@abcd.com` | anything |
+| Employee passport (Tan Jia Yin, E-217, Level 2) | `jiayin.tan@abcd.com` | `Passport#2026` |
+| Admin console (compliance) | `admin@abcd.com` | `AdminPass#2026` |
 
-The sign-in form is pre-filled with the employee account, so you can just click **Sign in**.
+`tanjiayin@abcd.com` reaches the same employee account — it is an alias, not a second
+passport. The sign-in form is pre-filled with the employee account, so you can just
+click **Sign in**. The backend also prints both accounts in its console window at
+startup, so you never have to come back to this table.
+
+**Three ways to sign in, all of which work out of the box:**
+
+1. **Email + password** — the table above.
+2. **Continue with Google** — see [Google single sign-on](#google-single-sign-on-sso)
+   below. With no Google project configured you get a demo account chooser offering
+   the same two organisation identities; set `GOOGLE_CLIENT_ID` and it becomes real
+   Google sign-in, verified server-side.
+3. **Create account** — the sign-up wizard writes a real account. Fill in name, email,
+   organisation and department, then set an employee ID (optional) and a password of
+   **at least 12 characters including a number and a symbol**. The new account can
+   sign in immediately and **starts at AI License Level 1 · Trainee** with an empty
+   passport — 0 points, no stamps, no training history.
+
+Accounts are stored in `backend/data/accounts.json` (gitignored, hashes only) and
+survive a restart. To wipe every account you created and go back to the two seeded
+ones, stop the backend and delete that file.
+
+**What the admin sees when you create one.** The new employee's *own* passport is
+empty — that is what Level 1 means. The organisation's record of them is not: an
+account creation writes a `CREATED` event to the **Audit Log**, and they appear as a
+row in **Employees** (marked `New starter`) as soon as they are registered, before
+they have signed in even once. Sign in as `admin@abcd.com` after step 3 above and
+check both.
 
 > **Signing in as a second employee** is what makes the training assignment demo
-> convincing: put the admin console in one window and `e-198@abcd.com` in another,
-> assign a module to E-217, and watch it appear for E-217 and *not* for E-198.
-> The directory IDs are `E-217`, `E-198`, `S-044`, `F-102`, `M-083`, `H-011`, `O-031`.
+> convincing: put the admin console in one window and a second account in another,
+> assign a module to E-217, and watch it appear for E-217 and *not* for the other one.
+> Create the second employee through **Create account** — they get their own directory
+> ID and their own blank passport. The seeded directory IDs are `E-217`, `E-198`,
+> `S-044`, `F-102`, `M-083`, `H-011`, `O-031`.
+
+### Changing the seeded passwords
+
+For anything that is not a local demo, put these in `backend/.env` (copy
+`backend/.env.example`) and restart the backend:
+
+```
+SEED_EMPLOYEE_PASSWORD=your-own-password
+SEED_ADMIN_PASSWORD=your-own-password
+```
+
+They only apply the *first* time each account is created. If `backend/data/accounts.json`
+already exists, delete it first — an existing account keeps the password it was
+created with.
+
+## Google single sign-on (SSO)
+
+**Out of the box, with nothing to configure:** the sign-in screen shows a
+**Continue with Google** button that opens a Google-style account chooser listing the
+two organisation identities (Tan Jia Yin and Admin). Pick one and you are signed in as
+that account. This is a demo path and it is fenced in deliberately — it only runs when
+no `GOOGLE_CLIENT_ID` is set, it refuses to run under `NODE_ENV=production`, and it can
+only ever select an account that already exists and has SSO enabled. It can never reach
+an account somebody created through the sign-up form.
+
+**With a real Google project** (recommended if you have five minutes):
+
+1. Go to https://console.cloud.google.com/apis/credentials
+2. **Create credentials → OAuth client ID → Web application**
+3. Under **Authorised JavaScript origins** add `http://localhost:5173`
+4. Copy the client ID into `backend/.env`:
+   ```
+   GOOGLE_CLIENT_ID=1234567890-abcdefg.apps.googleusercontent.com
+   SSO_ALLOWED_DOMAINS=abcd.com
+   ```
+5. Restart the backend.
+
+The demo chooser disappears and Google renders its own sign-in button. The ID token
+Google issues is verified **on the server** — signature, audience, issuer, expiry and
+`email_verified` — before anybody is signed in; the browser's claim about who signed in
+is not part of the decision. A first-time Google signer whose email is on an allowed
+domain is provisioned as an employee at Level 1; anyone else is refused.
 
 ## Step 4 — Install the Chrome extension
 
@@ -142,7 +214,7 @@ button. This is the Smart Gateway demo — same detection engine, no extension n
 
 ### C. See it from the company's side
 
-Sign out, sign in as `admin@abcd.com`, and look at:
+Sign out, sign in as `admin@abcd.com` / `AdminPass#2026`, and look at:
 - **Overview** — live counters of prompts protected and items masked
 - **Audit Log** — one `MASKED` entry for the prompt you just protected (the masked text
   is stored, never the original)
@@ -164,10 +236,11 @@ level and stamps update on the **License** page — and they survive a restart.
    click one to change its wording or its correct answer, then **Confirm training
    module**. Nothing is saved until you confirm. A module holds at most **40** questions.
 3. Click **Assign →**, pick **Employee**, tick `E-217`, confirm.
-4. In another window, sign in as `jiayin.tan@abcd.com` (that is E-217). The module is
+4. In another window, sign in as `jiayin.tan@abcd.com` / `Passport#2026` (that is E-217). The module is
    on **Training** immediately, and the notification bell has a **Start training** quick
    action that opens it.
-5. Sign in as `e-198@abcd.com` instead: no notification, the module is not listed, and
+5. Sign in as a *different* employee instead — create one through **Create account**, or
+   use any second account you have made: no notification, the module is not listed, and
    opening `/training/quiz/5` directly is refused — the refusal is recorded in the
    admin **Audit Log** as a `DENIED` event.
 
@@ -188,11 +261,9 @@ Draft a reminder for customer Lim, IC 880505-10-5566, about the order
 - Sends 4 and 5 **escalate that same card to HIGH**. No second card ever appears.
 
 **Unapproved tool.** In the Gateway's *Sending to* row, pick **DeepSeek** (marked ⚠ —
-it has no visa). A **MEDIUM** alert appears immediately and the employee is told which
-tool this is and where to request a visa. Now send a prompt with an IC number in it:
-it is **masked and sent, exactly as it would be to ChatGPT**, with a notice beside the
-protected version naming the approved tools to use instead. Nothing is blocked, and
-picking the tool again does not add a second alert card.
+it has no visa). A **MEDIUM** alert appears immediately, the employee is told which
+tool and where to request a visa, and the prompt is still protected — nothing is
+blocked. Picking it again does not add a second card.
 
 Then close the loop: **Tool Approvals → approve SummarizerX** and the register stops
 flagging it. Or on the alert, **Assign training** opens the assignment wizard already
@@ -211,6 +282,13 @@ the extension shows its standing "not approved" banner *and* the admin gets the 
 | Popup says "Sign in to protect your prompts" | Nobody is signed in. Sign in at http://localhost:5173 — an open ChatGPT tab picks it up within about 15 seconds, with no reload. |
 | Popup says "Your sign-in could not be confirmed" | The backend has been unreachable for over two minutes, so the session can no longer be verified. Check <http://localhost:5001/api/health>; it clears by itself when the backend answers again. |
 | The dashboard says "We can't verify your session right now" | Same cause, web-app side. It is deliberately *not* showing you as signed in — it retries every few seconds and recovers on its own. |
+| "Email or password is incorrect" with the passwords from Step 3 | You created `backend/data/accounts.json` with different seed passwords set, or the backend is running older code. Stop the backend, delete `backend/data/accounts.json`, start it again, and read the credentials it prints. |
+| "Sign-in is temporarily unavailable" | Nothing checked your password — the backend is not answering. Check <http://localhost:5001/api/health>. (It deliberately does **not** say "wrong password", because nobody looked at it.) |
+| "Too many sign-in attempts" | 8 wrong passwords for one account in 15 minutes. Wait, or restart the backend to clear the counters. |
+| The Google button doesn't appear | The backend is not answering `/api/auth/sso/config`. Start it and reload the page. |
+| Google sign-in says "could not be verified" | `GOOGLE_CLIENT_ID` does not match the client ID the page was loaded with, or `http://localhost:5173` is not an authorised JavaScript origin on that OAuth client. |
+| "That Google account is not part of your organisation" | Your Google email's domain is not in `SSO_ALLOWED_DOMAINS`. Add it in `backend/.env` and restart. |
+| A new account you created signs in as Tan Jia Yin | Old code. Every new account gets its own directory ID; restart the backend so it picks up the current build. |
 | Port 5001 or 5173 "already in use" | Something else is on that port. Double-click `stop.bat` and start again. |
 | The panel never appears in ChatGPT | Reload the extension at `chrome://extensions`, then **refresh the ChatGPT tab**. |
 | Nothing detected at all | Prompts under 12 characters are skipped on purpose. Try the full example sentence. |
@@ -231,6 +309,18 @@ utarhack-aipassport/
 ├── start.bat    One-click launcher (Windows) · stop.bat · autostart.bat
 └── README.md
 ```
+
+The four files that decide whether somebody is signed in, and as whom:
+
+| File | Question it answers |
+|---|---|
+| `backend/src/accounts.js` | Is this person who they say they are? Password hashing, registration, Google identities. |
+| `backend/src/auth.js` | Is this token a live session? Minting, expiry, the record the extension follows. |
+| `backend/src/server.js` | The routes, `requireAdmin`, and the throttle in front of the password check. |
+| `frontend/src/lib/auth.jsx` | What the web app is allowed to conclude — four states, never two. |
+
+Written state lives in `backend/data/` (gitignored): `accounts.json` (hashes only),
+`sessions.json`, `progress.json`.
 
 ## Optional — better name detection
 
@@ -257,12 +347,18 @@ modal labels which one ran rather than pretending the fallback is AI.
 
 Layer-1 regex, Layer-2 names, XP progression, extension rule sync, compliance-report
 wiring, the training assignment/access rules (question limit, department resolution,
-who can open what, no duplicate notifications) and the risk-alert rules (thresholds,
-escalation instead of duplication, per-employee isolation):
+who can open what, no duplicate notifications), the risk-alert rules (thresholds,
+escalation instead of duplication, per-employee isolation), sessions, and credentials
+(hashing, refusals, registration, Level 1, Google SSO):
 ```bash
 cd backend
 npm test
 ```
+
+`accounts.test.js` is the one to read if you want to check the sign-in claims above —
+each test names the rule it is holding in place, and the refusals matter more than the
+successes. It runs against the real Express app on an ephemeral port with scratch
+registry files, so it never touches the demo's own accounts or sessions.
 
 ## Detection — two layers
 - **Layer 1 (regex, always on):** Malaysian IC, passport numbers, phone numbers, emails,
@@ -363,8 +459,36 @@ a decision to sign everybody out. `POST /api/reset` clears both.
 
 ## Authentication: the server is the only thing that knows
 
-Signing in mints a **server-side session record** (`backend/src/auth.js`) and returns
-the opaque token that names it. Everything after that is judged against the record:
+Two modules, two questions. `backend/src/accounts.js` answers *"is this person who
+they say they are"*; `backend/src/auth.js` answers *"is this token a live session"*.
+A session is only ever minted once an account has been proven.
+
+### Credentials (`accounts.js`)
+
+- **Passwords are hashed, never stored.** scrypt (N=16384) with a per-account 16-byte
+  salt, so two people who chose the same password do not share a hash. Verification is
+  `timingSafeEqual` — a byte-by-byte comparison leaks how much of a guess was right
+  through how long the answer took. The hash never leaves the module: there is no code
+  path that returns `passwordHash`.
+- **The role comes off the account, not the request.** `{ "role": "admin" }` in a login
+  body changes nothing. Registration always creates an *employee* — an administrator is
+  provisioned (seeded, or via `SEED_ADMIN_*`) and there is no request anywhere that
+  creates one.
+- **An unknown email and a wrong password are the same refusal**, in the same words, so
+  the form cannot be used to find out who works here. An unknown email is hashed anyway,
+  so it cannot be identified by response time either.
+- **Guessing is throttled** — 8 failures per email and 40 per source address in a
+  15-minute window. A success clears both, so a mistyped password costs nothing.
+- **A new employee is a new person.** Registration allocates them a directory ID
+  (`nextEmployeeId`) and their own blank passport at **Level 1**. An ID typed into the
+  sign-up form is a *request*: asking for `E-217` gets you the next free ID, never
+  somebody else's history.
+- **Google SSO is verified server-side** — see [Google single sign-on](#google-single-sign-on-sso).
+
+### Sessions (`auth.js`)
+
+Signing in mints a **server-side session record** and returns the opaque token that
+names it. Everything after that is judged against the record:
 
 - **The token is the only credential.** An unknown or expired one is a `401` with a
   `reason`, never a weaker identity. There is no header a caller can set to become an
@@ -388,7 +512,19 @@ the opaque token that names it. Everything after that is judged against the reco
   the browser's.
 
 This is the seam **Firebase Authentication** replaces: `createSession()` becomes the
-ID-token mint and `verifySession()` becomes `verifyIdToken()`. Nothing above it moves.
+ID-token mint, `verifySession()` becomes `verifyIdToken()`, and `accounts.js` becomes
+`admin.auth()`. Nothing above it moves.
+
+### Auth API
+
+| Route | Auth | What it does |
+|---|---|---|
+| `POST /api/auth/login` | none | `{ email, password }` → `{ user, token, expiresAt }`. `401` on a bad credential, `429` when throttled. |
+| `POST /api/auth/register` | none | `{ name, email, password, org, dept, employeeId?, consent }` → `201` with the new employee. Never signs them in. |
+| `POST /api/auth/google` | none | `{ credential }` (a Google ID token) or `{ demoEmail }` in demo mode → same shape as login. |
+| `GET /api/auth/sso/config` | none | Whether Google SSO is on, and with what client ID. |
+| `GET /api/auth/session` | token *or* none | With a token: this browser's session. Without: who is signed in on this machine's dashboard (the Chrome extension's view). |
+| `POST /api/auth/logout` | token optional | Ends the session. Idempotent. |
 
 ## The audit log: what is recorded, and what is never stored
 
@@ -397,7 +533,24 @@ gateway's own decisions and the governance actions an admin takes. Every employe
 event that matters reaches it **as it happens**: a prompt masked, a prompt refused,
 an unapproved or banned tool opened, an unreviewed model selected, a tool used above
 a licence level, a tool access request made *or refused*, a checkpoint override, a
-training module opened, completed or denied, a sign-in.
+training module opened, completed or denied, an account provisioned, a sign-in.
+
+**The trail starts where the identity does.** Creating an account writes a `CREATED`
+event before that employee has done anything, so the log never opens mid-story with a
+sign-in from an employee ID it cannot account for. It records who (the employee ID),
+how (`self-registration` or `Google SSO · domain` — materially different claims, never
+collapsed into one), what access was granted (the AI License level, which decides which
+models they can reach on day one) and which department. It does **not** record their
+name or email: the log is privacy-minimised by design, and provisioning is no reason to
+make the first exception.
+
+```
+CREATED  | M-300  | Mkt | NIST PR.AC | Employee M-300 account created · self-registration · Level 1
+SIGN-IN  | M-300  | Mkt | NIST PR.AC | Employee M-300 signed in
+```
+
+This is the pairing **ISO 27001 A.9.2.1** (formal user registration) and
+**NIST CSF PR.AC-1** (identities issued, managed and audited) ask for.
 
 Each record carries the fields a compliance report is built from:
 

@@ -12,6 +12,7 @@ import { maskNamesIn } from './layer2.js'
 import { logDetection } from './firebase.js'
 import {
   db, resetStore, recordPromptEvent, recordOfflineEvent, recordOverride, recordAudit, recordSession,
+  recordAccountCreated,
   answerQuiz, quizResults, completeTraining, retryTraining, applyForVisa, decideVisa,
   suspendToolOrgWide, recordToolUse, toolStatus, openAlerts, alertsView, resolveAlert, actOnAlert,
   auditView,
@@ -19,18 +20,24 @@ import {
   toolRegister, toolAccessFor, toolModelsFor, freeModelFor, requestableTools, REQUEST_MIN_LEVEL,
   addReviewRequest, leaderboard, progressionSummary,
   allProgressionSummaries, reportSummary, updateSettings,
-  setSessionEmployee, notificationsFor, updateNotification, activityFor, publicProfile,
+  setSessionEmployee, ensureEmployeeProfile, notificationsFor, updateNotification, activityFor, publicProfile,
   libraryForAdmin, moduleById, publicModule, createModule, updateModule, setModuleStatus,
   modulesForEmployee, canAccessModule, assignTraining, assignmentRecords, assignmentsForEmployee,
   MAX_QUESTIONS,
 } from './store.js'
 import { LEVELS } from './levels.js'
 import { MODES, ORG_MODES } from './risk.js'
-import { DEPARTMENTS, EMPLOYEES, employeeById, employeeIdFromEmail } from './directory.js'
+import { DEPARTMENTS, EMPLOYEES, employeeById, isDepartment, registerEmployee } from './directory.js'
 import {
   createSession, verifySession, activeSession, destroySession, destroyActiveSession,
   resetSessions, tokenFromRequest, expiresAt, publicSession,
 } from './auth.js'
+import {
+  createAccount, verifyPassword, accountFromGoogle, findByEmail, publicAccount,
+  isValidEmail, normaliseEmail, passwordProblem,
+  PASSWORD_POLICY, SEED_ADMIN_EMAIL, SEED_EMPLOYEE_EMAIL,
+  SEED_ADMIN_PASSWORD, SEED_EMPLOYEE_PASSWORD, usingDefaultSeedPasswords,
+} from './accounts.js'
 
 const app = express()
 app.use(cors())
@@ -73,7 +80,12 @@ function actorOf(req) {
 // Routes that must still answer when the presented token is no longer good.
 // Signing in and signing out are how a client *recovers* from that state, and
 // /auth/session is the route whose whole job is to report it.
-const TOKEN_OPTIONAL = new Set(['/api/health', '/api/auth/login', '/api/auth/logout', '/api/auth/session'])
+// Signing up and reading the SSO config are pre-auth for the same reason: they
+// are the screens a browser holding a dead token has to be able to use.
+const TOKEN_OPTIONAL = new Set([
+  '/api/health', '/api/auth/login', '/api/auth/logout', '/api/auth/session',
+  '/api/auth/register', '/api/auth/google', '/api/auth/sso/config',
+])
 
 app.use((req, res, next) => {
   const token = tokenFromRequest(req)
@@ -130,27 +142,321 @@ app.get('/api/health', (req, res) => {
 })
 
 // ---- auth ------------------------------------------------------------------
-// Real deployment: Firebase Authentication with role claims — auth.js is the
-// seam it slots into. For the demo the email decides both the role and, for an
-// employee, which directory record signs in, so an assignment can be shown
-// reaching one employee and not another. What is *not* demo-shaped any more is
-// what happens afterwards: the sign-in mints a real server-side session with an
-// expiry, and the token it returns is the only thing that proves it later.
-app.post('/api/auth/login', (req, res) => {
-  const { role, email } = req.body || {}
+//
+// Three ways in, one way through. A password sign-in, a Google SSO sign-in and
+// a registration all end at signInAs(): the credential is proven first, and only
+// then is a session minted. Nothing below takes the caller's word for their
+// role, their employee id or their level.
+//
+// What this replaced: the route used to read `{ role, email }` out of the
+// request body and believe both. `role: 'admin'` in a curl body was an
+// administrator, the password field was never even looked at, and the sign-up
+// wizard wrote nothing anywhere — so a "created" account could not sign in.
+//
+// Firebase Authentication is the drop-in for accounts.js underneath this;
+// signInAs() and everything above it stay exactly as they are.
+
+/**
+ * Turn a proven account into a session.
+ *
+ * The user record handed back to the browser is built here, from the registry
+ * and the store — never from the request. For an employee that means their
+ * directory entry and their passport decide who they are and what level they
+ * are, which is what stops a new sign-up from landing inside E-217's history.
+ */
+function signInAs(account, res) {
   let user
-  if (role === 'admin') {
-    user = { role: 'admin', id: 'AD-001', initials: 'AD', name: 'Admin', title: 'Compliance role' }
+  if (account.role === 'admin') {
+    user = {
+      role: 'admin', id: 'AD-001', initials: account.initials || 'AD',
+      name: account.name, title: 'Compliance role', email: account.email,
+    }
   } else {
-    const p = setSessionEmployee(employeeIdFromEmail(email))
-    user = { role: 'employee', id: p.id, initials: p.initials, name: p.name, title: `${p.dept} · Level ${p.level}` }
+    // The directory first — setSessionEmployee() resolves an id it does not
+    // know back to the demo employee, so an unregistered new starter would
+    // otherwise open somebody else's passport.
+    registerEmployee({ id: account.employeeId, initials: account.initials, dept: account.dept })
+    ensureEmployeeProfile({
+      id: account.employeeId,
+      name: account.name,
+      initials: account.initials,
+      dept: account.dept,
+      defaultTool: account.defaultTool,
+    })
+    const p = setSessionEmployee(account.employeeId)
+    user = {
+      role: 'employee', id: p.id, initials: p.initials, name: p.name,
+      title: `${p.dept} · Level ${p.level}`, email: account.email,
+      level: p.level, defaultTool: p.defaultTool || null,
+    }
   }
+
   const session = createSession(user)
   // Mirrored for the store, whose per-employee views ask "is the current session
   // an admin's". auth.js remains the authority; this is a projection of it.
   db.session = user
   recordSession('in', user)
-  res.json({ user, token: session.token, expiresAt: expiresAt(session) })
+  return res.json({ user, token: session.token, expiresAt: expiresAt(session) })
+}
+
+// One sentence for every way a sign-in can fail. Deliberately identical for
+// "no such account" and "wrong password": a form that distinguishes them is a
+// tool for finding out who works here (CWE-204).
+const SIGN_IN_REFUSED = 'Email or password is incorrect.'
+
+// ---- brute force -----------------------------------------------------------
+//
+// A password endpoint with no cost per attempt is a password endpoint that gets
+// guessed. Failures are counted against two different keys, because there are
+// two different attacks:
+//
+//   per email — one account being worked through. Tripped quickly (8), since
+//               nobody mistypes their own password eight times in a row.
+//   per source address — one machine spraying one password across many
+//               accounts, which the per-email counter never sees. Tripped far
+//               later (40), because a whole office can share one address and
+//               locking that out is a self-inflicted outage.
+//
+// A success clears both, so somebody who fumbles twice and then gets it right
+// is not carrying a penalty around.
+const ATTEMPT_WINDOW_MS = 15 * 60 * 1000
+const MAX_ATTEMPTS = { email: 8, ip: 40 }
+const attempts = new Map() // key -> { count, firstAt }
+
+function attemptKeys(req, email) {
+  return [`ip:${req.ip}`, `email:${normaliseEmail(email)}`]
+}
+
+function throttled(keys, now = Date.now()) {
+  return keys.some(key => {
+    const record = attempts.get(key)
+    if (!record) return false
+    if (now - record.firstAt > ATTEMPT_WINDOW_MS) {
+      attempts.delete(key)
+      return false
+    }
+    return record.count >= MAX_ATTEMPTS[key.split(':')[0]]
+  })
+}
+
+function recordFailure(keys, now = Date.now()) {
+  for (const key of keys) {
+    const record = attempts.get(key)
+    if (!record || now - record.firstAt > ATTEMPT_WINDOW_MS) attempts.set(key, { count: 1, firstAt: now })
+    else record.count++
+  }
+}
+
+function clearFailures(keys) {
+  for (const key of keys) attempts.delete(key)
+}
+
+/** Sign in with an email and a password. The password is checked, always. */
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body || {}
+  const keys = attemptKeys(req, email)
+
+  if (throttled(keys)) {
+    return res.status(429).json({
+      error: 'Too many sign-in attempts. Please wait a few minutes and try again.',
+      authenticated: false,
+    })
+  }
+
+  const result = verifyPassword(email, password)
+  if (!result.ok) {
+    recordFailure(keys)
+    // `reason` is for the server's own logs, never the screen — the browser is
+    // shown SIGN_IN_REFUSED whichever of the three it was.
+    return res.status(401).json({ error: SIGN_IN_REFUSED, authenticated: false })
+  }
+
+  clearFailures(keys)
+  return signInAs(result.account, res)
+})
+
+/**
+ * Create an account.
+ *
+ * Always an employee, always Level 1. `role` is not read from the body at all:
+ * an administrator is provisioned, and there is no request anywhere that
+ * creates one. The employee id is a *request* — the directory allocates a free
+ * one if the caller asks for an id that already belongs to somebody.
+ */
+app.post('/api/auth/register', (req, res) => {
+  const { name, email, password, org, dept, employeeId, consent } = req.body || {}
+
+  if (!String(name || '').trim()) return res.status(400).json({ error: 'Enter your full name.', field: 'name' })
+  if (!isValidEmail(email)) return res.status(400).json({ error: 'Enter a valid work email address.', field: 'email' })
+
+  const weak = passwordProblem(password)
+  if (weak) return res.status(400).json({ error: weak, field: 'password' })
+  if (!consent) return res.status(400).json({ error: 'Please accept the acceptable-use and privacy policies.', field: 'consent' })
+
+  // An existing email is the one case where saying so is the right call: the
+  // person is standing at a *sign-up* form, they cannot proceed without knowing,
+  // and the alternative is an account they think exists and cannot use.
+  if (findByEmail(email)) {
+    return res.status(409).json({ error: 'An account already exists for this email. Try signing in instead.', field: 'email' })
+  }
+
+  try {
+    const account = createAccount({
+      email,
+      password,
+      name,
+      role: 'employee',
+      dept: isDepartment(dept) ? dept : departmentCodeFor(dept),
+      org: String(org || '').trim() || null,
+      employeeId,
+    })
+    // The passport is created here rather than at first sign-in so the admin
+    // console sees the new starter immediately — at 0 points, which is Level 1.
+    const profile = ensureEmployeeProfile({
+      id: account.employeeId, name: account.name, initials: account.initials, dept: account.dept,
+    })
+    // …and the audit trail starts here too, so the admin never meets an employee
+    // id whose origin the log cannot account for.
+    recordAccountCreated({ id: account.employeeId, dept: account.dept, level: profile.level })
+    return res.status(201).json({ ok: true, user: publicAccount(account) })
+  } catch (err) {
+    if (err.code === 'email-taken') {
+      return res.status(409).json({ error: 'An account already exists for this email. Try signing in instead.', field: 'email' })
+    }
+    if (err.code === 'weak-password') return res.status(400).json({ error: err.message, field: 'password' })
+    return res.status(400).json({ error: 'Could not create the account. Please check the details and try again.' })
+  }
+})
+
+// The sign-up form sends the department's display name ("Engineering"); the
+// directory keys on its code ("Eng"). Anything unrecognised lands in Eng rather
+// than creating a department nobody administers.
+function departmentCodeFor(name) {
+  const value = String(name || '').trim().toLowerCase()
+  return DEPARTMENTS.find(d => d.name.toLowerCase() === value || d.code.toLowerCase() === value)?.code || 'Eng'
+}
+
+// ---- Google SSO ------------------------------------------------------------
+//
+// Two modes, and the difference is whether a Google client id is configured.
+//
+//   Configured (GOOGLE_CLIENT_ID) — the real thing. The browser runs Google
+//   Identity Services, Google signs an ID token, and this server checks that
+//   signature, audience, issuer, expiry and email_verified before it will look
+//   the account up. The browser's claim about who signed in is not part of it.
+//
+//   Not configured — demo chooser. The sign-in screen offers the two seeded
+//   organisation identities so SSO can be *shown* on a laptop with no Google
+//   project behind it. This is a sign-in-as-anyone endpoint by construction, so
+//   it is fenced in on three sides: it needs no client id to be set, it refuses
+//   to run under NODE_ENV=production, and it will only ever pick an account
+//   that already exists and is SSO-enabled. Setting GOOGLE_CLIENT_ID turns it
+//   off completely.
+const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID || '').trim()
+const SSO_DOMAINS = String(process.env.SSO_ALLOWED_DOMAINS || 'abcd.com')
+  .split(',').map(d => d.trim().toLowerCase()).filter(Boolean)
+const DEMO_SSO = !GOOGLE_CLIENT_ID && process.env.NODE_ENV !== 'production'
+
+/**
+ * Verify a Google ID token.
+ *
+ * Google's own tokeninfo endpoint does the signature check against their
+ * rotating keys, which is the part that must not be approximated. Everything it
+ * cannot know for us — that the token was minted for *this* application, by
+ * Google, that it has not expired, and that Google actually verified the
+ * mailbox — is checked here. A token that fails any of them is not a weaker
+ * identity, it is nothing.
+ */
+async function verifyGoogleIdToken(credential) {
+  if (!GOOGLE_CLIENT_ID || !credential) return null
+  let claims
+  try {
+    const response = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`
+    )
+    if (!response.ok) return null
+    claims = await response.json()
+  } catch {
+    return null
+  }
+
+  // aud — minted for this application, not for some other site the person also
+  // signed into with Google.
+  if (claims.aud !== GOOGLE_CLIENT_ID) return null
+  if (!['accounts.google.com', 'https://accounts.google.com'].includes(claims.iss)) return null
+  if (!(Number(claims.exp) * 1000 > Date.now())) return null
+  // An unverified address is an address somebody typed, not one they own.
+  if (claims.email_verified !== true && claims.email_verified !== 'true') return null
+  if (!claims.email) return null
+  return { email: claims.email, sub: claims.sub, name: claims.name || claims.email.split('@')[0] }
+}
+
+/** What the sign-in screen needs to know before it can draw the SSO button. */
+app.get('/api/auth/sso/config', (req, res) => {
+  res.json({
+    google: {
+      enabled: Boolean(GOOGLE_CLIENT_ID) || DEMO_SSO,
+      clientId: GOOGLE_CLIENT_ID || null,
+      demo: DEMO_SSO,
+      // Only in demo mode, and only accounts that already exist. Nothing here is
+      // a credential — choosing one still has to pass /auth/google below.
+      accounts: DEMO_SSO
+        ? [SEED_EMPLOYEE_EMAIL, SEED_ADMIN_EMAIL]
+          .map(email => findByEmail(email))
+          .filter(a => a?.sso)
+          .map(a => ({ email: a.email, name: a.name, role: a.role, initials: a.initials }))
+        : [],
+    },
+  })
+})
+
+app.post('/api/auth/google', async (req, res) => {
+  const { credential, demoEmail } = req.body || {}
+
+  if (GOOGLE_CLIENT_ID) {
+    const identity = await verifyGoogleIdToken(credential)
+    if (!identity) {
+      return res.status(401).json({ error: 'Google sign-in could not be verified. Please try again.', authenticated: false })
+    }
+    const result = accountFromGoogle({ ...identity, allowedDomains: SSO_DOMAINS })
+    if (!result.ok) {
+      return res.status(403).json({
+        error: result.reason === 'domain-not-allowed'
+          ? 'That Google account is not part of your organisation.'
+          : 'Single sign-on is not enabled for that account.',
+        authenticated: false,
+      })
+    }
+    // A first-time Google signer was just provisioned. Recorded separately from
+    // a self-registration because it is a materially different claim: Google
+    // verified the mailbox and the domain is one this organisation allows.
+    if (result.created) {
+      const profile = ensureEmployeeProfile({
+        id: result.account.employeeId, name: result.account.name,
+        initials: result.account.initials, dept: result.account.dept,
+      })
+      recordAccountCreated({
+        id: result.account.employeeId,
+        dept: result.account.dept,
+        via: `Google SSO · ${identity.email.split('@')[1]}`,
+        level: profile.level,
+      })
+    }
+    return signInAs(result.account, res)
+  }
+
+  if (!DEMO_SSO) {
+    return res.status(503).json({ error: 'Google sign-in is not configured.', authenticated: false })
+  }
+
+  // Demo chooser. The email is only ever used to *look up* an account that
+  // already exists and has SSO enabled — it can never create one, and it can
+  // never reach an account somebody registered through the sign-up form.
+  const account = findByEmail(demoEmail)
+  if (!account?.sso) {
+    return res.status(401).json({ error: 'That account is not available for single sign-on.', authenticated: false })
+  }
+  return signInAs(account, res)
 })
 
 // Two questions share this route, and the difference is the token.
@@ -689,6 +995,10 @@ app.get('/api/tools', (req, res) => res.json(toolRegister()))
 // refused the prompt. One function answers it now and both read the result.
 app.get('/api/tools/mine', (req, res) => {
   const employeeId = req.actor.role === 'employee' ? req.actor.id : db.sessionEmployeeId
+  // The employee's preferred destination — what the Gateway opens on. Marked
+  // here rather than chosen in the browser, and only when the register actually
+  // approves it for them: a default is a convenience, never an access grant.
+  const preferred = db.employees[employeeId]?.defaultTool || null
   res.json(toolRegister().map(entry => {
     const access = toolAccessFor(employeeId, entry.name)
     // Models folded the same way the tool is: `access` per model, so the page
@@ -708,6 +1018,7 @@ app.get('/api/tools/mine', (req, res) => {
       // headline model for a tool with no model policy.
       displayModel: free?.label || entry.model,
       category: entry.category || 'assistant',
+      isDefault: entry.name === preferred && access.approved,
     }
   }))
 })
@@ -829,5 +1140,21 @@ export { app }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   app.listen(PORT, () => {
     console.log(`AI Passport backend running on http://localhost:${PORT}`)
+    console.log(
+      GOOGLE_CLIENT_ID
+        ? `Google SSO: enabled (client ${GOOGLE_CLIENT_ID.slice(0, 12)}…), domains: ${SSO_DOMAINS.join(', ')}`
+        : DEMO_SSO
+          ? 'Google SSO: demo chooser (set GOOGLE_CLIENT_ID in backend/.env for real Google sign-in)'
+          : 'Google SSO: disabled'
+    )
+    // Printed only while the seeded passwords are still the shipped defaults —
+    // the moment SEED_*_PASSWORD is set, they stop appearing in the log. A real
+    // deployment must set them; this line is how you notice you have not.
+    if (usingDefaultSeedPasswords()) {
+      console.log('\nDemo sign-in (default passwords — override with SEED_EMPLOYEE_PASSWORD / SEED_ADMIN_PASSWORD):')
+      console.log(`  employee · ${SEED_EMPLOYEE_EMAIL}  ${SEED_EMPLOYEE_PASSWORD}`)
+      console.log(`  admin    · ${SEED_ADMIN_EMAIL}  ${SEED_ADMIN_PASSWORD}`)
+      console.log(`  new accounts: ${PASSWORD_POLICY.describe}\n`)
+    }
   })
 }

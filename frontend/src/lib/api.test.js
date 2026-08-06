@@ -18,7 +18,9 @@ import os from 'node:os'
 import path from 'node:path'
 
 const SESSION_FILE = path.join(os.tmpdir(), `aip-sessions-web-${process.pid}.json`)
+const ACCOUNT_FILE = path.join(os.tmpdir(), `aip-accounts-web-${process.pid}.json`)
 process.env.AUTH_SESSION_FILE = SESSION_FILE
+process.env.AUTH_ACCOUNT_FILE = ACCOUNT_FILE
 
 const { app } = await import('../../../backend/src/server.js')
 const { resetStore } = await import('../../../backend/src/store.js')
@@ -92,7 +94,7 @@ await test('a cached user with no token is not a session — and is cleared', as
 })
 
 await test('signing in stores a token, and the session verifies against the server', async () => {
-  const user = await api.login('admin', 'admin@abcd.com')
+  const user = await api.login('admin@abcd.com', 'AdminPass#2026')
   assert.equal(user.role, 'admin')
   assert.ok(api.getToken().length > 20)
   assert.ok(api.sessionExpiry() > Date.now())
@@ -103,7 +105,7 @@ await test('signing in stores a token, and the session verifies against the serv
 })
 
 await test('an unreachable backend is "unavailable" — never authenticated, never signed out', async () => {
-  await api.login('employee', 'jiayin.tan@abcd.com')
+  await api.login('jiayin.tan@abcd.com', 'Passport#2026')
   const token = api.getToken()
 
   mode = 'network-down'
@@ -121,7 +123,7 @@ await test('an unreachable backend is "unavailable" — never authenticated, nev
 })
 
 await test('the backend coming back resolves the session with no sign-in', async () => {
-  await api.login('employee', 'jiayin.tan@abcd.com')
+  await api.login('jiayin.tan@abcd.com', 'Passport#2026')
   mode = 'network-down'
   assert.equal((await api.fetchSession()).status, 'unavailable')
   mode = 'online'
@@ -131,7 +133,7 @@ await test('the backend coming back resolves the session with no sign-in', async
 })
 
 await test('a session the server has ended signs this browser out and clears it', async () => {
-  await api.login('employee', 'jiayin.tan@abcd.com')
+  await api.login('jiayin.tan@abcd.com', 'Passport#2026')
   const seen = []
   const stop = api.onAuthInvalid(reason => seen.push(reason))
 
@@ -149,7 +151,7 @@ await test('a session the server has ended signs this browser out and clears it'
 })
 
 await test('a 401 on any ordinary call ends the session, wherever it happened', async () => {
-  await api.login('employee', 'jiayin.tan@abcd.com')
+  await api.login('jiayin.tan@abcd.com', 'Passport#2026')
   const seen = []
   const stop = api.onAuthInvalid(reason => seen.push(reason))
   resetSessions()
@@ -163,7 +165,7 @@ await test('a 401 on any ordinary call ends the session, wherever it happened', 
 })
 
 await test('an outage on an ordinary call is not a sign-out', async () => {
-  await api.login('employee', 'jiayin.tan@abcd.com')
+  await api.login('jiayin.tan@abcd.com', 'Passport#2026')
   const seen = []
   const stop = api.onAuthInvalid(reason => seen.push(reason))
 
@@ -175,7 +177,7 @@ await test('an outage on an ordinary call is not a sign-out', async () => {
 })
 
 await test('signing out clears this browser even if the server never hears about it', async () => {
-  await api.login('employee', 'jiayin.tan@abcd.com')
+  await api.login('jiayin.tan@abcd.com', 'Passport#2026')
   mode = 'network-down'
   await api.logout()
   assert.equal(api.getToken(), '')
@@ -183,7 +185,7 @@ await test('signing out clears this browser even if the server never hears about
 })
 
 await test('signing out ends the session the extension follows', async () => {
-  await api.login('employee', 'jiayin.tan@abcd.com')
+  await api.login('jiayin.tan@abcd.com', 'Passport#2026')
   await api.logout()
   // The extension's tokenless view — the record it protects an employee on.
   const seen = await (await realFetch(`${ORIGIN}/api/auth/session`)).json()
@@ -194,4 +196,5 @@ console.error = realError
 server.close()
 resetStore()
 fs.rmSync(SESSION_FILE, { force: true })
+fs.rmSync(ACCOUNT_FILE, { force: true })
 console.log(`\n${passed} web app session tests passed`)

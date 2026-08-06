@@ -3,11 +3,23 @@
 // sign up successful). Sign-up is a two-step wizard per Figma 00D/00E: step 1
 // collects org identity, step 2 re-shows name/email read-only and collects
 // the employee ID + password.
-// Demo auth: email decides the role — admin@abcd.com enters the Admin Console,
-// anything else signs in as the employee. Firebase Auth later.
-import { useState } from 'react'
+//
+// What this screen is *not* any more. It used to decide the role itself —
+// "does the email start with admin?" — and send that decision to the server,
+// which believed it; the password box was decoration, and Create account was
+// three screens that wrote nothing anywhere. Both are gone. This page now only
+// ever collects a credential and shows what the server said about it:
+//
+//   • Sign in    — POST /auth/login. The password is checked against a stored
+//                  scrypt hash. Which console opens is the server's answer.
+//   • Google SSO — POST /auth/google with the ID token Google signed, verified
+//                  server-side. Falls back to a demo chooser when no Google
+//                  project is configured (see /api/auth/sso/config).
+//   • Sign up    — POST /auth/register. Creates a real employee account at
+//                  Level 1, which can then sign in with the password it set.
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { logFailure, SIGN_IN_UNAVAILABLE } from '../lib/api.js'
+import { logFailure, register as apiRegister, ssoConfig, SIGN_IN_UNAVAILABLE } from '../lib/api.js'
 import { useAuth } from '../lib/auth.jsx'
 import { useToast } from '../components/Toast.jsx'
 
@@ -49,7 +61,11 @@ const panelCopy = {
   },
 }
 
-function Field({ label, value, onChange, type = 'text', placeholder, hint, autoFocus, readOnly }) {
+// The six the backend directory keys on. Sent as the display name; the server
+// resolves it to the department code, so this list and directory.js agree.
+const DEPARTMENTS = ['Engineering', 'Sales', 'Finance', 'Marketing', 'Human Resources', 'Operations']
+
+function Field({ label, value, onChange, type = 'text', placeholder, hint, autoFocus, readOnly, onEnter }) {
   const [show, setShow] = useState(false)
   return (
     <div className="mt-4">
@@ -63,6 +79,7 @@ function Field({ label, value, onChange, type = 'text', placeholder, hint, autoF
           type={type === 'password' && show ? 'text' : type}
           value={value}
           onChange={e => onChange(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && onEnter?.()}
           placeholder={placeholder}
           autoFocus={autoFocus}
           readOnly={readOnly}
@@ -75,6 +92,23 @@ function Field({ label, value, onChange, type = 'text', placeholder, hint, autoF
         )}
       </div>
       {hint && <p className="text-[#5c6b87] text-xs mt-1.5">{hint}</p>}
+    </div>
+  )
+}
+
+function SelectField({ label, value, onChange, options }) {
+  return (
+    <div className="mt-4">
+      <p className="text-[#0a1733] font-semibold text-[13px]">{label}</p>
+      <div className="border-[1.5px] border-[#788cad] rounded-[12px] h-14 mt-1.5 flex items-center px-3.5 focus-within:border-[#091e47]">
+        <select
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          className="flex-1 outline-none text-[15px] text-[#0a1733] bg-transparent cursor-pointer"
+        >
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </div>
     </div>
   )
 }
@@ -95,62 +129,166 @@ function SuccessMark() {
   )
 }
 
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 48 48" className="w-5 h-5" aria-hidden="true">
+      <path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.2-.4-4.7H24v8.9h11.8c-.5 2.8-2 5.1-4.3 6.7v5.5h7c4.1-3.8 6.6-9.4 6.6-16.4z" />
+      <path fill="#34A853" d="M24 46c5.8 0 10.7-1.9 14.3-5.2l-7-5.5c-1.9 1.3-4.4 2.1-7.3 2.1-5.6 0-10.4-3.8-12.1-8.9H4.7v5.6C8.3 41.4 15.6 46 24 46z" />
+      <path fill="#FBBC05" d="M11.9 28.5c-.4-1.3-.7-2.7-.7-4.5s.3-3.2.7-4.5v-5.6H4.7C3 17.3 2 20.5 2 24s1 6.7 2.7 10.1l7.2-5.6z" />
+      <path fill="#EA4335" d="M24 9.5c3.2 0 6 1.1 8.2 3.2l6.2-6.2C34.7 3 29.8 1 24 1 15.6 1 8.3 5.6 4.7 13.9l7.2 5.6C13.6 13.3 18.4 9.5 24 9.5z" />
+    </svg>
+  )
+}
+
+/**
+ * Reads what the server said about a failed sign-in.
+ *
+ * The distinction that matters: a refused credential is a message the person can
+ * act on ("check the password"), while an unreachable backend must not be
+ * dressed up as one — telling somebody their password is wrong when nobody
+ * checked it is the worst possible answer. Anything that is not an explicit
+ * refusal is reported as "temporarily unavailable", and the real error goes to
+ * the console.
+ */
+function signInMessage(err) {
+  if (err?.offline) return SIGN_IN_UNAVAILABLE
+  if (err?.status === 401 || err?.status === 403 || err?.status === 429) {
+    return err.body?.error || 'Email or password is incorrect.'
+  }
+  return SIGN_IN_UNAVAILABLE
+}
+
 export default function Auth() {
   const navigate = useNavigate()
   const [view, setView] = useState('signin') // signin | forgot | reset-sent | success | signup | signup2 | signup-success
   const [email, setEmail] = useState('jiayin.tan@abcd.com')
-  const [password, setPassword] = useState('demo-password')
-  const [name, setName] = useState('Tan Jia Yin')
-  const [org, setOrg] = useState('ABCD Sdn Bhd')
-  const [dept, setDept] = useState('Engineering')
-  const [empId, setEmpId] = useState('E-217')
-  const [consent, setConsent] = useState(false)
+  const [password, setPassword] = useState('Passport#2026')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [user, setUser] = useState(null)
-  // Aliased: the two form handlers below are this page's own signIn /
-  // signInWithSSO. `authenticate` is the app-wide one that mints the session.
-  const { signIn: authenticate } = useAuth()
+
+  // Sign-up keeps its own fields. Sharing them with the sign-in box is how a
+  // wizard ends up pre-filled with an account that already exists.
+  const [form, setForm] = useState({
+    name: '', email: '', org: 'ABCD Sdn Bhd', dept: 'Engineering', empId: '', password: '',
+  })
+  const set = (key, value) => setForm(f => ({ ...f, [key]: value }))
+  const [consent, setConsent] = useState(false)
+
+  const [sso, setSso] = useState(null) // { enabled, clientId, demo, accounts }
+  const [chooser, setChooser] = useState(false)
+  const googleButton = useRef(null)
+
+  const { signIn, signInWithGoogle } = useAuth()
   const toast = useToast()
 
   const copy = panelCopy[view]
 
-  async function signIn() {
-    if (!email.trim() || !password.trim()) return setError('Enter your email and password.')
+  // What kind of SSO this deployment has. A failed lookup simply means no SSO
+  // button — the password form is unaffected, so a config endpoint being down
+  // can never lock everybody out.
+  useEffect(() => {
+    let alive = true
+    ssoConfig()
+      .then(c => alive && setSso(c.google))
+      .catch(err => logFailure('SSO config', err))
+    return () => { alive = false }
+  }, [])
+
+  // Real Google Identity Services, rendered by Google itself into the div below.
+  // Only ever mounted when a client id is configured; the ID token it produces
+  // is verified on the server before it means anything.
+  useEffect(() => {
+    if (!sso?.clientId || view !== 'signin' || !googleButton.current) return
+    let cancelled = false
+
+    const render = () => {
+      if (cancelled || !window.google?.accounts?.id || !googleButton.current) return
+      window.google.accounts.id.initialize({
+        client_id: sso.clientId,
+        callback: response => finishGoogle({ credential: response.credential }),
+      })
+      window.google.accounts.id.renderButton(googleButton.current, {
+        theme: 'outline', size: 'large', shape: 'pill', width: 380,
+        text: 'continue_with', logo_alignment: 'center',
+      })
+    }
+
+    if (window.google?.accounts?.id) {
+      render()
+    } else {
+      const existing = document.getElementById('gsi-client')
+      const script = existing || Object.assign(document.createElement('script'), {
+        id: 'gsi-client', src: 'https://accounts.google.com/gsi/client', async: true, defer: true,
+      })
+      script.addEventListener('load', render)
+      if (!existing) document.head.appendChild(script)
+    }
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sso?.clientId, view])
+
+  async function submitSignIn() {
+    if (!email.trim() || !password) return setError('Enter your email and password.')
     setBusy(true)
     setError(null)
     try {
-      const role = email.trim().toLowerCase().startsWith('admin') ? 'admin' : 'employee'
-      // The email also selects which directory employee signs in — the server
-      // resolves it, so a reviewer can be E-217 in one window and E-198 in
-      // another and watch an assignment reach exactly one of them.
-      const u = await authenticate(role, email.trim())
-      setUser(u)
+      // No role is sent. The server proves the account and tells us what it is.
+      const signedIn = await signIn(email.trim(), password)
+      setUser(signedIn)
       setView('success')
     } catch (err) {
-      // The screen deliberately says nothing about *why*. On a sign-in form the
-      // reason is the one thing an unauthenticated visitor must not be handed —
-      // neither the state of the infrastructure nor, in a real auth backend,
-      // whether this email exists. The actual error goes to the console, which
-      // is where the person debugging it is looking.
+      // The real error goes to the console — the reader with devtools open is
+      // the one debugging. The screen gets a sentence with no infrastructure,
+      // no status code and no path in it.
       logFailure('sign-in', err)
-      setError(SIGN_IN_UNAVAILABLE)
+      setError(signInMessage(err))
     } finally {
       setBusy(false)
     }
   }
 
-  // Enterprise SSO always resolves to the org's admin/IT identity in this demo.
-  async function signInWithSSO() {
+  async function finishGoogle(payload) {
+    setBusy(true)
+    setError(null)
+    setChooser(false)
+    try {
+      const signedIn = await signInWithGoogle(payload)
+      setUser(signedIn)
+      setView('success')
+    } catch (err) {
+      logFailure('Google sign-in', err)
+      setError(signInMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submitSignUp() {
+    if (!consent) return
     setBusy(true)
     setError(null)
     try {
-      const u = await authenticate('admin')
-      setUser(u)
-      setView('success')
+      await apiRegister({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        password: form.password,
+        org: form.org.trim(),
+        dept: form.dept,
+        employeeId: form.empId.trim() || undefined,
+        consent: true,
+      })
+      // Carry the new credentials over to the sign-in box, so "Continue to sign
+      // in" is one click and the account proves itself immediately.
+      setEmail(form.email.trim())
+      setPassword(form.password)
+      setView('signup-success')
     } catch (err) {
-      logFailure('SSO sign-in', err)
-      setError(SIGN_IN_UNAVAILABLE)
+      logFailure('sign-up', err)
+      // A sign-up form is the one place where the specific problem *is* the
+      // help: the person is creating the account, so "that email is taken" and
+      // "the password is too short" are theirs to know.
+      setError(err.offline ? SIGN_IN_UNAVAILABLE : (err.body?.error || 'Could not create the account. Please check the details and try again.'))
     } finally {
       setBusy(false)
     }
@@ -159,6 +297,8 @@ export default function Auth() {
   function continueToApp() {
     navigate(user?.role === 'admin' ? '/admin' : '/home', { replace: true })
   }
+
+  const step1Ready = form.name.trim() && form.email.trim().includes('@')
 
   return (
     <div className="min-h-screen bg-[#f7f2e3] flex">
@@ -196,32 +336,55 @@ export default function Auth() {
               <p className="text-[#e3b214] font-bold text-xs">SECURE ACCESS</p>
               <h2 className="text-[#0a1733] font-bold text-[30px] mt-2">Sign in to AI Passport</h2>
               <p className="text-[#5c6b87] text-sm mt-2">Use your organisation email to continue.</p>
-              <Field label="Work email" value={email} onChange={setEmail} placeholder="jiayin.tan@abcd.com" autoFocus />
+              <Field label="Work email" value={email} onChange={setEmail} placeholder="jiayin.tan@abcd.com" autoFocus onEnter={submitSignIn} />
               <div className="mt-2" />
-              <Field label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••••••" />
+              <Field label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••••••" onEnter={submitSignIn} />
               <div className="flex justify-end mt-2">
                 <button onClick={() => setView('forgot')} className="text-[#144dc2] font-semibold text-sm cursor-pointer">Forgot password?</button>
               </div>
               {error && <p className="text-[#d92d20] text-xs mt-2">{error}</p>}
-              <GoldButton onClick={signIn} disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</GoldButton>
-              <div className="flex items-center gap-3 mt-6">
-                <div className="h-px bg-[#dee0e5] flex-1" />
-                <p className="text-[#5c6b87] font-semibold text-[11px]">OR</p>
-                <div className="h-px bg-[#dee0e5] flex-1" />
-              </div>
-              <button onClick={signInWithSSO} disabled={busy} className="border-[1.5px] border-[#091e47] text-[#091e47] font-semibold text-[15px] w-full h-[52px] rounded-full mt-6 cursor-pointer hover:bg-chip disabled:opacity-60">
-                {busy ? 'Signing in…' : 'Continue with enterprise SSO'}
-              </button>
+              <GoldButton onClick={submitSignIn} disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</GoldButton>
+
+              {sso?.enabled && (
+                <>
+                  <div className="flex items-center gap-3 mt-6">
+                    <div className="h-px bg-[#dee0e5] flex-1" />
+                    <p className="text-[#5c6b87] font-semibold text-[11px]">OR</p>
+                    <div className="h-px bg-[#dee0e5] flex-1" />
+                  </div>
+
+                  {sso.clientId ? (
+                    // Google draws its own button — the mark, the wording and the
+                    // consent flow are theirs, which is what the branding terms
+                    // require and what people recognise.
+                    <div ref={googleButton} className="mt-6 flex justify-center min-h-[44px]" />
+                  ) : (
+                    <button
+                      onClick={() => setChooser(true)}
+                      disabled={busy}
+                      className="border-[1.5px] border-[#dadce0] bg-white text-[#3c4043] font-semibold text-[15px] w-full h-[52px] rounded-full mt-6 cursor-pointer hover:bg-[#f7f8f8] disabled:opacity-60 flex items-center justify-center gap-3"
+                    >
+                      <GoogleMark />
+                      {busy ? 'Signing in…' : 'Continue with Google'}
+                    </button>
+                  )}
+                </>
+              )}
+
               <p className="text-[#5c6b87] text-xs text-center mt-5">Your organisation manages access and activity logging.</p>
-              <button onClick={() => setView('signup')} className="text-[#144dc2] font-semibold text-sm w-full text-center mt-4 cursor-pointer">
+              <button onClick={() => { setError(null); setView('signup') }} className="text-[#144dc2] font-semibold text-sm w-full text-center mt-4 cursor-pointer">
                 New to AI Passport? Create account
               </button>
               <p className="text-[#5c6b87] text-[11px] text-center mt-5">By continuing, you agree to the acceptable-use and privacy policies.</p>
-              <div className="bg-[#f0f5ff] rounded-[10px] px-3 py-2 mt-4">
-                <p className="text-[#5c6b87] text-[11px] text-center">
-                  Demo accounts — employee: any email · admin console: <span className="font-semibold">admin@abcd.com</span>
-                </p>
-              </div>
+              {sso?.demo && (
+                <div className="bg-[#f0f5ff] rounded-[10px] px-3 py-2.5 mt-4">
+                  <p className="text-[#5c6b87] text-[11px] text-center leading-relaxed">
+                    Demo accounts — employee <span className="font-semibold">jiayin.tan@abcd.com</span> · admin{' '}
+                    <span className="font-semibold">admin@abcd.com</span><br />
+                    Passwords are printed in the backend console at startup.
+                  </p>
+                </div>
+              )}
             </>
           )}
 
@@ -255,10 +418,12 @@ export default function Auth() {
               <SuccessMark />
               <h2 className="text-[#0a1733] font-bold text-[29px] text-center mt-6">Successfully authenticated</h2>
               <p className="text-[#5c6b87] text-[15px] text-center mt-3">
-                Welcome back, {user?.name || 'Tan Jia Yin'}. Your {user?.role === 'admin' ? 'admin console and governance tools' : 'AI license and safety progress'} are ready.
+                Welcome back, {user?.name}. Your {user?.role === 'admin' ? 'admin console and governance tools' : 'AI license and safety progress'} are ready.
               </p>
               <div className="bg-[#e5faf2] border border-[#80d4b5] rounded-[14px] px-4 py-4 mt-5">
-                <p className="text-[#088c66] font-semibold text-[13px] text-center">✓ Secure session · Last sign-in 17 Jul 2026, 10:42</p>
+                <p className="text-[#088c66] font-semibold text-[13px] text-center">
+                  ✓ Secure session{user?.defaultTool ? ` · Default AI tool: ${user.defaultTool}` : ''}
+                </p>
               </div>
               <GoldButton onClick={continueToApp}>{user?.role === 'admin' ? 'Continue to admin console' : 'Continue to my passport'}</GoldButton>
               <p className="text-[#5c6b87] text-xs text-center mt-6">For shared devices, remember to sign out when you finish.</p>
@@ -270,11 +435,11 @@ export default function Auth() {
               <p className="text-[#e3b214] font-bold text-xs">CREATE ACCOUNT</p>
               <h2 className="text-[#0a1733] font-bold text-[29px] mt-2">Set up your AI Passport</h2>
               <p className="text-[#5c6b87] text-sm mt-2">Use details that match your organisation directory.</p>
-              <Field label="Full name" value={name} onChange={setName} autoFocus />
-              <Field label="Work email" value={email} onChange={setEmail} />
-              <Field label="Organisation" value={org} onChange={setOrg} />
-              <Field label="Department" value={dept} onChange={setDept} />
-              <GoldButton onClick={() => setView('signup2')}>Next</GoldButton>
+              <Field label="Full name" value={form.name} onChange={v => set('name', v)} placeholder="Tan Jia Yin" autoFocus />
+              <Field label="Work email" value={form.email} onChange={v => set('email', v)} placeholder="new.starter@abcd.com" />
+              <Field label="Organisation" value={form.org} onChange={v => set('org', v)} />
+              <SelectField label="Department" value={form.dept} onChange={v => set('dept', v)} options={DEPARTMENTS} />
+              <GoldButton onClick={() => { setError(null); setView('signup2') }} disabled={!step1Ready}>Next</GoldButton>
               <button onClick={() => setView('signin')} className="text-[#144dc2] font-semibold text-sm w-full text-center mt-4 cursor-pointer">
                 Already have an account? Sign in
               </button>
@@ -287,19 +452,28 @@ export default function Auth() {
               <p className="text-[#e3b214] font-bold text-xs">CREATE ACCOUNT</p>
               <h2 className="text-[#0a1733] font-bold text-[29px] mt-2">Set up your AI Passport</h2>
               <p className="text-[#5c6b87] text-sm mt-2">Use details that match your organisation directory.</p>
-              <Field label="Full name" value={name} onChange={setName} readOnly />
-              <Field label="Work email" value={email} onChange={setEmail} readOnly />
-              <Field label="Employee ID" value={empId} onChange={setEmpId} autoFocus />
-              <Field label="Create password" value={password} onChange={setPassword} type="password" placeholder="At least 12 characters" hint="Must include at least a number and a symbol." />
+              <Field label="Full name" value={form.name} onChange={() => {}} readOnly />
+              <Field label="Work email" value={form.email} onChange={() => {}} readOnly />
+              <Field
+                label="Employee ID" value={form.empId} onChange={v => set('empId', v)}
+                placeholder="Leave blank to be assigned one" autoFocus
+                hint="If this ID already belongs to somebody, you will be given the next free one."
+              />
+              <Field
+                label="Create password" value={form.password} onChange={v => set('password', v)} type="password"
+                placeholder="At least 12 characters"
+                hint="Must include at least a number and a symbol."
+              />
               <label className="flex items-center gap-3 mt-4 cursor-pointer">
                 <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} className="w-[22px] h-[22px] accent-[#091e47]" />
                 <span className="text-[#0a1733] text-xs">I agree to the acceptable-use and privacy policies.</span>
               </label>
-              <GoldButton onClick={() => consent && setView('signup-success')} disabled={!consent}>Create account</GoldButton>
-              <button onClick={() => setView('signin')} className="text-[#144dc2] font-semibold text-sm w-full text-center mt-4 cursor-pointer">
-                Already have an account? Sign in
+              {error && <p className="text-[#d92d20] text-xs mt-3">{error}</p>}
+              <GoldButton onClick={submitSignUp} disabled={!consent || busy}>{busy ? 'Creating account…' : 'Create account'}</GoldButton>
+              <button onClick={() => { setError(null); setView('signup') }} className="text-[#144dc2] font-semibold text-sm w-full text-center mt-4 cursor-pointer">
+                ← Back
               </button>
-              <p className="text-[#5c6b87] text-[11px] text-center mt-4">Your administrator may need to verify your organisation membership.</p>
+              <p className="text-[#5c6b87] text-[11px] text-center mt-4">New accounts start at AI License Level 1 · Trainee.</p>
             </>
           )}
 
@@ -308,17 +482,56 @@ export default function Auth() {
               <SuccessMark />
               <h2 className="text-[#0a1733] font-bold text-[29px] text-center mt-6">Account created successfully</h2>
               <p className="text-[#5c6b87] text-[15px] text-center mt-3">
-                We verified your organisation email. Sign in to activate your passport and begin training.
+                {form.email} is registered at Level 1 · Trainee. Sign in to activate your passport and begin training.
               </p>
               <div className="bg-[#e5faf2] border border-[#80d4b5] rounded-[14px] px-4 py-4 mt-5">
-                <p className="text-[#088c66] font-semibold text-[13px] text-center">✓ Email verified · Account ready</p>
+                <p className="text-[#088c66] font-semibold text-[13px] text-center">✓ Credentials stored · Account ready</p>
               </div>
-              <GoldButton onClick={() => setView('signin')}>Continue to sign in</GoldButton>
+              <GoldButton onClick={() => { setError(null); setConsent(false); setView('signin') }}>Continue to sign in</GoldButton>
               <p className="text-[#5c6b87] text-xs text-center mt-6">Need help? Contact your organisation administrator.</p>
             </>
           )}
         </div>
       </div>
+
+      {/* Demo account chooser — the shape of Google's own picker, shown only when
+          this deployment has no Google project behind it. The server will only
+          accept an account that already exists and has SSO enabled. */}
+      {chooser && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center px-6 z-50" onClick={() => setChooser(false)}>
+          <div className="bg-white rounded-[14px] w-full max-w-[400px] p-7 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              <GoogleMark />
+              <p className="text-[#3c4043] font-semibold text-sm">Sign in with Google</p>
+            </div>
+            <h3 className="text-[#202124] text-[22px] mt-4">Choose an account</h3>
+            <p className="text-[#5f6368] text-[13px] mt-1">to continue to AI Passport</p>
+            <div className="mt-5 divide-y divide-[#e8eaed] border-y border-[#e8eaed]">
+              {(sso?.accounts || []).map(a => (
+                <button
+                  key={a.email}
+                  onClick={() => finishGoogle({ demoEmail: a.email })}
+                  disabled={busy}
+                  className="w-full flex items-center gap-3 py-3.5 text-left hover:bg-[#f7f8f8] px-1 cursor-pointer disabled:opacity-60"
+                >
+                  <div className="w-9 h-9 rounded-full bg-[#091e47] text-white text-[13px] font-semibold flex items-center justify-center shrink-0">
+                    {a.initials}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[#202124] text-sm font-medium truncate">{a.name}</p>
+                    <p className="text-[#5f6368] text-[13px] truncate">{a.email}</p>
+                  </div>
+                  <span className="ml-auto text-[#5f6368] text-[11px] uppercase tracking-wide">{a.role}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-[#5f6368] text-[11px] mt-4 leading-relaxed">
+              Demo single sign-on. Set GOOGLE_CLIENT_ID in the backend environment to use real Google accounts.
+            </p>
+            <button onClick={() => setChooser(false)} className="text-[#1a73e8] font-semibold text-sm mt-4 cursor-pointer">Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

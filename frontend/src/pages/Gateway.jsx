@@ -48,9 +48,21 @@ export default function Gateway() {
   // The approved-tool register folded for this employee — the same rows the
   // admin curates on Tool Approvals and the same verdict the Chrome extension
   // gets, so what counts as approved here is never a second opinion.
+  //
+  // It also carries which row is *their* default (`isDefault`), so an employee
+  // whose account says ChatGPT opens on ChatGPT rather than on the internal
+  // assistant. The server marks it, and only ever on a tool it already approves
+  // for them — the composer never promotes a destination on its own.
   useEffect(() => {
     let alive = true
-    api.get('/tools/mine').then(t => alive && t.length && setTools(t)).catch(() => {})
+    api.get('/tools/mine').then(t => {
+      if (!alive || !t.length) return
+      setTools(t)
+      const preferred = t.find(x => x.isDefault)
+      if (!preferred) return
+      setTool(preferred.name)
+      setModel((preferred.models || []).find(m => m.tier === 'free' && m.approved)?.label || '')
+    }).catch(() => {})
     return () => { alive = false }
   }, [])
 
