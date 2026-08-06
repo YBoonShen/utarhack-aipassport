@@ -1444,6 +1444,80 @@ export function toolRegister() {
   return db.orgTools
 }
 
+// ---- shadow AI ---------------------------------------------------------------
+//
+// The proposal's Shadow AI panel (O3): "unapproved tools currently in use".
+// Both halves of that sentence matter and the register alone answers neither.
+//
+//   • The register lists tools nobody has cleared. Most of them nobody is using
+//     either, and a panel that lists all of them is a policy document, not a
+//     detection — it would look identical on a day when nothing happened.
+//   • The audit log knows what was actually opened. It does not know what the
+//     organisation thinks of it.
+//
+// Shadow AI is the intersection: a tool the register has not approved that the
+// log has a record of somebody reaching for. That is the finding an admin can
+// act on, and it disappears from the panel by itself the moment the tool is
+// approved — which is what makes it a live detection rather than a list.
+//
+// A suspended tool counts too. It was approved once, so people know it and will
+// keep opening it; a suspension nobody is respecting is exactly the thing an
+// admin needs to see.
+
+/**
+ * Unapproved tools the audit log has seen, most-used first.
+ *
+ * Each entry carries what an admin needs to decide: how often, who (department
+ * counts, never a name — the panel is org-wide and privacy-minimised the same
+ * way the log is), when it was last seen, whether a request is already in the
+ * queue for it, and whether employees can even ask for it.
+ */
+export function shadowAITools() {
+  const seen = new Map()
+
+  for (const event of db.auditEvents) {
+    const entry = registerEntry(event.tool)
+    // Unknown tools are skipped rather than guessed at: the extension writes
+    // 'AI Assistant' when it cannot identify a page, and a panel that reported
+    // that as shadow AI would cry wolf on every unrecognised site.
+    if (!entry || entry.status === 'APPROVED') continue
+
+    const row = seen.get(entry.name) || {
+      name: entry.name,
+      vendor: entry.vendor || 'Unknown vendor',
+      status: entry.status,
+      dataScope: entry.dataScope || 'Not reviewed',
+      url: entry.url || null,
+      requestable: Boolean(entry.requestable),
+      events: 0,
+      departments: new Set(),
+      employees: new Set(),
+      lastSeen: null,
+    }
+    row.events += 1
+    if (event.dept) row.departments.add(event.dept)
+    if (event.user) row.employees.add(event.user)
+    // The log is newest-first, so the first sighting of a tool is its latest.
+    row.lastSeen = row.lastSeen || event.time
+    seen.set(entry.name, row)
+  }
+
+  const pending = new Set(
+    db.visaRequests
+      .filter(v => ['SECURITY REVIEW', 'COMPLIANCE'].includes(v.status))
+      .map(v => String(v.tool).toLowerCase())
+  )
+
+  return [...seen.values()]
+    .map(row => ({
+      ...row,
+      departments: [...row.departments].map(departmentName),
+      employees: row.employees.size, // a count, never the ids
+      awaitingReview: pending.has(row.name.toLowerCase()),
+    }))
+    .sort((a, b) => b.events - a.events || a.name.localeCompare(b.name))
+}
+
 /** The register record for whichever host the browser is on, or null. */
 export function toolForHost(hostname) {
   const host = String(hostname || '').trim().toLowerCase()
@@ -3347,6 +3421,72 @@ export function suspendToolOrgWide(name, admin = ADMIN_ACTOR) {
   }
 
   return { ok: true, tool, event, tools: db.orgTools }
+}
+
+/**
+ * Clear a tool organisation-wide — the register's other direction.
+ *
+ * suspendToolOrgWide moved a tool one way only, and nothing anywhere else ever
+ * wrote 'APPROVED' onto a register entry. That left the register permanently
+ * ratcheted towards refusal: a suspension could not be lifted once the vendor
+ * fixed the issue, and a tool the organisation decided to adopt could never
+ * actually be adopted. It also made the Shadow AI panel unresolvable, since the
+ * only thing that removes a tool from it is being approved.
+ *
+ * Deliberately *not* the same action as approving somebody's access request.
+ * decideVisa grants one employee access and says at length why it must not
+ * touch the register — approving one Trainee's request is not the organisation
+ * clearing a vendor. This is the second, explicit decision, taken on the Tool
+ * Approvals screen beside the risk score, which is where the review happens.
+ */
+export function clearToolOrgWide(name, admin = ADMIN_ACTOR) {
+  const key = String(name || '').trim().toLowerCase()
+  const tool = db.orgTools.find(t => t.name.toLowerCase() === key)
+  if (!tool) return { ok: false, reason: 'not_found' }
+  if (tool.status === 'APPROVED') return { ok: false, reason: 'already_approved', tool, tools: db.orgTools }
+
+  const reinstated = tool.status === 'SUSPENDED'
+  tool.status = 'APPROVED'
+  tool.clearedOn = todayDate()
+  tool.clearedAt = new Date().toISOString()
+  tool.clearedBy = admin.role
+  // The suspension is over rather than merely overwritten — leaving these on a
+  // cleared tool would have the AI Tools list still explaining why it is blocked.
+  delete tool.suspendedOn
+  delete tool.suspendedAt
+  delete tool.suspendedBy
+
+  const event = adminAudit({
+    action: 'APPROVED',
+    resource: tool.name,
+    record: `${tool.name} · ${reinstated ? 'suspension lifted' : 'cleared'} organisation-wide by ${admin.role}`,
+    control: 'ISO 42001 A.6',
+    status: 'SUCCESS',
+    // A tool becoming available to everyone is a governance decision worth
+    // seeing in the log, the same way suspending one is.
+    risk: 'MEDIUM',
+  })
+
+  for (const id of EMPLOYEES.map(e => e.id)) {
+    addNotification({
+      employeeId: id,
+      key: `clear:${tool.name}`,
+      category: 'TOOL ACCESS',
+      title: `${tool.name} approved organisation-wide`,
+      body: `${tool.name} has been reviewed and approved. It is now on your approved AI tools list.`,
+      what: `An administrator ${reinstated ? 'lifted the suspension on' : 'cleared'} ${tool.name} for the whole organisation. The Smart Gateway still checks every prompt you send to it — approval covers the destination, not the data.`,
+      facts: [
+        ['Tool', tool.name],
+        ['Vendor', tool.vendor],
+        ['Scope', 'Organisation-wide'],
+        ['Data scope', tool.dataScope || 'Reviewed'],
+        ['Recorded', `Audit log · ${event.id}`],
+      ],
+      action: { label: 'View AI tools', to: '/tools' },
+    })
+  }
+
+  return { ok: true, tool, event, reinstated, tools: db.orgTools }
 }
 
 /**

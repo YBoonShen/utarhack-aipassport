@@ -10,7 +10,7 @@
 // below is either a total the audit log accumulated or arithmetic over one, and
 // the two places that could drift — the page and the downloaded file — read the
 // same payload, so what a regulator downloads is what the screen showed.
-import { db, reportSummary } from './store.js'
+import { db, reportSummary, shadowAITools } from './store.js'
 import { GEMINI_MODEL } from './layer2.js'
 
 export const ORG_NAME = 'Example Sdn Bhd'
@@ -73,10 +73,9 @@ function pendingToolReviews() {
 
 /** Tools the register has not cleared that nevertheless show up in the log. */
 function unreviewedToolsInUse() {
-  const unapproved = new Set(
-    db.orgTools.filter(t => t.status !== 'APPROVED').map(t => t.name)
-  )
-  return new Set(db.auditEvents.map(e => e.tool).filter(t => unapproved.has(t))).size
+  // Same detection the Shadow AI panel renders, so the risk score and the panel
+  // can never disagree about how many uncleared tools are in use.
+  return shadowAITools().length
 }
 
 // ---- the organisational AI risk score --------------------------------------
@@ -141,6 +140,24 @@ export function riskFactors() {
   ]
 }
 
+// The ROI tiles beside the gauge. These are *today's* live window — the daily
+// counters and the audit log — not the reporting period, because the panel sits
+// on an operations screen and answers "what did the gateway do for us today".
+// The compliance report's kpis answer the period question, and the two are
+// deliberately different scopes rather than the same number twice.
+function riskMetrics() {
+  const protectedEvents = db.auditEvents.filter(e =>
+    ['MASKED', 'BLOCKED', 'REDIRECTED', 'ALERT'].includes(e.action)).length
+
+  return {
+    valueProtected: db.counters.maskedToday * VALUE_PER_MASKED_ITEM,
+    itemsIntercepted: db.counters.maskedToday,
+    incidentsPrevented: protectedEvents,
+    confirmedLeaks: db.report.confirmedLeaks,
+    overrides: db.auditEvents.filter(e => e.reason === 'checkpoint-override').length,
+  }
+}
+
 export function riskPosture() {
   const factors = riskFactors()
   const score = clamp(factors.reduce((n, f) => n + f.points, 0), 0, 100)
@@ -151,6 +168,7 @@ export function riskPosture() {
     delta: score - yesterday,
     trend: [...TREND_BEFORE, score],
     factors,
+    metrics: riskMetrics(),
   }
 }
 

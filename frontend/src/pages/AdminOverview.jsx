@@ -4,6 +4,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api.js'
+import RiskPanel from '../components/admin/RiskPanel.jsx'
+import ShadowAIPanel from '../components/admin/ShadowAIPanel.jsx'
 
 // Department chart: a plausible weekly baseline plus live prompts from the
 // audit log (each masked prompt for a department grows its bar). `abbr`
@@ -199,6 +201,15 @@ export default function AdminOverview() {
           </div>
         ))}
       </div>
+
+      {/* The two panels the proposal names on this screen (O3): the board-level
+          risk score, and Shadow AI detection. Both sit below the fold on a
+          laptop — they are what an admin scrolls to once the live numbers above
+          have been read, not what they open the page for. The column already
+          carries `lg:overflow-y-auto`, so the flexible chart row above gives up
+          the space rather than the page overflowing. */}
+      <RiskPanel />
+      <ShadowAIPanel />
     </div>
   )
 }

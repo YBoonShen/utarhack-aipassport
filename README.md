@@ -447,6 +447,9 @@ network.
 | POST   | /api/review-request        | Public transparency portal → creates an admin risk alert |
 | GET    | /api/audit                 | Admin — live audit log (masked records only, review status folded in) |
 | GET    | /api/stats                 | Admin KPIs — single source of truth for all screens |
+| GET    | /api/risk                  | Admin — the organisational AI risk score behind the Overview gauge: score, band, 6-day trend and the five named factors that sum to it. Same `riskPosture()` the compliance report embeds, so dashboard and report can never disagree |
+| GET    | /api/shadow-ai             | Admin — Shadow AI (O3): unapproved tools the audit log has actually seen. The *intersection* of the register and the log, so it empties when tools are cleared rather than listing policy. Departments and counts only, never employee ids |
+| POST   | /api/tools/clear           | Admin — clear a tool org-wide, or lift a suspension. The mirror of `/api/tools/suspend`; deliberately **not** the same action as approving one employee's request (see `decideVisa`) |
 | GET    | /api/report                | Admin — the one-click compliance report: period totals, organisational AI risk score, framework coverage, control mapping and the evidence annexe, all derived from the audit log (period baseline + everything recorded since) |
 | GET    | /api/report/summary        | Admin — the report's executive summary, written from those same figures. `?refresh=1` bypasses the cache ("Regenerate with AI"). Answers `source: 'gemini'` or `'analyst'`, never one labelled as the other |
 | GET/PUT| /api/settings              | Gateway policy — **Mask** or **Warn only** really applies. Block is not an org-wide mode (see below); a request naming it is ignored |

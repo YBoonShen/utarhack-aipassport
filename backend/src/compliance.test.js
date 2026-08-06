@@ -12,7 +12,10 @@
 delete process.env.GEMINI_API_KEY
 
 import assert from 'node:assert/strict'
-import { resetStore, recordOverride, resolveAlert, decideVisa } from './store.js'
+import {
+  resetStore, recordOverride, resolveAlert, decideVisa,
+  shadowAITools, clearToolOrgWide, suspendToolOrgWide, toolStatus,
+} from './store.js'
 import {
   complianceReport, riskPosture, bandFor, analystSummary, executiveSummary,
   resetSummaryCache, VALUE_PER_MASKED_ITEM,
@@ -185,6 +188,125 @@ await (async () => {
   passed++
   console.log('  ✓ a change in the figures rewrites the summary')
 })()
+
+// ---- shadow AI (O3) --------------------------------------------------------
+//
+// The panel's whole claim is "unapproved tools *currently in use*". A list of
+// everything the register has not approved would look identical on a day when
+// nothing happened, so these pin the two properties that make it a detection.
+
+test('shadow AI reports only unapproved tools the log has actually seen', () => {
+  const found = shadowAITools()
+  const names = found.map(t => t.name)
+
+  // SummarizerX is unapproved and appears in the seeded log.
+  assert.ok(names.includes('SummarizerX'), 'a used unapproved tool must be surfaced')
+
+  // DeepSeek and Kimi are unapproved but nobody has opened them this session.
+  assert.ok(!names.includes('DeepSeek'), 'an unused unapproved tool is not shadow AI')
+  assert.ok(!names.includes('Kimi'), 'an unused unapproved tool is not shadow AI')
+
+  // ChatGPT is used constantly and is approved.
+  assert.ok(!names.includes('ChatGPT'), 'an approved tool is never shadow AI')
+})
+
+test('a shadow AI row carries what an admin needs to act', () => {
+  const row = shadowAITools().find(t => t.name === 'SummarizerX')
+  assert.equal(row.status, 'UNAPPROVED')
+  assert.ok(row.vendor)
+  assert.ok(row.events > 0)
+  assert.ok(row.departments.includes('Sales'))
+  assert.equal(row.awaitingReview, true) // A-0492 is in the queue for it
+  assert.ok(row.lastSeen)
+})
+
+// Privacy-minimised the same way the audit log is. A panel that named the
+// people using an unapproved tool would make this the surveillance tool the
+// case study argues against.
+test('shadow AI counts employees, it never names them', () => {
+  for (const row of shadowAITools()) {
+    assert.equal(typeof row.employees, 'number')
+    const json = JSON.stringify(row)
+    assert.ok(!/E-\d{3}|S-\d{3}|F-\d{3}/.test(json), 'no employee id may reach the panel')
+  }
+})
+
+// Approving one employee's request is not the organisation clearing a vendor —
+// decideVisa says so at length, and the panel has to agree with it. Getting
+// this wrong would mean one Trainee's approved request silently emptied the
+// Shadow AI panel for everybody.
+test('approving one employee\'s request does NOT clear the tool org-wide', () => {
+  decideVisa('A-0492', 'approve')
+  assert.ok(shadowAITools().some(t => t.name === 'SummarizerX'),
+    'the tool is still unreviewed org-wide, so it is still shadow AI')
+})
+
+// The detection has to be resolvable, or it is a list an admin learns to ignore.
+test('clearing a tool org-wide removes it from shadow AI', () => {
+  assert.ok(shadowAITools().some(t => t.name === 'SummarizerX'))
+  const result = clearToolOrgWide('SummarizerX')
+  assert.equal(result.ok, true)
+  assert.equal(result.tool.status, 'APPROVED')
+  assert.ok(!shadowAITools().some(t => t.name === 'SummarizerX'), 'a cleared tool leaves the panel')
+})
+
+// The register used to ratchet one way: suspendToolOrgWide could refuse a tool
+// and nothing anywhere could ever clear one again, so a suspension outlived the
+// vendor issue that caused it.
+test('a suspension can be lifted once the vendor issue is resolved', () => {
+  assert.equal(suspendToolOrgWide('ChatGPT').ok, true)
+  assert.equal(toolStatus('ChatGPT'), 'SUSPENDED')
+
+  const result = clearToolOrgWide('ChatGPT')
+  assert.equal(result.ok, true)
+  assert.equal(result.reinstated, true)
+  assert.equal(toolStatus('ChatGPT'), 'APPROVED')
+  assert.equal(result.tool.suspendedOn, undefined, 'a cleared tool stops explaining why it was blocked')
+})
+
+test('clearing is refused when there is nothing to clear', () => {
+  assert.equal(clearToolOrgWide('ChatGPT').reason, 'already_approved')
+  assert.equal(clearToolOrgWide('NoSuchTool').reason, 'not_found')
+})
+
+// Both directions are governance decisions and both belong in the log.
+test('clearing a tool org-wide is auditable', () => {
+  const result = clearToolOrgWide('SummarizerX')
+  assert.ok(result.event, 'an audit event is written')
+  assert.equal(result.event.action, 'APPROVED')
+  assert.match(result.event.record, /cleared organisation-wide/)
+})
+
+// ---- the risk gauge (O3) ---------------------------------------------------
+
+test('the risk posture carries the metrics the gauge tiles render', () => {
+  const m = riskPosture().metrics
+  for (const key of ['valueProtected', 'itemsIntercepted', 'incidentsPrevented', 'confirmedLeaks', 'overrides']) {
+    assert.equal(typeof m[key], 'number', `metrics.${key} must be a number`)
+  }
+  assert.equal(m.valueProtected, m.itemsIntercepted * VALUE_PER_MASKED_ITEM)
+})
+
+// The dashboard gauge and the downloaded report must never state two different
+// scores for the same organisation at the same moment.
+test('the gauge and the compliance report state the same score', () => {
+  assert.equal(riskPosture().score, complianceReport().risk.score)
+  assert.equal(riskPosture().band, complianceReport().risk.band)
+})
+
+// One detection, one number: the panel's row count is the factor's input, so
+// the gauge can never disagree with the panel sitting under it.
+test('the unreviewed-tools factor counts exactly what the panel shows', () => {
+  const detail = () => riskPosture().factors.find(f => f.key === 'tools').detail
+
+  const before = shadowAITools().length
+  assert.ok(detail().includes(`${before} in use uncleared`))
+
+  clearToolOrgWide('SummarizerX')
+  const after = shadowAITools().length
+  assert.equal(after, before - 1)
+  assert.ok(detail().includes(`${after} in use uncleared`))
+})
 
 // ---- the AI writer ---------------------------------------------------------
 //

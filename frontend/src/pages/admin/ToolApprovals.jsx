@@ -304,6 +304,39 @@ export default function ToolApprovals() {
     }
   }
 
+  // The register's other direction. Without this the card could only ever
+  // refuse: a suspension outlived the vendor issue that caused it, because
+  // nothing in the system could write APPROVED back onto a register entry.
+  //
+  // A *banned* model is deliberately not reinstatable from here — banning is a
+  // security verdict on the model itself, and undoing it is a decision about
+  // the model register rather than a click on an alert card.
+  async function liftSuspension() {
+    if (suspending || !flaggedSuspended || flaggedBanned) return
+    setSuspending(true)
+    setSuspendError('')
+    try {
+      const res = flaggedIsModel
+        ? await api.post('/tools/model-status', {
+          tool: flagged.tool.name, model: flagged.model.id, status: 'APPROVED',
+        })
+        : await api.post('/tools/clear', { tool: flagged.name })
+      setTools(res.tools)
+      const label = flaggedIsModel ? res.model.label : res.tool.name
+      setActionResult({ tool: label, eventId: res.event.id, model: flaggedIsModel, reinstated: true })
+      toast(`${label} is approved again — the suspension has been lifted`)
+    } catch (err) {
+      if (err.status === 409) {
+        setSuspendError(`${flagged.name} is already approved.`)
+        api.get('/tools').then(setTools).catch(() => {})
+      } else {
+        setSuspendError('The suspension could not be lifted. Please try again.')
+      }
+    } finally {
+      setSuspending(false)
+    }
+  }
+
   // Cancelling leaves the tool active — no request is sent.
   function closeConfirm() {
     if (suspending) return
@@ -362,9 +395,20 @@ export default function ToolApprovals() {
                 ? `${flaggedIsModel ? `Withdrawn · ${flagged.vendor} still approved` : 'Suspended for all employees'}${flagged.suspendedOn ? ` · ${flagged.suspendedOn}` : ''}`
                 : flagged.flag}
           </p>
-          {flaggedSuspended ? (
+          {flaggedBanned ? (
+            // A ban is a security verdict, not a toggle — nothing to undo here.
             <button disabled className="bg-[#e4e7ec] text-[#667085] font-semibold text-[12px] rounded-full h-[30px] px-4 mt-1.5 self-end flex items-center justify-center cursor-default">
-              {flaggedBanned ? 'Banned' : flaggedIsModel ? 'Withdrawn' : 'Suspended'}
+              Banned
+            </button>
+          ) : flaggedSuspended ? (
+            // The way back. A suspension is a response to a vendor issue, so it
+            // has to end when the issue does.
+            <button
+              onClick={liftSuspension}
+              disabled={suspending}
+              className="bg-[#078b6c] hover:bg-[#066b53] text-white font-semibold text-[12px] rounded-full h-[30px] px-4 mt-1.5 self-end flex items-center justify-center cursor-pointer disabled:opacity-60"
+            >
+              {suspending ? 'Working…' : 'Lift suspension'}&nbsp;&nbsp;→
             </button>
           ) : (
             <button
@@ -382,9 +426,16 @@ export default function ToolApprovals() {
         <div className="bg-[#e9f8f2] border border-[#078b6c] rounded-[12px] px-4 py-3 mt-4 flex items-start gap-3">
           <span className="w-7 h-7 rounded-full bg-[#078b6c] text-white text-sm font-bold flex items-center justify-center shrink-0">✓</span>
           <div className="flex-1">
-            <p className="text-[#17213a] font-bold text-[13px]">{actionResult.model ? 'Model withdrawn' : 'Tool suspended'}</p>
+            <p className="text-[#17213a] font-bold text-[13px]">
+              {actionResult.reinstated
+                ? (actionResult.model ? 'Model reinstated' : 'Suspension lifted')
+                : (actionResult.model ? 'Model withdrawn' : 'Tool suspended')}
+            </p>
             <p className="text-[#0a5f4a] text-xs mt-0.5">
-              Action completed: {actionResult.tool} {actionResult.model ? 'withdrawn — the tool itself stays approved' : 'suspended organisation-wide'}.
+              Action completed: {actionResult.tool}{' '}
+              {actionResult.reinstated
+                ? 'is approved organisation-wide again'
+                : actionResult.model ? 'withdrawn — the tool itself stays approved' : 'suspended organisation-wide'}.
               Recorded in the audit log as {actionResult.eventId}.
             </p>
           </div>

@@ -14,10 +14,10 @@ import {
   db, resetStore, recordPromptEvent, recordOfflineEvent, recordOverride, recordAudit, recordSession,
   recordAccountCreated,
   answerQuiz, quizResults, completeTraining, retryTraining, applyForVisa, decideVisa,
-  suspendToolOrgWide, recordToolUse, toolStatus, openAlerts, alertsView, resolveAlert, actOnAlert,
+  suspendToolOrgWide, clearToolOrgWide, recordToolUse, toolStatus, openAlerts, alertsView, resolveAlert, actOnAlert,
   auditView,
   recordModelUse, recordBlockedAttempt, gatewayPolicyFor, toolForHost, setModelStatus,
-  toolRegister, toolAccessFor, toolModelsFor, freeModelFor, requestableTools, REQUEST_MIN_LEVEL,
+  toolRegister, toolAccessFor, toolModelsFor, freeModelFor, requestableTools, REQUEST_MIN_LEVEL, shadowAITools,
   addReviewRequest, leaderboard, progressionSummary,
   allProgressionSummaries, updateSettings,
   setSessionEmployee, ensureEmployeeProfile, notificationsFor, updateNotification, activityFor, publicProfile,
@@ -25,7 +25,7 @@ import {
   modulesForEmployee, canAccessModule, assignTraining, assignmentRecords, assignmentsForEmployee,
   MAX_QUESTIONS,
 } from './store.js'
-import { complianceReport, executiveSummary, analystSummary, avgLicenseLevel } from './compliance.js'
+import { complianceReport, executiveSummary, analystSummary, avgLicenseLevel, riskPosture } from './compliance.js'
 import { LEVELS } from './levels.js'
 import { MODES, ORG_MODES } from './risk.js'
 import { DEPARTMENTS, EMPLOYEES, employeeById, isDepartment, registerEmployee } from './directory.js'
@@ -1044,6 +1044,18 @@ app.post('/api/tools/suspend', requireAdmin, (req, res) => {
   res.json(result)
 })
 
+// The register's other direction (O3: "approve or decline in one click", O4).
+// Clearing an unreviewed tool, or lifting a suspension once the vendor issue is
+// resolved. Separate from deciding an employee's access request on purpose —
+// see clearToolOrgWide, and the note in decideVisa about why one employee's
+// approval must never open a tool for everybody.
+app.post('/api/tools/clear', requireAdmin, (req, res) => {
+  const { tool } = req.body || {}
+  const result = clearToolOrgWide(tool)
+  if (!result.ok) return res.status(result.reason === 'not_found' ? 404 : 409).json(result)
+  res.json(result)
+})
+
 // ---- admin data ------------------------------------------------------------
 // The whole organisation's audit feed, and therefore admin-only: it carries
 // every employee's governance history, which is the one thing an employee must
@@ -1096,6 +1108,16 @@ app.get('/api/report/summary', requireAdmin, async (req, res) => {
     res.json({ summary: analystSummary(complianceReport()), source: 'analyst', cached: false })
   }
 })
+
+// The board-level "one number" behind the Overview gauge (O3). Same
+// riskPosture() the compliance report embeds, so the score an admin watches on
+// the dashboard is the score the downloaded report states — there is no second
+// calculation that could drift from it.
+app.get('/api/risk', requireAdmin, (req, res) => res.json(riskPosture()))
+
+// Shadow AI (O3): unapproved tools the audit log has actually seen. Admin-only
+// for the same reason as the audit feed — it names departments and counts.
+app.get('/api/shadow-ai', requireAdmin, (req, res) => res.json({ tools: shadowAITools() }))
 
 // ---- risk alerts ----
 // Sorted by severity with a live `due` countdown — see alertsView(). The rules

@@ -1,11 +1,29 @@
 // Detection accuracy benchmark (proposal Objective O2/O6).
-// Labelled test set of 100 prompts — 50 sensitive, 50 safe — run through the
-// full two-layer scan. A prompt is "flagged" when any sensitive item is
-// detected. We report accuracy, precision and recall against the 90% target.
 //
-// Run: npm run benchmark   (uses Gemini if GEMINI_API_KEY is set, else the
-// offline name heuristic — either way Layer 1 regex always applies).
+// The proposal commits to a labelled test set of 100 prompts — 50 sensitive,
+// 50 safe — scored against a 90% accuracy target. The set here has grown past
+// that during tuning (every prompt that ever exposed a gap was kept), so the
+// report below states both the commitment and what actually ran: a set that
+// quietly disagrees with the document it is evidence for is worth less than
+// either number on its own.
+//
+// A prompt is "flagged" when any sensitive item is detected. Accuracy,
+// precision and recall are reported against the 90% target.
+//
+// Run: npm run benchmark
+//
+// `dotenv/config` is what lets this see backend/.env. Without it the run always
+// took the offline path and reported it as such — while the .env sitting beside
+// it held a working key — so the AI half of O2 could not be measured at all.
+// server.js loads it the same way; a script that reports on the system has to
+// be configured like the system.
+import 'dotenv/config'
 import { maskPromptFull } from './layer2.js'
+import { GEMINI_MODEL } from './layer2.js'
+
+// What the proposal committed to, so the run can state whether it met the
+// letter of it as well as the target.
+const COMMITTED = { total: 100, sensitive: 50, safe: 50 }
 
 // 50 SENSITIVE prompts — each contains at least one of the six protected
 // categories (IC/passport, names, phone, financial, customer records,
@@ -195,10 +213,18 @@ async function run() {
   const precision = tp / (tp + fp || 1)
   const recall = tp / (tp + fn || 1)
 
+  const usingGemini = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your-gemini-key'
+
   console.log('\nAI Passport — Detection Accuracy Benchmark (O2)')
   console.log('------------------------------------------------')
-  console.log(`Test set:   ${total} prompts (${sensitive.length} sensitive, ${safe.length} safe)`)
-  console.log(`Layer 2:    ${process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your-gemini-key' ? 'Gemini API' : 'offline heuristic'}`)
+  console.log(`Committed:  ${COMMITTED.total} prompts (${COMMITTED.sensitive} sensitive, ${COMMITTED.safe} safe) — proposal §4.1`)
+  console.log(`Test set:   ${total} prompts (${sensitive.length} sensitive, ${safe.length} safe)`
+    + (total >= COMMITTED.total ? ` — ${total - COMMITTED.total} added during tuning` : ' — BELOW the committed set'))
+  // Naming the model matters: a retired model 404s and Layer 2 degrades to the
+  // heuristic silently, which is the difference between measuring the AI path
+  // and only believing you did.
+  console.log(`Layer 1:    regex rules (always on)`)
+  console.log(`Layer 2:    ${usingGemini ? `Gemini API · ${GEMINI_MODEL}` : 'offline heuristic (no GEMINI_API_KEY — the AI path is NOT being measured)'}`)
   console.log(`TP ${tp}  FN ${fn}  TN ${tn}  FP ${fp}`)
   console.log(`Accuracy:   ${accuracy.toFixed(1)}%   (target ≥ 90%)`)
   console.log(`Precision:  ${(precision * 100).toFixed(1)}%`)
@@ -207,8 +233,10 @@ async function run() {
     console.log('\nMisclassifications:')
     misses.forEach(m => console.log('  ' + m))
   }
-  console.log(`\n${accuracy >= 90 ? 'PASS' : 'BELOW TARGET'} — 90% accuracy objective\n`)
-  process.exit(accuracy >= 90 ? 0 : 1)
+  const meetsSize = total >= COMMITTED.total && sensitive.length >= COMMITTED.sensitive && safe.length >= COMMITTED.safe
+  console.log(`\n${accuracy >= 90 ? 'PASS' : 'BELOW TARGET'} — 90% accuracy objective`)
+  console.log(`${meetsSize ? 'PASS' : 'SHORT'} — labelled test set size (O2/O6)\n`)
+  process.exit(accuracy >= 90 && meetsSize ? 0 : 1)
 }
 
 run()
