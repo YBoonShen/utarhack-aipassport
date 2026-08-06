@@ -61,6 +61,32 @@ const sensitive = [
   'Mrs Wong called from 07-2345678 about invoice 8890.',
   'The service config has jdbc:postgresql://svc.internal:5432/hr hardcoded.',
   'Patient Lim Ah Kaw, IC 550303-08-1122, needs a review.',
+  // --- harder cases: names with no context word (gazetteer recall), IC without
+  //     dashes, multi-PII in one line, more card brands, secret tokens ---
+  'Rahman flagged a discrepancy in the ledger.',
+  'Please loop in Aisyah before the review call.',
+  'The escalation from Kumar still needs sign-off.',
+  'Statement for Tan Wei Ming should go out today.',
+  'Ask Nurul to resend the signed contract.',
+  'Verify 880505105566 against our HR records.',
+  'Email ahmad.zaki@abcd.com or call 012-3456789 to confirm.',
+  'Charge Mastercard 5555 5555 5555 4444 for the booking.',
+  'The Amex 378282246310005 was declined twice.',
+  'Refund to Visa 4012 8888 8888 1881 right away.',
+  'The onboarding doc for Muhammad Faiz is missing.',
+  'New patient Lim Ah Kaw, IC 550303081122, booked in.',
+  'Set token=ghp_ABCDEFabcdef1234567890 in the CI config.',
+  'The GitHub token ghp_1234567890abcdefghij leaked in a log.',
+  'His number is +6012-987 6543, please note it down.',
+  'Close the case for order ORD-99120 after the refund.',
+  'Send SGD 12,500.75 to the escrow account today.',
+  'Applicant passport C11223344 is still pending.',
+  'The DB is mysql://root:pass@10.0.0.5:3306/prod in code.',
+  'Wire MYR 8,000 to supplier and RM 450 to petty cash.',
+  // --- arbitrary names not in the gazetteer (multi-word / person-frame passes) ---
+  'John Smith flagged an error in the report.',
+  'Please email Xavier Fernandez by noon.',
+  'The proposal from Emily Watson is ready to send.',
 ]
 
 // 50 SAFE prompts — generic work tasks with no personal or confidential data
@@ -116,6 +142,33 @@ const safe = [
   'How do I structure a clear bug report?',
   'What are good practices for naming variables in code?',
   'Summarise the value of regular team knowledge sharing.',
+  // --- precision traps: capitalised non-names, role-noun phrases that are not
+  //     people, long numbers that are not cards (Luhn-invalid), amounts with no
+  //     currency. A naive regex/name matcher flags these; a validated one must not. ---
+  'Contact Support if the build fails again.',
+  'Set up a Call Center rota for next week.',
+  'Compare AWS and Azure for our hosting.',
+  'Draft copy for the Email Marketing campaign.',
+  'Outline a Customer Success onboarding plan.',
+  'Review the Client Portal wireframes today.',
+  'Order 12 chairs for the meeting room.',
+  'Increase the budget by 20 percent next quarter.',
+  'Track parcel 1234567890123456 when it ships.',
+  'The serial number 9999888877776666 is on the box.',
+  'What is the difference between SQL and NoSQL?',
+  'Summarise Google Sheets formulas for lookups.',
+  'Explain how JWT tokens work in general terms.',
+  'Write a class named Customer in Java.',
+  'Draft a policy on acceptable Password length.',
+  'Review the Sales Report before Monday.',
+  'List the top 100 customers by revenue.',
+  'Plan the Vendor Agreement and Client Portal pages.',
+  'Explain the difference between React and Vue.',
+  'Book the Meeting Room for the afternoon.',
+  // --- two-word capitalised non-people (a naive name matcher would flag these) ---
+  'Explain Machine Learning to the new team.',
+  'Review the Standard Operating Procedure draft.',
+  'Summarise the quarterly Sales Report figures.',
 ]
 
 function isFlagged(result) {

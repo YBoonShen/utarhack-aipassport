@@ -6,7 +6,7 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import { RULES } from './detector.js'
+import { RULES, applyRules } from './detector.js'
 import { detectNames, maskNames } from './layer2.js'
 import { logDetection } from './firebase.js'
 import {
@@ -122,21 +122,15 @@ async function runDetection(prompt) {
   // it can never run — CUSTOMER_RECORD and SECRET were previously unreachable.
   const enabledTypes = new Set([
     ...(c.personalIdentifiers ? ['IC', 'PASSPORT', 'PHONE', 'EMAIL'] : []),
-    ...(c.customerRecords ? ['CARD', 'CUSTOMER_RECORD'] : []),
+    ...(c.customerRecords ? ['CARD', 'CUSTOMER_RECORD', 'BANK'] : []),
     ...(c.financialFigures ? ['FINANCIAL'] : []),
     ...(c.sourceCode ? ['CREDENTIAL', 'SECRET'] : []),
   ])
-  // Layer 1 — rule-based regex, filtered by the admin's controls
-  const detections = []
-  let masked = prompt
-  for (const rule of RULES) {
-    if (!enabledTypes.has(rule.type)) continue
-    const matches = masked.match(rule.regex)
-    if (matches && matches.length > 0) {
-      detections.push({ type: rule.type, count: matches.length })
-      masked = masked.replace(rule.regex, rule.token)
-    }
-  }
+  // Layer 1 — rule-based regex + validators, filtered by the admin's controls.
+  // Same applyRules the offline extension mirrors, so on-device and server masking
+  // agree token-for-token.
+  const { masked: maskedL1, detections } = applyRules(prompt, RULES, enabledTypes)
+  let masked = maskedL1
 
   // Layer 2 — person names via Gemini (heuristic fallback when offline).
   // Layer 2 sees the Layer-1-masked text, never the raw prompt.
