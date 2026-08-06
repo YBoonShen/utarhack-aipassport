@@ -11,10 +11,10 @@
 //
 // Assign flow: select training → select type (employee / department) →
 // select target → confirmation → confirm. The wizard lives in AssignModal.
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { emptyDraft, seedDraft, QuestionModal, AssignModal, ModuleCreatedModal, CreateModuleCard, InfoToast, MAX_QUESTIONS } from '../../components/admin/TrainingModuleForm.jsx'
-import { assignmentSummary, createModule } from '../../lib/trainingStore.js'
+import { assignmentSummary, createModule, saveModule } from '../../lib/trainingStore.js'
 import { useTrainingLibrary } from '../../lib/useTraining.js'
 import { departmentName } from '../../lib/employees.js'
 import { useToast } from '../../components/Toast.jsx'
@@ -54,7 +54,64 @@ export default function AssignTraining() {
   const [toastInfo, setToastInfo] = useState(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  // 'idle' (nothing worth saving yet) | 'saving' | 'saved' | 'error'. Purely a
+  // status line — the draft itself never depends on this state.
+  const [autosaveState, setAutosaveState] = useState('idle')
   const toast = useToast()
+
+  // The server id of the module autosave has already created for this draft,
+  // once there is one. A ref (not state) because it has to be read inside an
+  // async callback the moment it resolves, not on the next render.
+  const savedIdRef = useRef(null)
+  // Guards against two autosaves overlapping — draft edits made while one is in
+  // flight are queued here and flushed the moment it finishes, rather than
+  // firing a second POST that would create a duplicate module.
+  const savingRef = useRef(false)
+  const pendingRef = useRef(null)
+  const aliveRef = useRef(true)
+  useEffect(() => () => { aliveRef.current = false }, [])
+
+  async function flushAutosave(nextDraft) {
+    if (savingRef.current) { pendingRef.current = nextDraft; return }
+    savingRef.current = true
+    if (aliveRef.current) setAutosaveState('saving')
+    const payload = {
+      title: nextDraft.title.trim(),
+      points: Number(nextDraft.points) || 0,
+      minutes: Number(nextDraft.minutes) || 0,
+      questions: nextDraft.questions,
+    }
+    const result = savedIdRef.current
+      ? await saveModule(savedIdRef.current, payload)
+      : await createModule(payload)
+    savingRef.current = false
+    if (result.ok) {
+      savedIdRef.current = result.module.id
+      if (aliveRef.current) setAutosaveState('saved')
+    } else if (aliveRef.current) {
+      setAutosaveState('error')
+    }
+    if (pendingRef.current) {
+      const next = pendingRef.current
+      pendingRef.current = null
+      flushAutosave(next)
+    }
+  }
+
+  // Autosaves a new module's title/points/minutes/questions as they are typed,
+  // so a question survives even if the admin never reaches "Create module →" —
+  // the same way it already has to survive on Edit Questions once a module is
+  // live. `draft === seedDraft` is the untouched sample the form opens on
+  // (matches the Figma mock); it is deliberately never autosaved on its own,
+  // only once the admin has actually changed something. Debounced so a title
+  // typed character by character is one save, not one per keystroke.
+  useEffect(() => {
+    if (draft === seedDraft) return
+    if (!draft.title.trim() || draft.questions.length === 0) return
+    const t = setTimeout(() => flushAutosave(draft), 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft])
 
   // Add and edit are the same save: a question written here can be reopened and
   // corrected before the module is created, exactly as it can afterwards.
@@ -76,17 +133,26 @@ export default function AssignTraining() {
   // The new module joins the shared library on the server, so it carries a real
   // id from here on: it appears on Training modules, it can be assigned, and the
   // assignment record points at that id rather than at a title that could change.
+  //
+  // Autosave has usually already created it by the time this is clicked — this
+  // just flushes whatever hasn't been saved yet (debounce may still be pending)
+  // and reuses that id instead of posting a second, duplicate module.
   async function create() {
     setError('')
     setSaving(true)
-    const result = await createModule({
+    const payload = {
       title: draft.title,
       points: Number(draft.points) || 0,
       minutes: Number(draft.minutes) || 0,
       questions: draft.questions,
-    })
+    }
+    const result = savedIdRef.current
+      ? await saveModule(savedIdRef.current, payload)
+      : await createModule(payload)
     setSaving(false)
     if (!result.ok) return setError(result.error)
+    savedIdRef.current = null
+    setAutosaveState('idle')
     setDraft(emptyDraft)
     setCreated(result.module)
   }
@@ -224,9 +290,24 @@ export default function AssignTraining() {
             onEditQuestion={i => setQuestionModal(i)}
             onCreate={create}
             secondaryLabel="Clear"
-            onSecondary={() => { setDraft(emptyDraft); setError('') }}
+            onSecondary={() => {
+              // Clearing starts a fresh draft, not a continuation of whatever
+              // autosave already wrote for the one being abandoned — that
+              // record stays in the library under its own title, same as any
+              // other module, rather than being silently reused here.
+              savedIdRef.current = null
+              setAutosaveState('idle')
+              setDraft(emptyDraft)
+              setError('')
+            }}
             error={error}
             saving={saving}
+            autosaveLabel={
+              autosaveState === 'saving' ? 'Saving…'
+                : autosaveState === 'saved' ? 'Draft saved'
+                : autosaveState === 'error' ? "Couldn't autosave — still safe here, will save when you click Create module"
+                : null
+            }
           />
         </>
       )}
