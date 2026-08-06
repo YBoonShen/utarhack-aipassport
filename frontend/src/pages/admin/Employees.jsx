@@ -1,7 +1,8 @@
 // 16 Admin · Employees — matches Figma frame "16 Admin • Employees"
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useToast, DEMO_NOTE } from '../../components/Toast.jsx'
+// Toast is no longer imported here: the only thing this screen ever raised one
+// for was the "More filters" demo notice, and that button is gone.
 import { AssignModal, InfoToast } from '../../components/admin/TrainingModuleForm.jsx'
 import { EMPLOYEES, DEPARTMENT_CODES } from '../../lib/employees.js'
 import { assignmentSummary } from '../../lib/trainingStore.js'
@@ -166,7 +167,6 @@ const levels = ['L1', 'L2', 'L3', 'L4']
 const PAGE_SIZE = 8
 
 export default function Employees() {
-  const toast = useToast()
   const [assignOpen, setAssignOpen] = useState(false)
   const [toastInfo, setToastInfo] = useState(null)
   const [search, setSearch] = useState('')
@@ -306,8 +306,11 @@ export default function Employees() {
           )}
         </div>
 
-        <div className="flex-1" />
-        <button onClick={() => toast(DEMO_NOTE)} className="border-[1.5px] border-navy-header text-navy-header font-semibold text-[13px] h-11 px-6 rounded-full cursor-pointer hover:bg-chip">More filters</button>
+        {/* No "More filters" here. It was a button that only ever raised a
+            "not in this demo" toast, and the same control on Audit Log and Risk
+            Alerts does real filtering — so on this screen alone it taught the
+            admin that the button is a dead end. Department and License level
+            above are the filters this directory actually has. */}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 flex-1 min-h-0 lg:items-stretch items-start">
@@ -365,12 +368,21 @@ export default function Employees() {
         </div>
 
         {/* Employee insights — the distribution bars absorb the spare height so
-            the cohort action underneath them is always reachable. */}
-        <div className="flex flex-col gap-3 min-h-0">
-          <div className="bg-white border border-[#d8d0b4] rounded-[14px] p-4 flex flex-col min-h-0 flex-1">
+            the cohort action underneath them is always reachable.
+            `min-h-0` is deliberately absent from the card and the bar list. It
+            was on both, and on a short viewport it did exactly what it says:
+            let them shrink past their own content, so the four bars spilled out
+            of their box and the Guardian row was drawn over "NEXT TRAINING
+            COHORT". A flex item's default `min-height: auto` is the floor that
+            stops that, and the page root already carries `overflow-y-auto`, so
+            a card that no longer fits scrolls rather than overlapping. */}
+        <div className="flex flex-col gap-3">
+          <div className="bg-white border border-[#d8d0b4] rounded-[14px] p-4 flex flex-col flex-1">
             <p className="text-[#17213a] font-bold text-base shrink-0">License distribution</p>
             <p className="text-[#667085] text-xs mt-0.5 shrink-0">Organisation-wide readiness</p>
-            <div className="flex flex-col justify-around flex-1 min-h-0 mt-3">
+            {/* `gap` guarantees the spacing that `justify-around` only provides
+                when there happens to be room left over. */}
+            <div className="flex flex-col justify-around flex-1 gap-2.5 mt-3">
               {distribution.map(d => (
                 <div key={d.label}>
                   <div className="flex justify-between">

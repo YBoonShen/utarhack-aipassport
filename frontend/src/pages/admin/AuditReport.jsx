@@ -147,9 +147,19 @@ export default function AuditReport() {
             disabled={!report}
             aria-haspopup="menu"
             aria-expanded={menu}
-            className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[200px] h-12 rounded-full cursor-pointer disabled:opacity-60"
+            className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm w-[200px] h-12 rounded-full cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2"
           >
-            Download report&nbsp;&nbsp;{menu ? '^' : 'v'}
+            Download report
+            {/* A drawn chevron rather than the letters "v" and "^", which is what
+                stood here — at this weight they read as text in the label rather
+                than as the control's state. It rotates instead of swapping, so
+                opening the menu is one movement. */}
+            <svg
+              viewBox="0 0 12 12" aria-hidden="true"
+              className={`w-3 h-3 shrink-0 transition-transform duration-200 ${menu ? 'rotate-180' : ''}`}
+            >
+              <path d="M2 4.5 L6 8.5 L10 4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </button>
           {menu && (
             <div role="menu" className="absolute right-0 mt-2 w-[268px] bg-white border border-[#e0e0e5] rounded-[12px] shadow-lg overflow-hidden z-20">
