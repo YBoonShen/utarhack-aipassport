@@ -61,12 +61,19 @@ function shortWhen(time) {
   return parts.length >= 2 ? `${parts[0]} ${parts[1]}` : date
 }
 
-const ACTIVITY_SHOWN = 4
+// Recent activity is a summary, not the inbox. Three rows is what the card shows
+// on arrival; "View more" opens the rest in place, and the feed itself is
+// unbounded (addNotification just unshifts), so the expanded view has a ceiling
+// of its own and points at the Notifications page beyond it rather than growing
+// a card the length of the page.
+const ACTIVITY_COLLAPSED = 3
+const ACTIVITY_EXPANDED = 10
 
 export default function Home() {
   const [profile, setProfile] = useState(fallbackProfile)
   const [visaRequests, setVisaRequests] = useState([])
   const [myEvents, setMyEvents] = useState([])
+  const [activityExpanded, setActivityExpanded] = useState(false)
   const { user } = useAuth()
   // The signed-in session names the greeting; the profile is the fallback and
   // "there" covers the moment before either has arrived.
@@ -188,7 +195,12 @@ export default function Home() {
   // Newest first — the server unshifts each new notification, so feed order is
   // already chronological. Deleted entries are the employee's own choice to hide
   // and are respected here exactly as they are on the Notifications page.
-  const activity = (items || []).filter(n => !n.deleted).slice(0, ACTIVITY_SHOWN)
+  const allActivity = (items || []).filter(n => !n.deleted)
+  const activity = allActivity.slice(0, activityExpanded ? ACTIVITY_EXPANDED : ACTIVITY_COLLAPSED)
+  // What "View more" would still be hiding. Counted off what is *rendered*
+  // rather than off the collapsed size, so it stays honest after expanding: at
+  // the expanded ceiling it becomes the number the Notifications page holds.
+  const moreCount = allActivity.length - activity.length
 
   // Progress within the current level band (lib/levels.js), not a share of the
   // whole 0 → 8,000 system.
@@ -234,7 +246,15 @@ export default function Home() {
       </div>
 
       <p className="text-[#667085] font-semibold text-[13px] mt-8">Your progress</p>
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4 lg:gap-6 mt-3">
+      {/* `lg:items-start` is the fix for the empty band that used to open up
+          inside whichever of these two cards had less to say. Grid items stretch
+          to the row's height by default, so a Recent activity list one row
+          longer than the passport card forced a strip of blank navy below "View
+          my license", and a short feed left blank white under the last activity.
+          Neither card was padded wrong — they were being stretched. Each one now
+          ends where its own content ends, which also keeps the layout honest
+          when "View more" expands the list below. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4 lg:gap-6 mt-3 lg:items-start">
         <div className="bg-navy-header rounded-[16px] p-5 lg:p-7">
           <div className="flex items-center gap-2">
             <p className="text-gold-brand font-semibold text-[11px]">YOUR AI PASSPORT</p>
@@ -316,6 +336,32 @@ export default function Home() {
                   </div>
                 )
               })}
+            </div>
+          )}
+
+          {/* Older activity, on request. A card footer rather than a link
+              floating under the last row, so it reads as a control on the card
+              and not as part of the final activity. The count is in the label
+              because "View more" alone does not say whether it is worth the tap.
+              py-3/-my-3 keeps a 44px touch target without moving the row — the
+              same pair the activity rows' own links use. */}
+          {(moreCount > 0 || activityExpanded) && (
+            <div className="mt-4 pt-4 border-t border-[#eceef2] flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <button
+                onClick={() => setActivityExpanded(v => !v)}
+                aria-expanded={activityExpanded}
+                className="text-[#2e5ccc] font-semibold text-[13.5px] py-3 -my-3 inline-flex items-center gap-1.5 cursor-pointer hover:underline"
+              >
+                {activityExpanded ? 'Show less' : `View ${moreCount} older ${moreCount === 1 ? 'activity' : 'activities'}`}
+                <span aria-hidden="true">{activityExpanded ? '↑' : '↓'}</span>
+              </button>
+              {/* Only once the in-card list has hit its ceiling — the full feed
+                  lives on the Notifications page, and this is the way to it. */}
+              {activityExpanded && moreCount > 0 && (
+                <Link to="/notifications" className="text-[#667085] hover:text-navy-header font-semibold text-[12.5px] py-3 -my-3 inline-flex items-center">
+                  See all {allActivity.length} →
+                </Link>
+              )}
             </div>
           )}
         </div>
