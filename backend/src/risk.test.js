@@ -266,12 +266,22 @@ test('the employee is told which tool, and where to fix it', () => {
   assert.equal(told[0].action.to, '/tools')
 })
 
-test('approving tool access is what stops the tool being flagged', () => {
+test('approving tool access is what stops the tool being flagged — for that employee only', () => {
   assert.equal(toolStatus('SummarizerX'), 'UNAPPROVED')
   assert.equal(recordToolUse({ tool: 'SummarizerX' }).alert.severity, SEVERITY.MEDIUM)
 
-  decideVisa('A-0492', 'approve') // the seeded SummarizerX request
-  assert.equal(toolStatus('SummarizerX'), 'APPROVED')
+  decideVisa('A-0492', 'approve') // the seeded SummarizerX request — requester is S-044
+  // The org-wide register is untouched: one employee's granted visa must never
+  // read as "the tool is approved" for a colleague who never asked.
+  assert.equal(toolStatus('SummarizerX'), 'UNAPPROVED')
+  assert.equal(toolAccessFor('S-044', 'SummarizerX').access, 'active')
+
+  // E-217 (this test's session employee) never requested it, so a visit is
+  // exactly as unreviewed as it was before someone else's request was decided.
+  assert.equal(recordToolUse({ tool: 'SummarizerX' }).alert.severity, SEVERITY.MEDIUM)
+
+  // The actual requester reaches it with no alert at all.
+  setSessionEmployee('S-044')
   assert.equal(recordToolUse({ tool: 'SummarizerX' }).alert, null)
 })
 
@@ -680,7 +690,7 @@ test('banning Kimi K3 refuses a clean prompt too, while the approved free models
   assert.equal(stillFree.mode, MODES.MASK)
 })
 
-test('approving the request is what stops the notice, not what unblocks the prompt', () => {
+test('approving the request is what stops the notice, not what unblocks the prompt — for that employee only', () => {
   const { request } = applyForVisa({ tool: 'DeepSeek', purpose: 'Research summaries.' })
   assert.equal(toolAccessFor('E-217', 'DeepSeek').access, 'review')
   // In review is still unreviewed: masked and sent, with the notice on top.
@@ -689,14 +699,71 @@ test('approving the request is what stops the notice, not what unblocks the prom
   assert.equal(pending.notify, true)
 
   decideVisa(request.id, 'approve')
-  assert.equal(toolStatus('DeepSeek'), 'APPROVED')
+
+  // The register itself is untouched — this is one employee's visa, not an
+  // organisation-wide decision. Approving one Trainee's DeepSeek request must
+  // never silently open DeepSeek to everyone with no further review — that was
+  // the actual bug: decideVisa used to flip the org-wide register on every
+  // individual decision.
+  assert.equal(toolStatus('DeepSeek'), 'UNAPPROVED')
+
+  // The requester reaches it exactly as an approved-tool prompt would: masked,
+  // sent, and no longer flagged.
   assert.equal(toolAccessFor('E-217', 'DeepSeek').access, 'active')
-  // Same masking as before — what changes is that nothing is flagged any more.
   const approved = gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC'] })
   assert.equal(approved.mode, MODES.MASK)
   assert.equal(approved.notify, false)
   assert.equal(approved.reason, 'org-policy')
   assert.equal(recordToolUse({ tool: 'DeepSeek' }).alert, null)
+
+  // A colleague who never asked sees exactly what they saw before — still
+  // unreviewed, still notified on send, still flagged on arrival. One
+  // employee's access must never be another's.
+  assert.equal(toolAccessFor('E-198', 'DeepSeek').access, 'unreviewed')
+  assert.equal(gatewayPolicyFor({ employeeId: 'E-198', tool: 'DeepSeek', types: ['IC'] }).notify, true)
+  setSessionEmployee('E-198')
+  assert.equal(recordToolUse({ tool: 'DeepSeek' }).alert.severity, SEVERITY.MEDIUM)
+})
+
+// The extension never decides "am I approved" itself — every check (arrival,
+// while-typing preview, the send checkpoint) goes through gatewayPolicyFor via
+// /gateway/tool-status or /detect, which reads this live. There is nothing
+// cached client-side that a sign-out/sign-in or an admin decision could leave
+// stale beyond background.js's own POLICY_TTL_MS (60s) — see resolveTool().
+test('a granted visa is tied to the employee, not the browser session — it survives a sign-out and never crosses to someone else', () => {
+  const { request } = applyForVisa({ tool: 'DeepSeek', purpose: 'Research summaries.' })
+  decideVisa(request.id, 'approve')
+  assert.equal(toolAccessFor('E-217', 'DeepSeek').access, 'active')
+
+  // Another employee's session runs on this same backend in between — the
+  // ordinary case of a shared server, and exactly what E-217 reconnects to
+  // after signing back in.
+  setSessionEmployee('E-198')
+  assert.equal(toolAccessFor('E-198', 'DeepSeek').access, 'unreviewed')
+
+  // E-217 signs back in. Nothing about their visa ever lived in the browser,
+  // so nothing needed to be restored — the backend never forgot it.
+  setSessionEmployee('E-217')
+  assert.equal(toolAccessFor('E-217', 'DeepSeek').access, 'active')
+})
+
+test('revoking a granted visa returns the employee to unreviewed and brings the notice back — masking is unaffected either way', () => {
+  const { request } = applyForVisa({ tool: 'DeepSeek', purpose: 'Research summaries.' })
+  decideVisa(request.id, 'approve')
+  assert.equal(toolAccessFor('E-217', 'DeepSeek').access, 'active')
+  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC'] }).notify, false)
+
+  decideVisa(request.id, 'revoke')
+  assert.equal(toolAccessFor('E-217', 'DeepSeek').access, 'revoked')
+  assert.equal(toolAccessFor('E-217', 'DeepSeek').approved, false)
+
+  // The guide notice is back — and the Smart Gateway still masks and sends,
+  // exactly as it does for any other unreviewed destination. Revoking access
+  // is never a reason to stop protecting the prompt.
+  const after = gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC'] })
+  assert.equal(after.mode, MODES.MASK)
+  assert.equal(after.notify, true)
+  assert.equal(after.banned, false)
 })
 
 // ---- the effective mode --------------------------------------------------------

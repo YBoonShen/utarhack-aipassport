@@ -1569,10 +1569,21 @@ export function approvedModels(toolName, employeeId = null) {
 // about the same tool. It happens here now, and both read the result.
 //
 // The vocabulary is the one the AI Tools page already renders:
-//   active · locked · review · declined · suspended · unreviewed
+//   active · locked · review · declined · revoked · suspended · banned · unreviewed
 
 const REFUSED_VISA = ['DECLINED', 'REDIRECTED']
 const PENDING_VISA = ['SECURITY REVIEW', 'COMPLIANCE']
+// This employee's own request was approved. Distinct from the tool's org-wide
+// `registered` status below: decideVisa() only ever writes this on the
+// request, never on the register, so one employee's granted visa can never
+// read as "the tool is approved" for a colleague who never asked — see
+// decideVisa's own comment for why that used to be exactly what happened.
+const GRANTED_VISA = ['APPROVED']
+// An admin can pull an already-granted visa back. Its own bucket rather than
+// folding into REFUSED_VISA: "declined" reads as never granted, "revoked"
+// reads as granted and then withdrawn, and an employee who lost access this
+// way is not the same finding as one who was never approved.
+const REVOKED_VISA = ['REVOKED']
 
 export function toolAccessFor(employeeId, toolName) {
   const entry = registerEntry(toolName)
@@ -1586,14 +1597,19 @@ export function toolAccessFor(employeeId, toolName) {
   ) || null
 
   const needsLevel = Boolean(entry?.minLevel) && level < entry.minLevel
+  // Active for this employee specifically, whether the org-wide register ever
+  // reaches APPROVED or not — for DeepSeek and Kimi, a granted visa is the
+  // only route in there is.
+  const granted = Boolean(request && GRANTED_VISA.includes(request.status))
 
   // Same precedence the AI Tools page applies: a ban beats a suspension, a
   // suspension beats everything else, and an approval is an approval however the
-  // employee got there.
+  // employee got there — the org-wide register or their own granted visa.
   const access = registered === 'BANNED' ? 'banned'
     : registered === 'SUSPENDED' ? 'suspended'
-    : registered === 'APPROVED' ? (needsLevel ? 'locked' : 'active')
+    : registered === 'APPROVED' || granted ? (needsLevel ? 'locked' : 'active')
     : request && PENDING_VISA.includes(request.status) ? 'review'
+    : request && REVOKED_VISA.includes(request.status) ? 'revoked'
     : request && REFUSED_VISA.includes(request.status) ? 'declined'
     : 'unreviewed'
 
@@ -1602,6 +1618,7 @@ export function toolAccessFor(employeeId, toolName) {
     locked: `${name} is approved for the organisation but needs AI License Level ${entry?.minLevel}. You are Level ${level}.`,
     review: `Your request for ${name} is still with IT and Compliance.`,
     declined: `Your request for ${name} was not approved.`,
+    revoked: `Your access to ${name} was revoked. Submit a new request if you still need it.`,
     suspended: `${name} was suspended organisation-wide after a security concern.`,
     banned: `${name} is banned by your organisation. No prompt is sent to it, whether or not it contains company data.`,
     unreviewed: `This AI tool is not approved by your organisation. ${name} has not been through security and compliance review, so there are no agreed terms covering what it does with company data.`,
@@ -3224,45 +3241,31 @@ export function applyForVisa({ tool, purpose, scopes }) {
 export function decideVisa(id, decision, note) {
   const request = db.visaRequests.find(r => r.id === id)
   if (!request) return null
-  const statusMap = { approve: 'APPROVED', decline: 'DECLINED', redirect: 'REDIRECTED' }
+  const statusMap = { approve: 'APPROVED', decline: 'DECLINED', redirect: 'REDIRECTED', revoke: 'REVOKED' }
   request.status = statusMap[decision] || request.status
   request.decided = todayDate()
   if (note) request.decisionNote = note
 
-  // The decision is what moves the tool through the approved-tool register, so
-  // approving a visa is also what stops the Smart Gateway flagging that tool as
-  // unapproved. One decision, one effect — the two cannot drift apart.
-  const registered = db.orgTools.find(t => t.name.toLowerCase() === request.tool.toLowerCase())
-  if (registered && registered.status !== 'SUSPENDED') {
-    registered.status = decision === 'approve' ? 'APPROVED' : 'UNAPPROVED'
-  } else if (!registered) {
-    // A tool nobody had registered before. It joins with what the requester
-    // declared about it, so an approved tool describes itself on their AI Tools
-    // list instead of appearing as a bare name.
-    //
-    // Note what is deliberately NOT copied across: `hosts` and `url`. Those two
-    // are the only register fields the browser ever acts on — the extension
-    // matches a page against `hosts` and can navigate to `url` — and everything
-    // in `request` is free text an employee typed into a form. Letting a request
-    // populate them would turn the approval queue into an open-redirect vector,
-    // where approving a request is what makes the extension trust a URL a
-    // stranger chose. An admin sets them on the register directly or not at all,
-    // which is also why alternativesFor() only ever offers a tool that has one.
-    db.orgTools.push({
-      name: request.tool,
-      vendor: request.vendor || 'Unreviewed vendor',
-      model: request.model || 'Vendor model',
-      dataScope: (request.scopes || []).join(' · ') || 'As declared in the request',
-      status: decision === 'approve' ? 'APPROVED' : 'UNAPPROVED',
-    })
-  }
+  // Deciding a visa is a verdict on *this employee's* request, never on the
+  // tool itself — toolAccessFor() reads `request.status` per requester, so
+  // that is the only place this decision needs to land. It used to also flip
+  // the tool's org-wide register status, which meant approving one Trainee's
+  // DeepSeek request silently opened DeepSeek for the entire organisation with
+  // no second review — the one outcome an approval *queue* exists to prevent.
+  // Suspending or banning a tool org-wide is its own, separate admin action
+  // (suspendToolOrgWide / the Tool Approvals vendor card) and stays that way.
+  //
+  // A request naming a tool the register has never heard of cannot reach here
+  // at all — applyForVisa only accepts tools already in requestableTools(),
+  // which is filtered from the register — so there is no "register it for the
+  // first time" branch to keep in step with that guarantee.
 
   // Governance decisions are themselves auditable
   adminAudit({
     action: 'APPROVAL',
     resource: request.tool,
     record: `${request.tool} · ${request.id} · ${request.status} by Admin`,
-    status: request.status === 'DECLINED' ? 'BLOCKED' : 'SUCCESS',
+    status: ['DECLINED', 'REVOKED'].includes(request.status) ? 'BLOCKED' : 'SUCCESS',
     risk: request.status === 'APPROVED' ? 'MEDIUM' : 'LOW',
   })
 
@@ -3270,11 +3273,13 @@ export function decideVisa(id, decision, note) {
     approve: `${request.tool} access approved`,
     decline: `${request.tool} access declined`,
     redirect: `${request.tool} request redirected`,
+    revoke: `${request.tool} access revoked`,
   }
   const bodies = {
     approve: `Request ${request.id} was approved. The tool has been added to your approved AI tools.`,
     decline: `Request ${request.id} was declined. An approved alternative remains available.`,
     redirect: `Request ${request.id} was closed with a one-click switch to an approved alternative.`,
+    revoke: `Your access to ${request.tool} has been revoked. The Smart Gateway will treat it as unreviewed again from your next visit.`,
   }
   addNotification({
     // The employee who asked is the employee who is told — not whoever happens
