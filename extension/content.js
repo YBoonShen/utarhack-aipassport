@@ -371,21 +371,23 @@
   }
 
   /**
-   * Any control inside the composer, used only when a refusal is already in
-   * force for the text sitting in it.
+   * Any control inside the composer, used when asSendButton cannot name the
+   * real send control at all — see `fragileSend` in config.js — or when a
+   * refusal is already in force for the text sitting in it.
    *
    * asSendButton above can only recognise a send control it can *name*, and on
    * a tool whose button is a div with generated class names and no usable
-   * aria-label there is nothing to name. On DeepSeek that meant a prompt the
-   * gateway had already refused was sent anyway: the checkpoint never ran,
-   * because the click never looked like a send.
+   * aria-label there is nothing to name. On DeepSeek and Kimi that meant a
+   * prompt the gateway would have masked, warned on or refused went out raw:
+   * the checkpoint never ran at all, because the click never looked like a
+   * send.
    *
-   * So when the gateway has decided this exact text must not leave, the net is
-   * widened to any button inside the composer's own container. The trade is
+   * So on a tool marked `fragileSend`, every click inside the composer's own
+   * container is a candidate send — not only once a refusal is already known.
+   * Every other tool keeps the narrower trigger: the net widens only once the
+   * gateway has decided this exact text must not leave. Either way the trade is
    * deliberate and bounded: at worst an unrelated composer toggle takes one dead
-   * click, and only while a prompt that cannot be sent is sitting in the box. In
-   * every other state the conservative match above is the only one that applies,
-   * so ordinary use of the site is untouched.
+   * click, never a wrong destination for the prompt itself.
    */
   function asComposerControl(node) {
     if (!node || node.nodeType !== 1) return null
@@ -1468,9 +1470,11 @@
     if (!text.trim()) return
     if (isApproved(text)) return
     // A named send control always goes to the checkpoint. Anything else in the
-    // composer does too, but only while this text is already known to be
-    // unsendable — see asComposerControl for why that widening is bounded.
-    const btn = asSendButton(e.target) || (refusalInForce(text) ? asComposerControl(e.target) : null)
+    // composer does too, either because this tool's send control cannot be
+    // named at all (fragileSend — DeepSeek, Kimi) or because this text is
+    // already known to be unsendable — see asComposerControl for why that
+    // widening is bounded.
+    const btn = asSendButton(e.target) || (tool.fragileSend || refusalInForce(text) ? asComposerControl(e.target) : null)
     if (!btn) return
     if (checking || sending) return holdRepeat(e)
     e.preventDefault()

@@ -77,6 +77,18 @@ globalThis.AIP_CONFIG = {
   // Verifying a picker: open the tool with DevTools and run
   //   document.querySelector('<selector>')?.innerText
   // It should print the model name the UI is showing.
+  //
+  // `fragileSend: true` marks a tool whose send control cannot be named with a
+  // stable selector at all — a div with generated class names, an icon button
+  // with no aria-label. On a tool like that, `sendSelectors` is a best guess
+  // that can miss the real element entirely, and a missed match means the click
+  // reaches the site's own handler unexamined: not "blocked when it shouldn't
+  // be", but the opposite failure — a raw, unmasked prompt going out with no
+  // checkpoint at all. content.js's onClick widens its match to any button in
+  // the composer for these tools specifically (see asComposerControl), trading
+  // an occasional dead click on an unrelated composer toggle for a checkpoint
+  // that cannot be silently missed. Reliable tools (ChatGPT, Claude, Gemini)
+  // leave this unset and keep the exact, conservative match.
   TOOLS: [
     {
       name: 'ChatGPT',
@@ -126,12 +138,16 @@ globalThis.AIP_CONFIG = {
       // nothing stable to name. It is left to sendFallback's role/aria matching —
       // and Enter is intercepted regardless of which element sends.
       sendSelectors: ['div[role="button"][aria-label*="send" i]'],
+      // Named selectors are a best guess on a site with no stable markup for its
+      // send control — see fragileSend below.
+      fragileSend: true,
     },
     {
       name: 'Kimi',
       hosts: ['kimi.com', 'moonshot.cn'],
       selectors: ['[data-testid="msh-chatinput-editor"]', 'div[contenteditable="true"]'],
       sendSelectors: ['[data-testid*="send-button" i]', '.send-button', '[aria-label*="send" i]'],
+      fragileSend: true,
     },
   ],
 
