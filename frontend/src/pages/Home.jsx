@@ -246,16 +246,23 @@ export default function Home() {
       </div>
 
       <p className="text-[#667085] font-semibold text-[13px] mt-8">Your progress</p>
-      {/* `lg:items-start` is the fix for the empty band that used to open up
-          inside whichever of these two cards had less to say. Grid items stretch
-          to the row's height by default, so a Recent activity list one row
-          longer than the passport card forced a strip of blank navy below "View
-          my license", and a short feed left blank white under the last activity.
-          Neither card was padded wrong — they were being stretched. Each one now
-          ends where its own content ends, which also keeps the layout honest
-          when "View more" expands the list below. */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4 lg:gap-6 mt-3 lg:items-start">
-        <div className="bg-navy-header rounded-[16px] p-5 lg:p-7">
+      {/* The two cards end on the same line, and the space that makes that true
+          is put somewhere deliberate rather than left as a void at the bottom of
+          whichever card had less to say.
+            • both cards are flex columns, so the shorter one's last element —
+              "View my license", the "View more" footer — is pushed to the card's
+              own bottom edge and reads as a footer instead of a stray gap;
+            • an empty feed centres its one sentence, which is what an empty
+              state should look like anyway.
+          Expanded is the exception: an opened list can run hundreds of pixels
+          past the passport card, and stretching to match would put a strip of
+          blank navy under the gold button — the original bug. While it is open
+          the cards size to their own content, which is also when the reader is
+          looking at the list rather than at the pair. */}
+      <div className={`grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4 lg:gap-6 mt-3 ${
+        activityExpanded ? 'lg:items-start' : 'lg:items-stretch'
+      }`}>
+        <div className="bg-navy-header rounded-[16px] p-5 lg:p-7 flex flex-col">
           <div className="flex items-center gap-2">
             <p className="text-gold-brand font-semibold text-[11px]">YOUR AI PASSPORT</p>
             <InfoPopover label="About your AI Passport" title="About your AI Passport">
@@ -298,19 +305,34 @@ export default function Home() {
               <p className="text-[#cbd5e1] text-xs mt-1">safe streak</p>
             </div>
           </div>
-          <Link to="/license" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-5 h-11 rounded-full inline-flex items-center justify-center mt-6 w-fit ml-auto lg:ml-0">
-            View my license →
-          </Link>
+          {/* `lg:mt-auto` is what pins this to the card's bottom edge when the
+              activity card is the taller of the two — the gap lands above a
+              button that is clearly the end of the card, instead of below it.
+              `lg:pt-6` keeps the 24px it already had when nothing is stretched. */}
+          <div className="mt-6 lg:mt-auto lg:pt-6 flex">
+            <Link to="/license" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-5 h-11 rounded-full inline-flex items-center justify-center w-fit ml-auto lg:ml-0">
+              View my license →
+            </Link>
+          </div>
         </div>
 
-        <div className="bg-white border border-[#e0e0e5] rounded-[16px] p-6">
+        <div className="bg-white border border-[#e0e0e5] rounded-[16px] p-6 flex flex-col">
           <p className="text-navy-header font-bold text-lg">Recent activity</p>
           {activity.length === 0 ? (
-            <p className="text-[#667085] text-[13.5px] mt-4">
-              No activity yet. Protected prompts, completed training and tool decisions will appear here.
-            </p>
+            // Centred rather than parked under the heading: an employee with no
+            // activity is the case where this card is shortest and the stretch
+            // gap is largest, and a centred empty state is what that space is
+            // supposed to look like. max-w keeps it from running the full width
+            // of the card as one thin line.
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-[#667085] text-[13.5px] text-center max-w-[340px] py-6">
+                No activity yet. Protected prompts, completed training and tool decisions will appear here.
+              </p>
+            </div>
           ) : (
-            <div className="flex flex-col gap-4 mt-4">
+            // flex-1: the list takes the height the card was stretched to, so
+            // the footer below sits on the card's bottom edge.
+            <div className="flex flex-col gap-4 mt-4 flex-1">
               {activity.map(a => {
                 const s = activityStyle[a.category] || defaultStyle
                 return (
