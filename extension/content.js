@@ -153,23 +153,21 @@
     CFG.log('state', `${before} → ${next.status} (${source})`, { mode: next.mode, online: next.online })
 
     if (!next.active) {
-      // Protection just went off — a logout, or an admin session. Anything held
-      // for review is void: leaving a checkpoint on screen would strand the
-      // employee behind a decision nothing can complete any more.
+      // Protection just went off — a logout, an expiry, an admin session, or a
+      // session that can no longer be verified. Anything held for review is
+      // void: leaving a checkpoint on screen would strand the employee behind a
+      // decision nothing can complete any more.
       pending = null
       sending = false
       endWork()
       hidePanel()
-      if (next.status === 'signedOut' || next.status === 'notEmployee') maybeShowSignedOut(next)
+      if (SIGNED_OUT_STATES.has(next.status)) maybeShowSignedOut(next)
     } else if (panelKind === 'signedout') {
       // Protection came back, so the panel telling the employee they are not
       // signed in is now false. It closes itself rather than waiting to be
       // dismissed — a sign-in notice that outlives the sign-in is the one thing
       // it must never do.
       hidePanel()
-      // Signing in ends this signed-out episode, so the notice is armed again
-      // for the next one. Without this it would be shown once and never again.
-      clearSignedOutNotice()
       // …and the destination banner is resolved for the employee who just
       // arrived: their licence level and tool access were unknowable a moment
       // ago, so whatever this page's standing is, it is only knowable now.
@@ -229,8 +227,49 @@
     })
   }
 
+  // While this tab is the one being looked at, the employee's session is
+  // re-checked on a short heartbeat.
+  //
+  // This is what makes signing out reach a page the employee is still typing
+  // into. The alternative — waiting for the service worker's one-a-minute alarm
+  // — left an AI tool looking protected for up to a minute after the session
+  // behind it had ended, and left the "sign in" notice on screen for as long
+  // after they had signed back in. Neither is something an employee can be
+  // expected to fix by knowing to reload.
+  //
+  // It costs nothing when nobody is here: hidden tabs stop, and the worker
+  // answers from its own cache (CFG.stateTtlMs) rather than calling the backend
+  // once per beat per tab.
+  let heartbeat = null
+
+  function startHeartbeat() {
+    if (heartbeat || !armed) return
+    heartbeat = setInterval(() => {
+      if (!armed) return stopHeartbeat()
+      if (document.visibilityState === 'visible') nudgeState()
+    }, CFG.heartbeatMs)
+  }
+
+  function stopHeartbeat() {
+    clearInterval(heartbeat)
+    heartbeat = null
+  }
+
   function onVisibility() {
-    if (document.visibilityState === 'visible') nudgeState()
+    if (document.visibilityState !== 'visible') {
+      stopHeartbeat()
+      return
+    }
+    nudgeState()
+    startHeartbeat()
+    // A notice raised while this tab was in the background is delivered now,
+    // but only if it is still true — the employee may well have signed back in
+    // while they were away, and the notice must never outlive the sign-in.
+    const held = noticePending
+    noticePending = null
+    if (held && !protection.active && SIGNED_OUT_STATES.has(protection.status)) {
+      maybeShowSignedOut(protection)
+    }
   }
 
   function onPageHide(e) {
@@ -670,6 +709,15 @@
         else if (!res.__fatal && protection.status === 'unknown') {
           return fallback(text, origin, res.__error)
         }
+      } else if (Date.now() - protection.at > CFG.stateTtlMs) {
+        // Known, but not recently. A send is the moment where being wrong about
+        // the session costs the most in both directions — passing a prompt
+        // through because we think they signed out, or recording one against an
+        // employee whose session has since ended. The heartbeat keeps this rare;
+        // when it does happen the worker usually answers from its own cache, so
+        // this is a message rather than a request.
+        const res = await ask({ type: 'AIP_STATE' })
+        if (!res.__error) applyState(res, 'checkpoint-stale')
       }
 
       // Protection is genuinely off (nobody signed in, or the extension has been
@@ -1199,49 +1247,41 @@
     )
   }
 
-  // Protection is off because nobody is signed in. Informational and dismissible:
-  // the extension is not intercepting anything in this state, so this must not
-  // look like something the employee has to resolve before using their AI tool.
-  // ---- the signed-out notice, shown once per signed-out episode -------------
+  // ---- the "you are not protected" notice ----------------------------------
   //
-  // "Nobody is signed in" is worth saying once. It was being said on every AI
-  // tab the employee opened, which is the shape of a nag rather than a notice:
-  // the extension is not intercepting anything in this state, so the panel asks
-  // for attention it does not need, on a page it does not own, every time.
+  // Three states share this panel, because they share the consequence: nothing
+  // on this page is being checked. They differ only in what to say about why.
   //
-  // The marker lives in chrome.storage.local rather than in this script, because
-  // "every tab" is precisely the problem — a per-tab flag would still fire once
-  // per tab. It is cleared when protection turns active (applyState above), so
-  // signing out again is a new episode and gets its own single notice.
-  const SIGNED_OUT_NOTICE_KEY = 'aipSignedOutNotice'
+  // Shown once per signed-out *episode*, per tab. The episode is decided by the
+  // service worker (state.signedOutSince) rather than here, so every tab agrees
+  // on which sign-out it is looking at: signing back in ends the episode and the
+  // panel closes itself; signing out again begins a new one that earns a new
+  // notice. Once per tab rather than once per browser, because the tab the
+  // employee is actually typing into is the one that has to be told — a notice
+  // consumed by some other window they never looked at is a notice that did not
+  // happen. It stays dismissible, and the extension intercepts nothing in this
+  // state, so it is never a wall in front of somebody else's product.
+  const SIGNED_OUT_STATES = new Set(['signedOut', 'notEmployee', 'unverified'])
 
-  async function signedOutNoticeSeen() {
-    try {
-      const stored = await chrome.storage.local.get(SIGNED_OUT_NOTICE_KEY)
-      return Boolean(stored[SIGNED_OUT_NOTICE_KEY])
-    } catch {
-      // Orphaned context or storage unavailable. Err towards silence: a missed
-      // notice costs nothing here, a repeated one is the bug being fixed.
-      return true
-    }
-  }
+  let noticeShownFor = 0 // the episode this tab has already told the employee about
+  let noticePending = null // an episode waiting for this tab to be looked at
 
-  function clearSignedOutNotice() {
-    chrome.storage.local.remove(SIGNED_OUT_NOTICE_KEY).catch(() => {})
-  }
-
-  async function maybeShowSignedOut(state) {
-    if (await signedOutNoticeSeen()) {
-      CFG.log('state', 'signed out — notice already shown this session, staying quiet')
+  function maybeShowSignedOut(state) {
+    const episode = state.signedOutSince || state.at
+    if (episode === noticeShownFor) {
+      CFG.log('state', 'not protected — this tab has already said so for this episode')
       return
     }
-    try {
-      await chrome.storage.local.set({ [SIGNED_OUT_NOTICE_KEY]: Date.now() })
-    } catch {
-      /* the notice is still worth showing even if it cannot be remembered */
+
+    // A background tab announcing itself is a panel nobody reads, on a page the
+    // employee has not returned to yet. Hold it until they look.
+    if (document.visibilityState !== 'visible') {
+      noticePending = state
+      return
     }
-    // The state may have moved on while storage was being read.
-    if (protection.active || panelKind === 'checkpoint') return
+
+    noticeShownFor = episode
+    noticePending = null
     showSignedOut(state)
   }
 
@@ -1250,15 +1290,20 @@
   // banners (unapproved tool, banned model) must not vanish with it.
   function showSignedOut(state) {
     if (panelKind === 'checkpoint') return
-    const admin = state.status === 'notEmployee'
+    const why = {
+      notEmployee: 'You are signed in as an admin. Prompt protection follows an employee session.',
+      // Not "you are signed out": nobody has said that. What is certain is that
+      // the session could not be confirmed, and therefore that nothing here is
+      // being checked.
+      unverified: 'AI Passport could not confirm your session with your organisation, so prompts on this page are not being checked.',
+      signedOut: 'Nobody is signed in to AI Passport, so prompts on this page are not being checked.',
+    }[state.status] || 'Prompts on this page are not being checked.'
+
     showPanel(
       'signedout',
       `${header('off')}
        <p class="aip-lead">Prompts are not being protected</p>
-       <p class="aip-body">${admin
-         ? 'You are signed in as an admin. Prompt protection follows an employee session.'
-         : 'Nobody is signed in to AI Passport, so prompts on this page are not being checked.'
-       } ${esc(tool.name)} works as normal — nothing here is blocked.</p>
+       <p class="aip-body">${why} ${esc(tool.name)} works as normal — nothing here is blocked.</p>
        <div class="aip-actions">
          <button class="aip-btn aip-ghost" data-close>Dismiss</button>
          <a class="aip-btn aip-gold" href="${CFG.dashboardBase}/login" target="_blank" rel="noopener">Sign in</a>
@@ -1446,6 +1491,7 @@
     CFG.log('teardown', reason)
     clearTimeout(debounceTimer)
     clearTimeout(watchdog)
+    stopHeartbeat()
     checking = false
     sending = false
     pending = null
@@ -1479,6 +1525,8 @@
   window.addEventListener('pageshow', onPageShow)
 
   initState().catch(err => CFG.logError('init', err))
+  // Only while somebody is here to be protected — see onVisibility.
+  if (document.visibilityState === 'visible') startHeartbeat()
 
   // ---- arriving on a tool ----------------------------------------------------
   //

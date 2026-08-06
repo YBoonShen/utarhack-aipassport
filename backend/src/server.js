@@ -4,6 +4,7 @@
 // team creates the Firebase project — see README "Firebase setup".
 
 import 'dotenv/config'
+import { pathToFileURL } from 'node:url'
 import express from 'express'
 import cors from 'cors'
 import { RULES, applyRules } from './detector.js'
@@ -25,46 +26,99 @@ import {
 } from './store.js'
 import { LEVELS } from './levels.js'
 import { MODES, ORG_MODES } from './risk.js'
-import { DEPARTMENTS, EMPLOYEES, DEFAULT_EMPLOYEE_ID, employeeById, employeeIdFromEmail } from './directory.js'
+import { DEPARTMENTS, EMPLOYEES, employeeById, employeeIdFromEmail } from './directory.js'
+import {
+  createSession, verifySession, activeSession, destroySession, destroyActiveSession,
+  resetSessions, tokenFromRequest, expiresAt, publicSession,
+} from './auth.js'
 
 const app = express()
 app.use(cors())
 app.use(express.json())
 
 // ---- who is asking ---------------------------------------------------------
-// The demo has no token to verify, so the browser states its identity on every
-// request (lib/api.js sets these headers from its stored session) and the server
-// validates it against the directory before believing any of it. Two things
-// matter: an unknown employee id is refused rather than trusted, and the id is
-// taken from the request rather than from `db.session` — otherwise an admin
-// signing in from a second window would silently redirect the employee's own
-// inbox and training list to whoever logged in last.
 //
-// This is the seam Firebase Auth replaces: same shape, a verified ID token
-// instead of a header.
-function actorOf(req) {
-  const role = req.get('x-aip-role')
-  const claimed = String(req.get('x-aip-user') || '').trim()
-  if (role === 'admin') return { role: 'admin', id: 'AD-001' }
-  if (employeeById(claimed)) return { role: 'employee', id: claimed }
-  if (role === 'employee') return { role: 'employee', id: DEFAULT_EMPLOYEE_ID }
-  // No claim at all — the Chrome extension, a health check, curl. Fall back to
-  // the shared server-side session, which is the record those clients follow.
-  const session = db.session
-  if (session?.role === 'admin') return { role: 'admin', id: 'AD-001' }
-  return { role: 'employee', id: employeeById(session?.id) ? session.id : db.sessionEmployeeId }
+// A verified session token is the only thing that decides this. The browser
+// presents `Authorization: Bearer <token>`, auth.js looks the token up in its
+// own registry, and the identity comes off the *record* — never off the request.
+// A token that is unknown or has run out is not a weaker identity, it is a 401:
+// the client is told which of the two it was so it can clear its stale state
+// rather than keep rendering a session that ended.
+//
+// Firebase Auth replaces auth.js underneath this and nothing above it changes.
+function actorFromSession(session) {
+  const { role, id } = session.user
+  return role === 'admin' ? { role: 'admin', id: 'AD-001' } : { role: 'employee', id }
 }
 
+/**
+ * The fallback for a caller with no token: the Chrome extension, a health check,
+ * curl. These are read-only, employee-scoped clients that follow whoever is
+ * signed in on this machine's dashboard.
+ *
+ * What is deliberately *not* here any more: `X-AIP-Role: admin`. An unverified
+ * caller could previously claim to be an administrator simply by setting a
+ * header, and every admin route believed it. Administration now requires a
+ * verified session and nothing else — see requireAdmin.
+ */
+function actorOf(req) {
+  const claimed = String(req.get('x-aip-user') || '').trim()
+  if (employeeById(claimed)) return { role: 'employee', id: claimed }
+  const session = activeSession()
+  if (session?.user?.role === 'admin') return { role: 'admin', id: 'AD-001' }
+  const id = session?.user?.id
+  return { role: 'employee', id: employeeById(id) ? id : db.sessionEmployeeId }
+}
+
+// Routes that must still answer when the presented token is no longer good.
+// Signing in and signing out are how a client *recovers* from that state, and
+// /auth/session is the route whose whole job is to report it.
+const TOKEN_OPTIONAL = new Set(['/api/health', '/api/auth/login', '/api/auth/logout', '/api/auth/session'])
+
 app.use((req, res, next) => {
-  const actor = actorOf(req)
-  req.actor = actor
+  const token = tokenFromRequest(req)
+
+  if (token) {
+    const result = verifySession(token)
+    if (result.ok) {
+      req.auth = { verified: true, token, session: result.session }
+      req.actor = actorFromSession(result.session)
+    } else {
+      req.auth = { verified: false, token, reason: result.reason }
+      // A stale token is an answer, not an ambiguity. Everything except the
+      // recovery routes stops here, so a client can never keep operating on a
+      // session the server has already ended.
+      if (!TOKEN_OPTIONAL.has(req.path)) {
+        return res.status(401).json({
+          error: result.reason === 'expired'
+            ? 'Your session has expired. Please sign in again.'
+            : 'Your session is no longer valid. Please sign in again.',
+          reason: result.reason,
+          authenticated: false,
+        })
+      }
+    }
+  }
+
+  req.auth ??= { verified: false, token: '', reason: 'anonymous' }
+  req.actor ??= actorOf(req)
   // Points the store's per-employee views (profile, notifications, quiz,
   // assigned modules) at this request's employee.
-  if (actor.role === 'employee') setSessionEmployee(actor.id)
+  if (req.actor.role === 'employee') setSessionEmployee(req.actor.id)
   next()
 })
 
+// Two separate refusals, because they mean different things to the client. 401:
+// there is no verified session behind this request — sign in. 403: there is one,
+// and it is not an administrator's.
 function requireAdmin(req, res, next) {
+  if (!req.auth.verified) {
+    return res.status(401).json({
+      error: 'This action requires a signed-in administrator session.',
+      reason: req.auth.reason,
+      authenticated: false,
+    })
+  }
   if (req.actor.role !== 'admin') {
     return res.status(403).json({ error: 'This action is restricted to administrators.' })
   }
@@ -75,10 +129,13 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'aipassport-backend', time: new Date().toISOString() })
 })
 
-// ---- auth (demo) -----------------------------------------------------------
-// Real deployment: Firebase Authentication with role claims. For the demo the
-// email decides both the role and — for an employee — which directory record
-// signs in, so an assignment can be shown reaching one employee and not another.
+// ---- auth ------------------------------------------------------------------
+// Real deployment: Firebase Authentication with role claims — auth.js is the
+// seam it slots into. For the demo the email decides both the role and, for an
+// employee, which directory record signs in, so an assignment can be shown
+// reaching one employee and not another. What is *not* demo-shaped any more is
+// what happens afterwards: the sign-in mints a real server-side session with an
+// expiry, and the token it returns is the only thing that proves it later.
 app.post('/api/auth/login', (req, res) => {
   const { role, email } = req.body || {}
   let user
@@ -88,22 +145,44 @@ app.post('/api/auth/login', (req, res) => {
     const p = setSessionEmployee(employeeIdFromEmail(email))
     user = { role: 'employee', id: p.id, initials: p.initials, name: p.name, title: `${p.dept} · Level ${p.level}` }
   }
-  // Recorded here so every client of this backend agrees on who is signed in —
-  // the web app and the Chrome extension are different origins and cannot share
-  // localStorage, so the session has to live somewhere both of them can reach.
+  const session = createSession(user)
+  // Mirrored for the store, whose per-employee views ask "is the current session
+  // an admin's". auth.js remains the authority; this is a projection of it.
   db.session = user
   recordSession('in', user)
-  res.json(user)
+  res.json({ user, token: session.token, expiresAt: expiresAt(session) })
 })
 
-// Read by the extension popup on every open, so the sidebar restores the same
-// employee the dashboard is signed in as. Returns { user: null } when signed out.
-app.get('/api/auth/session', (req, res) => res.json({ user: db.session }))
+// Two questions share this route, and the difference is the token.
+//
+//   With a token — the web app asking about *its own* session. This is the call
+//   that decides whether the admin console renders at all, so it answers only
+//   from the registry: 200 for a live session, 401 (with the reason) for one
+//   that has expired or was never real. It never infers a session from the fact
+//   that somebody, somewhere, is signed in.
+//
+//   Without one — the Chrome extension, which lives on another origin, cannot
+//   share the dashboard's storage and has no token of its own. It asks who is
+//   signed in on this machine's dashboard and protects that employee.
+//   `{ user: null }` is the honest answer when nobody is.
+app.get('/api/auth/session', (req, res) => {
+  if (req.auth.verified) {
+    return res.json({ ...publicSession(req.auth.session), authenticated: true })
+  }
+  if (req.auth.token) {
+    return res.status(401).json({ user: null, authenticated: false, reason: req.auth.reason })
+  }
+  const session = activeSession()
+  res.json({ ...(publicSession(session) || { user: null }), authenticated: Boolean(session) })
+})
 
 app.post('/api/auth/logout', (req, res) => {
-  if (db.session) recordSession('out', db.session)
-  db.session = null
-  res.json({ ok: true })
+  // Signing out is idempotent and must never fail: an expired token is already
+  // signed out, and saying so is the same answer as ending a live session.
+  const ended = req.auth.token ? destroySession(req.auth.token) : destroyActiveSession()
+  if (ended) recordSession('out', ended.user)
+  db.session = activeSession()?.user || null
+  res.json({ ok: true, authenticated: false })
 })
 
 // ---- smart gateway ---------------------------------------------------------
@@ -722,12 +801,28 @@ app.put('/api/settings', requireAdmin, (req, res) => {
 })
 
 // ---- demo helpers ----------------------------------------------------------
+// Back to the seed state, sessions included: a reset that left people signed in
+// would leave the browser holding a token for an organisation that no longer
+// has the record behind it.
 app.post('/api/reset', (req, res) => {
   resetStore()
+  resetSessions()
+  db.session = null
   res.json({ ok: true })
 })
 
+// Sessions outlive a restart (see auth.js), so the store's projection of "who is
+// signed in" is restored with them rather than starting out disagreeing.
+db.session = activeSession()?.user || null
+
 const PORT = process.env.PORT || 5001
-app.listen(PORT, () => {
-  console.log(`AI Passport backend running on http://localhost:${PORT}`)
-})
+
+// Imported by the HTTP tests, which bind their own ephemeral port. Only the
+// process actually started as the backend opens the real one.
+export { app }
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  app.listen(PORT, () => {
+    console.log(`AI Passport backend running on http://localhost:${PORT}`)
+  })
+}

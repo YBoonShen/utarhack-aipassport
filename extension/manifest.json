@@ -12,7 +12,9 @@
     "https://claude.ai/*",
     "https://gemini.google.com/*",
     "https://*.deepseek.com/*",
+    "https://kimi.com/*",
     "https://*.kimi.com/*",
+    "https://moonshot.cn/*",
     "https://*.moonshot.cn/*"
   ],
   "background": {
@@ -26,7 +28,9 @@
         "https://claude.ai/*",
         "https://gemini.google.com/*",
         "https://*.deepseek.com/*",
+        "https://kimi.com/*",
         "https://*.kimi.com/*",
+        "https://moonshot.cn/*",
         "https://*.moonshot.cn/*"
       ],
       "js": ["config.js", "rules.js", "state.js", "content.js"],
@@ -42,7 +46,9 @@
         "https://claude.ai/*",
         "https://gemini.google.com/*",
         "https://*.deepseek.com/*",
+        "https://kimi.com/*",
         "https://*.kimi.com/*",
+        "https://moonshot.cn/*",
         "https://*.moonshot.cn/*"
       ]
     }

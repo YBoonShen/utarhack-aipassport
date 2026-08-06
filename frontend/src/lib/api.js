@@ -35,29 +35,66 @@ export function logFailure(scope, error) {
   console.error(`[AI Passport] ${scope} failed`, error)
 }
 
-// Who this tab is signed in as, stated on every request. The server validates
-// it against its own directory before believing any of it — this is not a
-// credential, it is the seam a Firebase ID token slots into later. It exists
-// because the backend has to answer two browsers at once (an admin console and
-// an employee passport) without the later sign-in redefining who the earlier
-// one is: notifications, assigned training and the quiz all hang off it.
-function identityHeaders() {
-  const user = currentUser()
-  if (!user) return {}
-  return { 'X-AIP-Role': user.role, 'X-AIP-User': user.id }
+// The session token, sent on every request. This *is* the credential: the server
+// looks it up in its own registry (backend/src/auth.js) and derives the caller's
+// identity from the record it finds, so nothing this browser believes about
+// itself is part of the answer.
+//
+// It replaces a pair of `X-AIP-Role` / `X-AIP-User` headers filled in from
+// localStorage — an arrangement in which the browser stated who it was and the
+// server took its word for the role. The seam is unchanged; a Firebase ID token
+// goes in exactly here.
+function authHeaders() {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+/**
+ * The two failures that must never be confused.
+ *
+ * `offline` — the request did not complete: the backend is down, the network
+ * dropped, the dev proxy refused the connection. It says nothing at all about
+ * whether the session is valid, so nothing may be concluded from it.
+ *
+ * `authInvalid` — the server answered 401. That *is* a statement about the
+ * session: it has expired or was never real. This is the only signal that may
+ * sign somebody out, and it clears the stored session as it passes.
+ */
 async function request(path, options = {}) {
-  const res = await fetch(`/api${path}`, {
-    ...options,
-    headers: { ...identityHeaders(), ...(options.headers || {}) },
-  })
+  let res
+  try {
+    res = await fetch(`/api${path}`, {
+      ...options,
+      headers: { ...authHeaders(), ...(options.headers || {}) },
+    })
+  } catch (cause) {
+    const error = new Error(`API ${path} could not be reached`)
+    error.status = 0
+    error.offline = true
+    error.cause = cause
+    throw error
+  }
+
   if (!res.ok) {
     // Keep the status and payload — callers such as the 24h retry lock need the
     // details the server sent with the error (e.g. 423 + retryAvailableAt).
     const error = new Error(`API ${path} failed (${res.status})`)
     error.status = res.status
     error.body = await res.json().catch(() => null)
+    if (res.status === 401) {
+      error.authInvalid = true
+      error.reason = error.body?.reason || 'invalid'
+      // Whatever this tab was showing, the server has just said the session
+      // behind it is over. Clearing here — rather than in whichever screen
+      // happened to make the call — is what stops one stale token from being
+      // re-sent by the next twelve requests.
+      clearStoredSession()
+      emitAuthInvalid(error.reason)
+    }
+    // A 5xx is the dev proxy's answer when the backend is not listening, and the
+    // deployment's answer when it is unwell. Either way it is an outage, not a
+    // verdict about the session.
+    if (res.status >= 500) error.offline = true
     throw error
   }
   return res.json()
@@ -79,10 +116,36 @@ export const api = {
     }),
 }
 
-// ---- demo auth (localStorage session; Firebase Auth later) ----
+// ---- the session, as this browser holds it ---------------------------------
+//
+// Two things are stored, and only one of them is a credential.
+//
+//   aip-token — the opaque session token the server minted. Proof, and the only
+//               proof: it means nothing until the server recognises it.
+//   aip-user  — a *cache* of who that session belongs to, so the header can draw
+//               an avatar without a round trip and so per-employee local keys
+//               (the level-up celebration, the 24h retry lock) know whose they
+//               are. It is display state. It has never been, and must never
+//               become, the reason an authenticated screen renders.
+//
+// The distinction is the entire admin bug: the router used to read aip-user
+// synchronously and mount the admin console on the strength of it, so a leftover
+// object from a previous demo — or one typed into devtools — was a signed-in
+// administrator, and with the backend down nothing ever contradicted it.
 
 const KEY = 'aip-user'
+const TOKEN_KEY = 'aip-token'
+const EXPIRY_KEY = 'aip-session-expires'
 
+export function getToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+/** The cached display identity. Never evidence of a session — see above. */
 export function currentUser() {
   try {
     return JSON.parse(localStorage.getItem(KEY))
@@ -91,40 +154,110 @@ export function currentUser() {
   }
 }
 
-// The email decides both the role and, for an employee, which directory record
-// signs in — so the same demo can show a training reaching one employee and not
-// another. The server resolves it; this only passes it on.
-export async function login(role, email) {
-  const user = await api.post('/auth/login', { role, email })
+/** When the server said this session runs out, or 0 if we were never told. */
+export function sessionExpiry() {
+  return Number(localStorage.getItem(EXPIRY_KEY)) || 0
+}
+
+export function storeSession({ user, token, expiresAt }) {
+  localStorage.setItem(TOKEN_KEY, token)
   localStorage.setItem(KEY, JSON.stringify(user))
+  if (expiresAt) localStorage.setItem(EXPIRY_KEY, String(expiresAt))
   return user
 }
 
-// The server-side session (db.session) is what the Chrome extension reads to
-// learn who is signed in, and it lives in memory — a backend restart drops it
-// while this tab is still signed in from localStorage. That split is what left
-// the extension reporting "signed out" for an employee who plainly was not, so
-// the dashboard re-asserts its session whenever it loads.
-//
-// Only ever a *re-assertion*: with nothing in localStorage there is nothing to
-// restore, so a genuinely fresh browser still starts signed out.
-export async function restoreSession() {
-  const user = currentUser()
-  if (!user) return null
-  try {
-    const { user: live } = await request('/auth/session')
-    if (live?.role === user.role && live?.id === user.id) return live
-    // Same tab, different identity on the shared session — re-assert this one.
-    return await api.post('/auth/login', { role: user.role, email: user.id })
-  } catch {
-    return null // backend down; the local session is unaffected
+export function clearStoredSession() {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(KEY)
+  localStorage.removeItem(EXPIRY_KEY)
+}
+
+// Any request may be the one that discovers the session has ended. Subscribers
+// (the auth provider) hear about it once, wherever it happened, so a 401 in a
+// background poll signs the tab out just as a 401 on a click would.
+const authInvalidListeners = new Set()
+
+export function onAuthInvalid(fn) {
+  authInvalidListeners.add(fn)
+  return () => authInvalidListeners.delete(fn)
+}
+
+function emitAuthInvalid(reason) {
+  for (const fn of authInvalidListeners) {
+    try {
+      fn(reason)
+    } catch (err) {
+      logFailure('auth listener', err)
+    }
   }
 }
 
-export function logout() {
-  localStorage.removeItem(KEY)
-  // Clear the shared server-side session too, so the Chrome extension signs out
-  // with the web app instead of holding a stale employee. Fire-and-forget: the
-  // local session is already gone, so a failed call must not block the redirect.
-  api.post('/auth/logout').catch(() => {})
+// The email decides both the role and, for an employee, which directory record
+// signs in — so the same demo can show a training reaching one employee and not
+// another. The server resolves it, mints the session and returns its token.
+export async function login(role, email) {
+  const { user, token, expiresAt } = await api.post('/auth/login', { role, email })
+  storeSession({ user, token, expiresAt })
+  return user
+}
+
+/**
+ * Ask the server who this browser is. The only function in the app that may
+ * answer that question, and it answers in three ways, never two:
+ *
+ *   authenticated   — the token names a live session; `user` comes off the
+ *                     server's record, not off anything stored here.
+ *   unauthenticated — no token, or the server refused it. Local state is
+ *                     already cleared by then.
+ *   unavailable     — the request did not complete. Nothing is concluded and
+ *                     nothing is cleared: a backend that is down has not
+ *                     signed anybody out, and must not be able to.
+ */
+// The session is re-checked every few seconds while the backend is down, and one
+// console line per attempt would bury whatever else the person debugging is
+// looking at. The first failure of an outage is logged; the rest are the same
+// error.
+let outageLogged = false
+
+export async function fetchSession({ signal } = {}) {
+  if (!getToken()) {
+    // Nothing to verify. A cached user with no token is the residue of an older
+    // build (or a hand-edited one); it is not a session, so it goes.
+    clearStoredSession()
+    return { status: 'unauthenticated', user: null, reason: 'no-token' }
+  }
+  try {
+    const data = await request('/auth/session', { signal })
+    if (!data?.user) {
+      clearStoredSession()
+      return { status: 'unauthenticated', user: null, reason: 'no-session' }
+    }
+    storeSession({ user: data.user, token: getToken(), expiresAt: data.expiresAt })
+    outageLogged = false
+    return { status: 'authenticated', user: data.user, expiresAt: data.expiresAt }
+  } catch (err) {
+    if (err.authInvalid) {
+      outageLogged = false
+      return { status: 'unauthenticated', user: null, reason: err.reason }
+    }
+    if (!outageLogged) {
+      outageLogged = true
+      logFailure('session check', err)
+    }
+    return { status: 'unavailable', user: null, reason: 'unreachable' }
+  }
+}
+
+// Ends the session at the server first, so the Chrome extension — which follows
+// whoever is signed in on the dashboard — stops protecting an employee who has
+// signed out. The local state is cleared either way: a failed call must never
+// leave the browser holding a session it has decided to end.
+export async function logout() {
+  try {
+    await api.post('/auth/logout')
+  } catch (err) {
+    logFailure('sign-out', err)
+  } finally {
+    clearStoredSession()
+  }
 }

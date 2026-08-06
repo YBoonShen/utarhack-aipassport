@@ -141,8 +141,30 @@ chrome.storage.local.aipProtection      ← the single record
 
 `chrome.storage.onChanged` fires in every context at once, so signing in or out
 reaches an already-open ChatGPT tab without a reload and without a message that
-could go missing. A one-minute alarm re-resolves the record, because a dashboard
-login happens on another origin that cannot notify the extension.
+could go missing. Two clocks keep the record current, because a dashboard login
+happens on another origin that cannot notify the extension:
+
+- a **one-minute alarm** in the service worker — the floor, running whether or
+  not any AI tab is open;
+- a **15-second heartbeat** from the checkpoint on whichever AI tab is visible
+  (`config.js` → `heartbeatMs`) — so a sign-out reaches a page the employee is
+  still typing into, and a sign-in clears the notice without a refresh. Those
+  calls are answered from the worker's own cache (`stateTtlMs`, 10s) and
+  single-flighted, so ten open tabs are not ten times the traffic.
+
+`derive()` separates the two failures that look identical from inside a browser:
+
+| | backend answered | backend did not answer |
+|---|---|---|
+| **session live** | `active` — full two-layer checks | `degraded` for `AUTH_GRACE_MS` (2 min), then `unverified` |
+| **no session** | `signedOut` | `signedOut` (an outage cannot sign anyone *in*) |
+| **never reached** | — | `offline` |
+
+`degraded` keeps protection on: an outage is when it matters most, and the local
+Layer 1 rules still mask. `unverified` turns it off and says so — after the grace
+window the cached session is no longer evidence of anything, and claiming
+protection would be a claim with nothing behind it. Only an *answer* moves the
+`verifiedAt` clock, so a failed retry can never renew the window.
 
 The three surfaces never derive this independently. The popup adds exactly one
 fact of its own — whether a checkpoint is running *in this tab*, which it proves
@@ -218,11 +240,16 @@ never sent silently, and the tool is never left unusable.
   print the model name the UI is showing. If every selector misses, the checkpoint
   simply has no model to report — it never guesses.
 - **Protection follows the dashboard session.** The extension has no login of its
-  own; it reads `/api/auth/session`. That session is in-memory on the backend, so
-  a backend restart drops it — the dashboard re-asserts it on load
-  (`frontend/src/lib/api.js` → `restoreSession()`). With nothing in the
-  dashboard's localStorage there is nothing to restore, so a genuinely fresh
-  browser still starts signed out.
-- **Local dev only.** `apiBase` is plain HTTP on localhost and the requests carry
-  no auth token. Production needs HTTPS plus the employee's session token —
-  added in `background.js` → `callApi()`. No secret is shipped in the extension.
+  own: it runs on another origin, cannot share the dashboard's storage, and has
+  no token. It asks `/api/auth/session` *without* one, which the backend answers
+  with whoever is signed in on this machine's dashboard — subject to the same
+  expiry as any other session, and `{ "user": null }` the moment that session
+  ends. Reading it grants nothing; it is a lookup, not a credential. Sessions are
+  held in `backend/src/auth.js` and persisted, so restarting the backend no
+  longer signs everybody out (and the dashboard no longer has to re-assert its
+  stored identity to work around it — that workaround was localStorage
+  authenticating itself).
+- **Local dev only.** `apiBase` is plain HTTP on localhost. Production needs
+  HTTPS, and the employee's own session token attached in `background.js` →
+  `callApi()` instead of the shared-session lookup. No secret is shipped in the
+  extension.

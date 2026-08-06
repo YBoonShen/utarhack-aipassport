@@ -43,36 +43,77 @@ function postJson(path, body) {
 }
 
 // ---- protection state ------------------------------------------------------
-// The employee's session, profile and the org policy resolved together, into the
-// single record every surface reads. Resolved together on purpose: three
-// separate fetches produced three separate opinions about being online, which is
-// how the popup could say "protected" while the next detect call failed.
+// The employee's session, profile and the org policy folded into the single
+// record every surface reads. One derivation, one publish: three separate
+// fetches with three separate opinions about being online is how the popup came
+// to say "protected" while the next detect call failed.
+//
+// Within that, the *session* is resolved on its own and first — it is the only
+// part that is authoritative, and the only part allowed to decide whether this
+// employee is protected. Profile and settings decorate it and may fail.
 
 let cached = null // last derived state, so a warm worker answers instantly
 let inFlight = null // single-flight: concurrent tabs share one refresh
 
-async function fetchState() {
-  // /auth/session is the authority on who is signed in — the dashboard writes it
-  // on login, so the extension follows the web app without sharing localStorage.
-  const [session, profile, settings] = await Promise.all([
-    callApi('/auth/session'),
-    callApi('/profile'),
-    callApi('/settings'),
-  ])
-  return STATE.derive({ user: session?.user || null, profile, settings, online: true })
+// The last record this browser profile saw, whether or not this worker is the
+// one that wrote it. An MV3 worker is evicted freely, so "what did we know" has
+// to survive in storage rather than in a variable.
+async function storedState() {
+  try {
+    const stored = await chrome.storage.local.get(STATE.KEY)
+    return stored[STATE.KEY] || null
+  } catch {
+    return null
+  }
 }
 
-// Everything the gateway told us last time, so an offline worker still knows who
-// is signed in instead of silently switching protection off.
-async function fetchStateOffline(error) {
-  const stored = await chrome.storage.local.get(STATE.KEY)
-  const last = stored[STATE.KEY]
+/**
+ * Ask the backend who is signed in.
+ *
+ * /auth/session is the authority, and it is asked *first and on its own*. The
+ * three calls used to go out together, which quietly made the answer to "is this
+ * employee signed in" depend on /profile and /settings answering too: any one of
+ * them failing threw, and the session — which had been resolved perfectly well —
+ * was discarded along with it. Profile and settings are decoration; they may
+ * fail and fall back to the last known values without touching the verdict.
+ */
+async function fetchState(last, now = Date.now()) {
+  const session = await callApi('/auth/session')
+  const user = session?.user || null
+
+  if (!user) {
+    // A confirmed "nobody is signed in". Nothing of the previous employee is
+    // carried over — a stale profile behind a signed-out state is exactly the
+    // kind of leftover that makes an ended session look live.
+    return STATE.derive({ user: null, settings: last?.settings || null, online: true, now })
+  }
+
+  const [profile, settings] = await Promise.all([
+    callApi('/profile').catch(() => null),
+    callApi('/settings').catch(() => null),
+  ])
+  return STATE.derive({
+    user,
+    profile: profile || (last?.user?.id === user.id ? last.profile : null),
+    settings: settings || last?.settings || null,
+    online: true,
+    now,
+  })
+}
+
+// The backend could not be reached. Everything it told us last time is carried
+// forward *with the time it told us*, so derive() can tell a dropped connection
+// (protection continues, locally) from a session nobody can vouch for any more.
+// A failed request is never allowed to look like an answer.
+function fetchStateOffline(last, error, now = Date.now()) {
   return STATE.derive({
     user: last?.user || null,
     profile: last?.profile || null,
     settings: last?.settings || null,
+    verifiedAt: last?.verifiedAt || 0,
     online: false,
     error,
+    now,
   })
 }
 
@@ -81,13 +122,14 @@ async function refreshState(force = false) {
   if (inFlight) return inFlight
 
   inFlight = (async () => {
+    const last = cached || (await storedState())
     let next
     try {
-      next = await fetchState()
+      next = await fetchState(last)
     } catch (err) {
-      next = await fetchStateOffline(String(err?.message || err))
+      next = fetchStateOffline(last, String(err?.message || err))
     }
-    return publish(next)
+    return publish(next, last)
   })()
 
   try {
@@ -97,23 +139,46 @@ async function refreshState(force = false) {
   }
 }
 
+/**
+ * When the current not-signed-in episode began, or 0 while somebody is signed in.
+ *
+ * The content script shows its "nobody is signed in" notice once per episode per
+ * tab, and this is what an episode *is*. Deriving it here, in the one writer,
+ * means every tab agrees on which sign-out they are looking at: signing back in
+ * ends the episode, and signing out again starts a new one that earns a new
+ * notice. It also means the marker cannot outlive the condition — that was the
+ * old failure mode, a sign-in notice still on screen after the sign-in.
+ */
+function episodeOf(next, prev) {
+  const out = next.status === 'signedOut' || next.status === 'notEmployee' || next.status === 'unverified'
+  if (!out) return 0
+  const started = prev?.signedOutSince
+  const sameEpisode = started
+    && (prev.status === 'signedOut' || prev.status === 'notEmployee' || prev.status === 'unverified')
+  return sameEpisode ? started : next.at
+}
+
 // The publish step is what synchronises everyone: one storage write, and
 // chrome.storage.onChanged delivers it to the popup and to every content script
 // in every open AI tab at the same time. No per-tab messaging to miss.
-async function publish(next) {
-  const changed = !cached || cached.status !== next.status || cached.mode !== next.mode
-  cached = next
-  await chrome.storage.local.set({ [STATE.KEY]: next })
+async function publish(next, prev = cached) {
+  const record = { ...next, signedOutSince: episodeOf(next, prev) }
+  const changed = !prev || prev.status !== record.status || prev.mode !== record.mode
+  cached = record
+  await chrome.storage.local.set({ [STATE.KEY]: record })
   if (changed) {
-    CFG.log('state', `protection -> ${next.status}`, {
-      signedIn: next.signedIn, online: next.online, mode: next.mode, reason: next.reason,
+    CFG.log('state', `protection -> ${record.status}`, {
+      signedIn: record.signedIn, online: record.online, mode: record.mode, reason: record.reason,
     })
   }
+  // A session that ended must not leave this browser holding the policy verdicts
+  // that were resolved for it — the next employee to sign in gets their own.
+  if (!record.signedIn && prev?.signedIn) forgetPolicies().catch(() => {})
   // Back online is the moment anything held during the outage can be recorded.
   // Driven from here rather than from a timer of its own, so there is still only
   // one thing in this worker deciding whether the gateway is reachable.
-  if (next.online) flushQueue().catch(() => {})
-  return next
+  if (record.online) flushQueue().catch(() => {})
+  return record
 }
 
 // A backend call that failed is first-hand evidence the gateway is down, so the
@@ -285,6 +350,22 @@ async function readPolicyStore() {
   return stored[POLICY_KEY] || {}
 }
 
+// Everything this browser worked out about where an employee stood, forgotten
+// when their session ends.
+//
+// These verdicts are per employee — a licence level, an access request, a data
+// scope. Left behind, the offline fallback in resolveTool() would answer the
+// *next* person to sign in with the last one's standing, and answer it
+// confidently. A session ending is the one moment that has to be cleaned up.
+async function forgetPolicies() {
+  policyCache.clear()
+  try {
+    await chrome.storage.local.remove(POLICY_KEY)
+  } catch {
+    /* orphaned context — the cache goes with it anyway */
+  }
+}
+
 // The arrival itself. Separate from resolving so that asking a question can
 // never write a record. The backend de-duplicates per employee + tool per hour,
 // so re-arming the checkpoint on a navigation cannot fill the queue.
@@ -426,10 +507,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 })
 
 // ---- keeping the state current ---------------------------------------------
-// A dashboard login happens in a different tab, on a different origin: nothing
-// notifies the extension. The alarm is what makes "sign in, go back to ChatGPT"
-// work without reloading anything — the content script picks the change up
-// through storage, so protection turns on in a tab that never navigated.
+// A dashboard login or logout happens in a different tab, on a different origin:
+// nothing notifies the extension. So it asks, on two clocks that cover different
+// situations.
+//
+//   The alarm below — the floor. It runs whether or not any AI tab is open, and
+//   it is what makes "sign in, go back to ChatGPT" work without reloading
+//   anything. chrome.alarms cannot fire faster than once a minute.
+//
+//   The tabs themselves — the ceiling. A content script sitting on an AI tool
+//   sends AIP_STATE on a short heartbeat while it is the visible tab (see
+//   CFG.heartbeatMs), which is the case where the answer actually matters and
+//   where a stale one is worst: the employee signs out, keeps typing into
+//   ChatGPT, and must not be left believing the checkpoint is still in front of
+//   them. Those calls are answered from cache within stateTtlMs and
+//   single-flighted across tabs, so ten open tabs are not ten times the traffic.
+//
+// Neither clock is trusted to be the only one: a worker that was evicted between
+// alarms is woken by the next message, and a tab that was in the background is
+// re-checked the moment it is looked at.
 
 chrome.alarms.create('aip-state', { periodInMinutes: CFG.statePollMinutes })
 chrome.alarms.onAlarm.addListener(alarm => {

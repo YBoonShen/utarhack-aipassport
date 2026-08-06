@@ -206,7 +206,9 @@ the extension shows its standing "not approved" banner *and* the admin gets the 
 | `npm` or `node` is "not recognized" | Node.js isn't installed, or Command Prompt was open before you installed it. Reinstall from Step 1 and open a **new** Command Prompt. |
 | The page at localhost:5173 won't load | The frontend window isn't running. Re-run `start.bat`, or `npm run dev` inside `frontend`. |
 | Extension popup says "Gateway unreachable" | The backend isn't running. Check <http://localhost:5001/api/health>. |
-| Popup says "Sign in to protect your prompts" | Sign in at http://localhost:5173. It can take up to a minute to reach an already-open ChatGPT tab. |
+| Popup says "Sign in to protect your prompts" | Nobody is signed in. Sign in at http://localhost:5173 — an open ChatGPT tab picks it up within about 15 seconds, with no reload. |
+| Popup says "Your sign-in could not be confirmed" | The backend has been unreachable for over two minutes, so the session can no longer be verified. Check <http://localhost:5001/api/health>; it clears by itself when the backend answers again. |
+| The dashboard says "We can't verify your session right now" | Same cause, web-app side. It is deliberately *not* showing you as signed in — it retries every few seconds and recovers on its own. |
 | Port 5001 or 5173 "already in use" | Something else is on that port. Double-click `stop.bat` and start again. |
 | The panel never appears in ChatGPT | Reload the extension at `chrome://extensions`, then **refresh the ChatGPT tab**. |
 | Nothing detected at all | Prompts under 12 characters are skipped on purpose. Try the full example sentence. |
@@ -270,7 +272,9 @@ npm test
 | Method | Endpoint                   | Description |
 |--------|----------------------------|-------------|
 | GET    | /api/health                | Service check |
-| POST   | /api/auth/login            | `{ role }` → demo session (email decides role in the UI) |
+| POST   | /api/auth/login            | `{ role, email }` → `{ user, token, expiresAt }` — mints a server-side session (email decides role in the UI) |
+| GET    | /api/auth/session          | With `Authorization: Bearer` → this session, or **401** with a `reason` (`expired` / `invalid`). Without one → whoever is signed in on this machine's dashboard, for the extension |
+| POST   | /api/auth/logout           | Ends the session for the web app and the extension at once. Idempotent |
 | POST   | /api/detect                | `{ prompt }` → `{ masked, detections, layer2, mode }` — two-layer scan; logs audit + applies XP rules (clean +2, masked +0) |
 | POST   | /api/detect/backfill       | `{ events }` — audit records the extension held during a gateway outage; re-scanned, deduped by id, recorded with `offline: true`, no XP |
 | POST   | /api/gateway/tool-use      | `{ tool, model? }` — an employee reached a tool. Approved ones answer quietly; anything else writes an audit event and raises a risk alert |
@@ -310,7 +314,38 @@ The **durable slice** — every employee's XP, per-module training records and s
 plus the training library, its assignment records and the notifications they produced —
 is written to `backend/data/progress.json`, so an assignment and an employee's XP both
 survive a refresh, a re-login, a different device and a server restart.
-`POST /api/reset` clears it.
+Sessions are durable too (`backend/data/sessions.json`), for the same reason a real
+deployment keeps them in a datastore: restarting the API is an operational event, not
+a decision to sign everybody out. `POST /api/reset` clears both.
+
+## Authentication: the server is the only thing that knows
+
+Signing in mints a **server-side session record** (`backend/src/auth.js`) and returns
+the opaque token that names it. Everything after that is judged against the record:
+
+- **The token is the only credential.** An unknown or expired one is a `401` with a
+  `reason`, never a weaker identity. There is no header a caller can set to become an
+  administrator — `requireAdmin` needs a verified session and nothing else.
+- **Expiry is real**: 8 hours idle (extended by use) with a 24-hour absolute cap, so a
+  token that leaks cannot be renewed forever. Both are tunable via
+  `AUTH_SESSION_IDLE_MS` / `AUTH_SESSION_MAX_MS`.
+- **The browser stores a token, not an identity.** `localStorage` also holds a cached
+  user for the avatar and for per-employee local keys, but it is display state: no
+  screen renders because of it. The web app resolves its session against the server
+  before showing anything authenticated, and treats *loading*, *authenticated*,
+  *unauthenticated* and *unable to verify* as four separate states
+  (`frontend/src/lib/auth.jsx`).
+- **An outage is not a sign-out.** A failed request proves nothing about a session, so
+  it never destroys one — but it never claims one either. The dashboard shows "we
+  can't verify your session"; the extension keeps protecting for a two-minute grace
+  window and then reports that it can no longer confirm the session. Both recover by
+  themselves when the backend answers again.
+- **One sign-out, everywhere.** Ending the session ends it for the web app and for the
+  Chrome extension in the same call — the extension follows the server's record, not
+  the browser's.
+
+This is the seam **Firebase Authentication** replaces: `createSession()` becomes the
+ID-token mint and `verifySession()` becomes `verifyIdToken()`. Nothing above it moves.
 
 ## The audit log: what is recorded, and what is never stored
 

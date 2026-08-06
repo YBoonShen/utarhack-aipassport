@@ -7,7 +7,8 @@
 // anything else signs in as the employee. Firebase Auth later.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login, logFailure, SIGN_IN_UNAVAILABLE } from '../lib/api.js'
+import { logFailure, SIGN_IN_UNAVAILABLE } from '../lib/api.js'
+import { useAuth } from '../lib/auth.jsx'
 import { useToast } from '../components/Toast.jsx'
 
 const panelCopy = {
@@ -107,6 +108,9 @@ export default function Auth() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [user, setUser] = useState(null)
+  // Aliased: the two form handlers below are this page's own signIn /
+  // signInWithSSO. `authenticate` is the app-wide one that mints the session.
+  const { signIn: authenticate } = useAuth()
   const toast = useToast()
 
   const copy = panelCopy[view]
@@ -120,7 +124,7 @@ export default function Auth() {
       // The email also selects which directory employee signs in — the server
       // resolves it, so a reviewer can be E-217 in one window and E-198 in
       // another and watch an assignment reach exactly one of them.
-      const u = await login(role, email.trim())
+      const u = await authenticate(role, email.trim())
       setUser(u)
       setView('success')
     } catch (err) {
@@ -141,7 +145,7 @@ export default function Auth() {
     setBusy(true)
     setError(null)
     try {
-      const u = await login('admin')
+      const u = await authenticate('admin')
       setUser(u)
       setView('success')
     } catch (err) {

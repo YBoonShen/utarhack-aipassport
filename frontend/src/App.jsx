@@ -3,8 +3,8 @@ import EmployeeHeader from './components/EmployeeHeader.jsx'
 import AdminLayout from './components/AdminLayout.jsx'
 import { NotificationsProvider } from './components/notificationsStore.jsx'
 import { ToastProvider } from './components/Toast.jsx'
-import { useEffect } from 'react'
-import { currentUser, restoreSession } from './lib/api.js'
+import { CheckingSession, SessionUnavailable } from './components/SessionScreen.jsx'
+import { AuthProvider, useAuth, AUTH } from './lib/auth.jsx'
 import Auth from './pages/Auth.jsx'
 import Home from './pages/Home.jsx'
 import License from './pages/License.jsx'
@@ -29,16 +29,27 @@ import ToolApprovals from './pages/admin/ToolApprovals.jsx'
 import Employees from './pages/admin/Employees.jsx'
 import Settings from './pages/admin/Settings.jsx'
 
+// Every gated route passes through here, and it can only reach `children` from
+// one of the four states. There is no default branch that lets a screen render
+// while the answer is still outstanding — that default was the bug.
 function RequireRole({ role, children }) {
-  const user = currentUser()
-  if (!user) return <Navigate to="/login" replace />
+  const { status, user, revalidate } = useAuth()
+
+  if (status === AUTH.LOADING) return <CheckingSession />
+  // Unable to verify is not authorisation. Nothing gated is rendered, and the
+  // provider keeps retrying underneath this screen.
+  if (status === AUTH.UNAVAILABLE) return <SessionUnavailable onRetry={revalidate} />
+  if (status !== AUTH.AUTHENTICATED || !user) return <Navigate to="/login" replace />
   if (role && user.role !== role) return <Navigate to={user.role === 'admin' ? '/admin' : '/license'} replace />
   return children
 }
 
 function HomeRedirect() {
-  const user = currentUser()
-  if (!user) return <Navigate to="/login" replace />
+  const { status, user, revalidate } = useAuth()
+
+  if (status === AUTH.LOADING) return <CheckingSession />
+  if (status === AUTH.UNAVAILABLE) return <SessionUnavailable onRetry={revalidate} />
+  if (status !== AUTH.AUTHENTICATED || !user) return <Navigate to="/login" replace />
   return <Navigate to={user.role === 'admin' ? '/admin' : '/home'} replace />
 }
 
@@ -56,11 +67,8 @@ function EmployeePage({ children, role = 'employee' }) {
 }
 
 export default function App() {
-  // Keeps the shared server-side session in step with this tab, so the Chrome
-  // extension follows the same employee the dashboard is signed in as.
-  useEffect(() => { restoreSession() }, [])
-
   return (
+    <AuthProvider>
     <ToastProvider>
     <NotificationsProvider>
       <BrowserRouter>
@@ -108,5 +116,6 @@ export default function App() {
       </BrowserRouter>
     </NotificationsProvider>
     </ToastProvider>
+    </AuthProvider>
   )
 }

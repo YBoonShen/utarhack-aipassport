@@ -480,6 +480,57 @@ test('level 3 reaches the Kimi free models, level 4 reaches K3', () => {
   assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'Kimi', model: 'K3', types: ['IC'] }).mode, MODES.MASK)
 })
 
+// ---- Kimi: the same three states, end to end ---------------------------------
+// Kimi is a data-only register entry — nothing in the store branches on its
+// name — so this pins that it moves through unapproved / suspended / banned
+// exactly like every other tool, and that the register resolves it by host the
+// same way whether the employee lands on the bare domain or a subdomain (the
+// extension's own manifest.json needs the matching bare-domain match pattern
+// for this to be reachable at all — see config.js's note on Chrome's match
+// pattern rule).
+
+test('Kimi resolves by host whether the employee lands on the bare domain or a subdomain', () => {
+  for (const host of ['kimi.com', 'www.kimi.com', 'chat.kimi.com', 'moonshot.cn', 'chat.moonshot.cn']) {
+    assert.equal(toolForHost(host)?.name, 'Kimi', `toolForHost(${host})`)
+  }
+})
+
+test('Kimi starts unapproved, like any tool nobody has reviewed', () => {
+  assert.equal(toolStatus('Kimi'), 'UNAPPROVED')
+  const result = recordToolUse({ tool: 'Kimi' })
+  assert.equal(result.alert.title, 'Unapproved tool detected')
+  const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'Kimi', types: ['IC'] })
+  assert.equal(policy.mode, MODES.BLOCK)
+  assert.equal(policy.reason, 'tool-unapproved')
+  assert.equal(policy.banned, false)
+  assert.ok(policy.alternatives.length > 0, 'the employee is told where to go instead')
+})
+
+test('suspending Kimi org-wide is the same HIGH path as any other suspended tool', () => {
+  suspendToolOrgWide('Kimi')
+  const result = recordToolUse({ tool: 'Kimi' })
+  assert.equal(result.status, 'SUSPENDED')
+  assert.equal(result.alert.severity, SEVERITY.HIGH)
+  assert.equal(result.alert.title, 'Suspended tool used')
+  assert.equal(toolAccessFor('E-217', 'Kimi').access, 'suspended')
+  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'Kimi', types: [] }).reason, 'tool-suspended')
+})
+
+test('banning Kimi K3 refuses a clean prompt too, while the approved free models keep working', () => {
+  db.employees['E-217'].level = 3
+  decideVisa(applyForVisa({ tool: 'Kimi', purpose: 'Agentic research.' }).request.id, 'approve')
+  setModelStatus('Kimi', 'kimi-k3', 'BANNED')
+
+  const banned = gatewayPolicyFor({ employeeId: 'E-217', tool: 'Kimi', model: 'K3', types: [] })
+  assert.equal(banned.banned, true)
+  assert.equal(banned.mode, MODES.BLOCK)
+  assert.equal(banned.reason, 'model-banned')
+
+  const stillFree = gatewayPolicyFor({ employeeId: 'E-217', tool: 'Kimi', model: 'K2.6', types: ['IC'] })
+  assert.equal(stillFree.banned, false)
+  assert.equal(stillFree.mode, MODES.MASK)
+})
+
 test('approving the request is what makes the tool usable', () => {
   const { request } = applyForVisa({ tool: 'DeepSeek', purpose: 'Research summaries.' })
   assert.equal(toolAccessFor('E-217', 'DeepSeek').access, 'review')

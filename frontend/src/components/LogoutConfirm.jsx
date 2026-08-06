@@ -1,13 +1,18 @@
 // Logout confirmation — matches Figma "Overlay • Confirm logout • Employee / Admin"
 import { useNavigate } from 'react-router-dom'
-import { logout } from '../lib/api.js'
+import { useAuth } from '../lib/auth.jsx'
 
 export default function LogoutConfirm({ role, onClose }) {
   const navigate = useNavigate()
+  const { signOut } = useAuth()
   const isAdmin = role === 'admin'
 
+  // The redirect does not wait for the server. signOut() has already put this
+  // app into its signed-out state, and the call it makes to end the session
+  // upstream — which is what tells the Chrome extension to stop protecting this
+  // employee — carries on behind the navigation.
   function confirm() {
-    logout()
+    signOut()
     navigate('/login', { replace: true })
   }
 

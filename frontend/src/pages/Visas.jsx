@@ -7,7 +7,8 @@
 // so that one idea — which AI tools you may use — has one name (lib/terms.js).
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, currentUser } from '../lib/api.js'
+import { api } from '../lib/api.js'
+import { useAuth } from '../lib/auth.jsx'
 import { ACCESS_STATUS, PENDING_STATUSES, BUILT_IN_ASSISTANT } from '../lib/terms.js'
 import { LEVELS, levelBenefit, REQUEST_MIN_LEVEL } from '../lib/levels.js'
 import InfoPopover, { InfoList, InfoNote } from '../components/InfoPopover.jsx'
@@ -103,7 +104,7 @@ export default function Visas() {
   const [showPaid, setShowPaid] = useState(false) // the paid-model section on the detail sheet
   const [submitting, setSubmitting] = useState(false)
   const [requestError, setRequestError] = useState('')
-  const user = currentUser()
+  const { user } = useAuth()
 
   // The guided request form. `catalogue` is the server's answer to "what may
   // this employee ask for" — the register filtered by the `requestable` flag and

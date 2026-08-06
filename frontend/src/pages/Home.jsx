@@ -12,7 +12,8 @@
 // extension, which does the masking itself inside the AI tool.
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, currentUser } from '../lib/api.js'
+import { api } from '../lib/api.js'
+import { useAuth } from '../lib/auth.jsx'
 import { levelState, barXP, progressHint } from '../lib/levels.js'
 import { useNotifications } from '../components/notificationsStore.jsx'
 import { useAssignedModules } from '../lib/useTraining.js'
@@ -66,7 +67,7 @@ export default function Home() {
   const [profile, setProfile] = useState(fallbackProfile)
   const [visaRequests, setVisaRequests] = useState([])
   const [myEvents, setMyEvents] = useState([])
-  const user = currentUser()
+  const { user } = useAuth()
   // The signed-in session names the greeting; the profile is the fallback and
   // "there" covers the moment before either has arrived.
   const firstName = String(user?.name || profile.name || '').split(' ')[0] || 'there'

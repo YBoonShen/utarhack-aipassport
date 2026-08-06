@@ -31,25 +31,55 @@ globalThis.AIP_STATE = {
     settings: null,
     mode: null,
     reason: 'not-resolved-yet',
+    verifiedAt: 0,
     at: 0,
   },
 }
+
+// How long a session the backend confirmed stays trusted after the backend stops
+// answering.
+//
+// This window is the whole difference between the two failures that look
+// identical from here. Inside it, a dropped connection is a dropped connection:
+// the employee was signed in a moment ago, nothing has said otherwise, and
+// switching protection off because of a hiccup would be both wrong and unsafe —
+// on-device Layer 1 keeps masking (`degraded`). Outside it, we have simply
+// stopped being able to tell, and continuing to describe them as protected would
+// be a claim with nothing behind it (`unverified`).
+//
+// Two minutes because the worker re-checks roughly every 15–60 seconds: a real
+// outage crosses it in a way a hiccup does not.
+globalThis.AIP_STATE.AUTH_GRACE_MS = 120_000
 
 /**
  * The single place "is this employee protected?" is answered.
  *
  * status:
- *   'active'    — signed-in employee, gateway answering. Full two-layer checks.
- *   'degraded'  — signed-in employee, gateway unreachable. Local Layer 1 only,
- *                 which still masks rather than blocks or leaks.
- *   'signedOut' — nobody is signed in on the dashboard, so there is no employee
- *                 to protect and the extension must stay out of the way.
+ *   'active'      — signed-in employee, backend answering. Full two-layer checks.
+ *   'degraded'    — signed-in employee, backend unreachable *and the session was
+ *                   confirmed recently*. Local Layer 1 only, which still masks
+ *                   rather than blocks or leaks.
+ *   'unverified'  — a session was cached, but it has not been confirmed for
+ *                   longer than the grace window. Not signed out — unable to
+ *                   tell. Protection is off and says so.
+ *   'signedOut'   — the backend answered, and nobody is signed in. There is no
+ *                   employee to protect and the extension stays out of the way.
  *   'notEmployee' — an admin session; same, protection is an employee feature.
+ *   'offline'     — the backend has never been reached from this browser
+ *                   profile, so nothing at all is known.
  *
- * `active` drives interception. It is true for 'degraded' on purpose: offline is
- * when protection matters most, and the fallback path never blocks the tool.
+ * `active` drives interception. It is true for 'degraded' on purpose: an outage
+ * is when protection matters most, and the fallback path never blocks the tool.
+ * It is false for 'unverified' for the opposite reason: after the grace window
+ * there is no evidence left to protect on.
+ *
+ * `verifiedAt` is when the backend last *answered* — the only clock that can
+ * separate "the connection dropped" from "the session ended". A failed request
+ * never moves it, and never invents a verdict.
  */
-globalThis.AIP_STATE.derive = function derive({ user, profile, settings, online, error }) {
+globalThis.AIP_STATE.derive = function derive({
+  user, profile, settings, online, error, verifiedAt = 0, now = Date.now(),
+}) {
   const base = {
     online: Boolean(online),
     user: user || null,
@@ -57,26 +87,35 @@ globalThis.AIP_STATE.derive = function derive({ user, profile, settings, online,
     settings: settings || null,
     mode: settings?.mode || null,
     error: error || null,
-    at: Date.now(),
+    // Answering right now *is* the confirmation; offline keeps whatever the last
+    // real answer was.
+    verifiedAt: online ? now : verifiedAt,
+    at: now,
   }
 
-  if (!user && !online) {
-    // No session *and* no gateway: the backend has never been reached from this
-    // browser profile, so there is no evidence anyone is signed in. Reporting
-    // "signed out" would blame the employee for a backend that is not running.
+  if (!user && !online && !verifiedAt) {
+    // No session, no backend, and no backend has ever been reached from this
+    // browser profile — so there is no evidence either way. Reporting "signed
+    // out" here would blame the employee for a service that is not running.
     return { ...base, status: 'offline', active: false, signedIn: false, reason: 'gateway-never-reached' }
   }
   if (!user) {
+    // Either the backend just said so, or it said so the last time it answered.
+    // An outage cannot sign anybody *in*, so this stays true while it lasts.
     return { ...base, status: 'signedOut', active: false, signedIn: false, reason: 'no-session' }
   }
   if (user.role !== 'employee') {
     return { ...base, status: 'notEmployee', active: false, signedIn: false, reason: `role-${user.role}` }
   }
   if (!online) {
-    // The session came from the mirrored copy in storage. Treating a cached
-    // employee as protected is the safe direction: the alternative is switching
-    // protection off the moment the network hiccups.
-    return { ...base, status: 'degraded', active: true, signedIn: true, reason: 'gateway-unreachable' }
+    const age = now - (verifiedAt || 0)
+    if (verifiedAt && age <= globalThis.AIP_STATE.AUTH_GRACE_MS) {
+      // A confirmed session, briefly out of contact. Keeping protection on is
+      // the safe direction and the correct one — nothing has ended this session.
+      return { ...base, status: 'degraded', active: true, signedIn: true, reason: 'gateway-unreachable' }
+    }
+    // Long enough that the cached session is no longer evidence of anything.
+    return { ...base, status: 'unverified', active: false, signedIn: false, reason: 'session-unverified' }
   }
   return { ...base, status: 'active', active: true, signedIn: true, reason: 'ok' }
 }
@@ -123,6 +162,17 @@ globalThis.AIP_STATE.summary = function summary(state, toolName) {
         tone: 'warn', icon: '◦', kicker: 'PROTECTION OFF',
         title: 'Sign in to protect your prompts',
         note: `AI Passport follows whoever is signed in on the dashboard. Nobody is, so prompts on ${on} are not being checked.`,
+      }
+    case 'unverified':
+      // Neither "signed in" nor "signed out": the session could not be confirmed
+      // for long enough that saying either would be inventing an answer. What is
+      // certain is the part that matters — prompts are not being checked.
+      return {
+        tone: 'warn', icon: '!', kicker: 'PROTECTION OFF',
+        title: 'Your sign-in could not be confirmed',
+        note: `AI Passport has not been able to confirm your session with your organisation, so prompts on ${on} are not being checked. `
+          + 'This clears by itself when the connection returns — or sign in again.',
+        retry: true,
       }
     default:
       return {

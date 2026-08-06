@@ -5,8 +5,15 @@
 //   - service worker (importScripts in background.js)
 //   - popup (<script src="config.js">)
 //
-// Adding another approved AI tool means adding one entry to TOOLS and one match
-// pattern in manifest.json — nothing else in the extension hardcodes a host.
+// Adding another approved AI tool means adding one entry to TOOLS and a match
+// pattern in manifest.json (host_permissions, content_scripts.matches and
+// web_accessible_resources.matches) — nothing else in the extension hardcodes a
+// host. If the tool's own domain is one employees can reach without a
+// subdomain (e.g. kimi.com, not just www.kimi.com), add *both* the bare host
+// and the `*.host` wildcard: Chrome's match-pattern spec treats `*.host` as
+// "host plus its subdomains" for content-script purposes but does not itself
+// match the bare host, so the wildcard alone silently leaves that page
+// unprotected — no content script, no detection, nothing in the audit log.
 
 globalThis.AIP_CONFIG = {
   // Local hackathon backend. Production swaps this for the HTTPS deployment and
@@ -20,11 +27,19 @@ globalThis.AIP_CONFIG = {
   // Below this length a prompt can't realistically carry an identifier, so the
   // backend is never called for it.
   minPromptLength: 12,
-  // Cached protection state is refreshed at most this often on demand; the
-  // alarm in background.js refreshes it in the background as well, which is how
-  // a dashboard login reaches an AI tab that is already open.
-  stateTtlMs: 20_000,
+  // How long a resolved protection state may be re-used before the worker asks
+  // the backend again. This is the upper bound on how stale "am I signed in?"
+  // can be, so it is deliberately short: a sign-out has to reach an AI tab the
+  // employee is still typing into.
+  stateTtlMs: 10_000,
+  // The background floor, for when no AI tab is open to drive anything.
+  // chrome.alarms will not fire faster than once a minute.
   statePollMinutes: 1,
+  // The foreground heartbeat: while an AI tool tab is visible, its checkpoint
+  // re-asks this often. Together with stateTtlMs that puts a signed-out state on
+  // screen within roughly 10–25 seconds of the employee signing out, without a
+  // reload and without polling a backend nobody is using.
+  heartbeatMs: 15_000,
 
   // Every call out of the extension is bounded. An unbounded fetch is how the
   // checkpoint used to hang with the employee's prompt locked inside it.

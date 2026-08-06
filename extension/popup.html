@@ -118,6 +118,7 @@
       .retry {
         background: var(--gold); color: var(--navy); border: none; border-radius: 999px;
         padding: 5px 14px; font-size: 11px; font-weight: 700; cursor: pointer;
+        text-decoration: none; display: inline-block;
       }
       .retry:hover { background: #c99f1a; }
       [hidden] { display: none !important; }
@@ -228,6 +229,7 @@
         <div class="shield-foot">
           <span class="mode" id="mode" hidden><i></i><span id="modeText"></span></span>
           <button class="retry" id="retry" hidden>Try again</button>
+          <a class="retry" id="shieldAction" href="#" target="_blank" rel="noopener" hidden>Open AI Tools</a>
         </div>
       </section>
 

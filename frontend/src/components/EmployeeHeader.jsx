@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import LogoutConfirm from './LogoutConfirm.jsx'
 import { useNotifications } from './notificationsStore.jsx'
-import { currentUser } from '../lib/api.js'
+import { useAuth } from '../lib/auth.jsx'
 
 const linkClass = ({ isActive }) =>
   `px-4 py-3 rounded-[10px] text-sm ${isActive ? 'text-gold font-semibold' : 'text-white font-medium hover:text-gold-brand'}`
@@ -42,8 +42,9 @@ export default function EmployeeHeader() {
   const { unreadCount } = useNotifications()
   const navigate = useNavigate()
   // Whose passport this is. More than one employee can sign in, so the avatar
-  // has to name the session rather than the demo employee.
-  const user = currentUser()
+  // has to name the session rather than the demo employee — and it names the
+  // *verified* session, so it cannot outlive the sign-in it describes.
+  const { user } = useAuth()
 
   return (
     <>

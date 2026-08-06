@@ -63,8 +63,11 @@ async function ensureCheckpoint(tabId) {
 // ---- protection card -------------------------------------------------------
 
 // tone: 'ok' (protected) | 'warn' (not protected right now) | 'err' (no status)
-// A null `mode` hides the policy badge; `retry` shows the retry button.
-function paintShield({ tone, icon, kicker, title, note, mode, retry }) {
+// A null `mode` hides the policy badge; `retry` shows the retry button; `action`
+// ({ label, href }) shows a second, link-shaped button — the way out of a
+// restricted-tool card, opened in a new tab so the checkpoint on this one is
+// never navigated away from underneath the employee.
+function paintShield({ tone, icon, kicker, title, note, mode, retry, action }) {
   $('shield').className = `shield ${tone}`
   set('shieldIcon', icon)
   set('shieldKicker', kicker)
@@ -73,6 +76,45 @@ function paintShield({ tone, icon, kicker, title, note, mode, retry }) {
   $('mode').hidden = !mode
   if (mode) set('modeText', mode)
   $('retry').hidden = !retry
+  const actionEl = $('shieldAction')
+  actionEl.hidden = !action
+  if (action) {
+    actionEl.href = action.href
+    set('shieldAction', action.label)
+  }
+}
+
+// The shield card for a tool this employee is not cleared to send anything to
+// from here — unreviewed, declined, locked, suspended or banned. Distinct from
+// 'active' on purpose: "Mask and continue" describes what happens to a prompt
+// on an *approved* destination, and offering it here would say this tool has
+// terms agreed for it when nothing has been reviewed at all.
+//
+// Wording comes straight from `resolved.explain` — the same sentence
+// toolAccessFor() hands the on-page checkpoint panel and the AI Tools page —
+// so the popup can never describe a tool's standing differently from either of
+// them. Nothing here names a tool: any destination the register has not
+// cleared reaches this same card.
+function toolRestrictedShield(resolved, toolName) {
+  const severe = resolved.access === 'banned' || resolved.access === 'suspended'
+  return {
+    tone: severe ? 'err' : 'warn',
+    icon: severe ? '✕' : '!',
+    kicker: 'ACCESS RESTRICTED',
+    title: resolved.access === 'banned'
+      ? `${toolName} is banned by your organisation`
+      : resolved.access === 'suspended'
+        ? `${toolName} has been suspended`
+        : `${toolName} is not approved`,
+    note: resolved.explain
+      || `${toolName} has not been approved by your organisation. Ordinary use is unaffected — only company or customer data is held back.`,
+    // Nothing to request on a ban or a suspension — the organisation has
+    // already decided. Anything else is a tool an employee can ask for.
+    action: {
+      label: severe ? 'View my AI tools' : 'Request access',
+      href: `${CFG.dashboardBase}/tools`,
+    },
+  }
 }
 
 function paintSite(tone, text) {
@@ -92,16 +134,24 @@ function paintIdentity(state) {
 
   if (!signedIn) {
     const isAdmin = user?.role && user.role !== 'employee'
+    // Not the same sentence as "signed out", and not allowed to become it: the
+    // server has not said anybody signed out, only that it could not be asked.
+    // Claiming either way is the thing this whole state exists to avoid.
+    const unverified = state.status === 'unverified'
     $('initials').className = 'avatar out'
     set('initials', isAdmin ? (user.initials || 'AD') : '?')
-    set('empName', isAdmin ? `Signed in as ${user.name || 'admin'}` : 'Not signed in')
+    set('empName', isAdmin
+      ? `Signed in as ${user.name || 'admin'}`
+      : unverified ? 'Session not confirmed' : 'Not signed in')
     set('empLevel', isAdmin
       ? 'Sign in as an employee to see your AI License'
-      : 'Sign in on the AI Passport dashboard')
+      : unverified
+        ? 'AI Passport could not confirm your session'
+        : 'Sign in on the AI Passport dashboard')
     // The grey avatar and "Not signed in" already say it; the pill would only
     // crowd the row, so the sign-in action takes its place.
     pill.className = 'pill off'
-    set('authText', isAdmin ? 'Not an employee' : 'Signed out')
+    set('authText', isAdmin ? 'Not an employee' : unverified ? 'Unverified' : 'Signed out')
     pill.hidden = true
     set('employeeId', '')
     signin.hidden = false
@@ -192,6 +242,17 @@ async function render() {
 
   paintIdentity(state)
 
+  // Resolve only — never records — and asked once here rather than separately
+  // for the shield and the site line below, so the two can never disagree
+  // about whether this destination is approved. This is what used to go
+  // missing: the shield read only `state` (am I signed in, is the gateway up)
+  // and never this, so an unapproved tool still painted "Protection Active /
+  // Mask and continue" up top while the line underneath correctly said
+  // otherwise. Nothing here is tool-specific — any host the register has not
+  // cleared takes the same path, Kimi included.
+  const resolved = tool ? await ask({ type: 'AIP_TOOL', tool: tool.name }) : null
+  const restricted = Boolean(resolved && !resolved.__error && resolved.approved === false)
+
   // --- protection status. The words come from state.js, so the popup cannot
   // describe the employee's protection differently from the on-page panel. All
   // the popup adds is whether this particular tab is one the checkpoint runs in.
@@ -209,6 +270,8 @@ async function render() {
       note: 'Your protection is on, but this tab has no checkpoint running in it — AI Passport could not inject one. Reload the page and prompts will be checked again.',
       retry: true,
     })
+  } else if (state.active && restricted) {
+    paintShield(toolRestrictedShield(resolved, tool.name))
   } else {
     paintShield({ ...STATE.summary(state, tool?.name), mode: state.active ? state.mode : null })
   }
@@ -236,10 +299,7 @@ async function render() {
     paintSite('idle', 'This tab is not an approved AI tool')
     return
   }
-  // Resolve only. This used to POST a tool-use, so opening the popup wrote an
-  // audit event and could raise a risk alert about a use that never happened.
-  const resolved = await ask({ type: 'AIP_TOOL', tool: tool.name })
-  if (resolved?.approved === false) {
+  if (restricted) {
     const why = {
       banned: 'banned — nothing is sent from here',
       suspended: 'suspended org-wide',
