@@ -127,6 +127,28 @@ export default function RiskAlerts() {
     } catch { /* offline */ }
   }
 
+  // The primary action on a card, in the vocabulary the backend records it
+  // under. Taking it is a governance decision — who acknowledged what, and
+  // when — so it lands on the alert's timeline and in the audit log rather than
+  // only in the toast the admin sees once. The two that open another screen
+  // record the decision on the way there.
+  const ACTION_KEY = {
+    'Assign training': 'assign-training',
+    'Review tool request': 'review-tool',
+    'Open review case': 'open-review',
+    Acknowledge: 'acknowledge',
+  }
+
+  async function recordAction() {
+    if (!sel) return
+    const action = ACTION_KEY[sel.primary]
+    if (!action) return
+    try {
+      const { alerts: fresh } = await api.post(`/alerts/${sel.id}/action`, { action })
+      if (fresh) setAlerts(fresh)
+    } catch { /* the navigation still happens; only the record of it is lost */ }
+  }
+
   return (
     // One screen: the workspace takes whatever height is left and the queue
     // scrolls inside itself, so the KPIs and filters never scroll away from the
@@ -305,6 +327,7 @@ export default function RiskAlerts() {
                 // be assigned to them without re-finding them in the picker.
                 <Link
                   to={`/admin/training/assign?mode=existing${sel.employeeId ? `&employee=${sel.employeeId}` : ''}`}
+                  onClick={recordAction}
                   className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full flex items-center justify-center cursor-pointer"
                 >
                   {sel.primary}
@@ -312,13 +335,17 @@ export default function RiskAlerts() {
               ) : sel.primary === 'Review tool request' ? (
                 <Link
                   to="/admin/tool-approvals"
+                  onClick={recordAction}
                   className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full flex items-center justify-center cursor-pointer"
                 >
                   {sel.primary}
                 </Link>
               ) : (
                 <button
-                  onClick={() => toast(`${sel.primary} — action recorded for ${sel.id}`)}
+                  onClick={async () => {
+                    await recordAction()
+                    toast(`${sel.primary} — action recorded for ${sel.id}`)
+                  }}
                   className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-[13px] flex-1 h-11 rounded-full cursor-pointer"
                 >
                   {sel.primary}

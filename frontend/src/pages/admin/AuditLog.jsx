@@ -17,6 +17,13 @@ const statusChip = {
   CLEAN: 'bg-[#eef2ff] text-[#365fd9]',
   ALERT: 'bg-[#fff0f0] text-[#d92d20]',
   DENIED: 'bg-[#fff0f0] text-[#d92d20]',
+  // The gateway refusing a send, and the shadow-AI events behind it. These were
+  // falling through to the neutral grey, which read as routine — the opposite of
+  // what they are.
+  BLOCKED: 'bg-[#fff0f0] text-[#d92d20]',
+  ESCALATED: 'bg-[#fff0f0] text-[#d92d20]',
+  UNAPPROVED: 'bg-[#fff5de] text-[#d97706]',
+  RESTRICTED: 'bg-[#fff5de] text-[#d97706]',
   REDIRECTED: 'bg-[#fff5de] text-[#d97706]',
   SUSPENDED: 'bg-[#fceded] text-[#c72929]',
   REVIEW: 'bg-[#fff5de] text-[#d97706]',

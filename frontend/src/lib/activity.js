@@ -20,6 +20,11 @@ const ACTION_TEXT = {
   APPROVAL: 'AI tool approved',
   SUSPENDED: 'AI tool suspended',
   ASSIGNED: 'Training assigned to you',
+  // Reaching a tool or model the register has not cleared for you. These reach
+  // an employee's own page now that every occurrence is recorded, not only the
+  // one that raised the alert.
+  UNAPPROVED: 'Unapproved AI tool or model used',
+  RESTRICTED: 'Used above your AI License level',
   'SIGN-IN': 'Signed in',
   'SIGN-OUT': 'Signed out',
 }
@@ -34,6 +39,8 @@ const ACTION_CHIP = {
   BLOCKED: 'bg-[#fff0f0] text-[#d92d20]',
   REDIRECTED: 'bg-[#fff5de] text-[#d97706]',
   SUSPENDED: 'bg-[#fceded] text-[#c72929]',
+  UNAPPROVED: 'bg-[#fff5de] text-[#d97706]',
+  RESTRICTED: 'bg-[#fff5de] text-[#d97706]',
   COMPLETED: 'bg-[#e9f8f2] text-[#078b6c]',
   APPROVAL: 'bg-[#e9f8f2] text-[#078b6c]',
   REQUESTED: 'bg-[#eef2ff] text-[#365fd9]',

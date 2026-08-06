@@ -12,7 +12,8 @@ import { logDetection } from './firebase.js'
 import {
   db, resetStore, recordPromptEvent, recordOfflineEvent, recordOverride, recordAudit, recordSession,
   answerQuiz, quizResults, completeTraining, retryTraining, applyForVisa, decideVisa,
-  suspendToolOrgWide, recordToolUse, toolStatus, openAlerts, alertsView, resolveAlert,
+  suspendToolOrgWide, recordToolUse, toolStatus, openAlerts, alertsView, resolveAlert, actOnAlert,
+  auditView,
   recordModelUse, recordBlockedAttempt, gatewayPolicyFor, toolForHost, setModelStatus,
   toolRegister, toolAccessFor, toolModelsFor, freeModelFor, requestableTools, REQUEST_MIN_LEVEL,
   addReviewRequest, leaderboard, progressionSummary,
@@ -365,13 +366,25 @@ app.post('/api/gateway/blocked', (req, res) => {
   })
 })
 
-// Warn-only mode: employee insists on sending the original — penalised + logged
-app.post('/api/gateway/override', (req, res) => {
+// Warn-only mode: employee insists on sending the original — penalised + logged.
+//
+// The prompt arrives raw because the employee is about to send it raw, and that
+// is exactly why it is scanned here before anything is written: the record of a
+// leak must not itself be a second copy of the leaked data. The same two-layer
+// pipeline every other prompt goes through runs on it, and only the masked text
+// plus the detection categories are handed to the store — see recordOverride,
+// which masks again rather than trusting this caller.
+app.post('/api/gateway/override', async (req, res) => {
   const { prompt } = req.body || {}
   if (typeof prompt !== 'string' || prompt.length === 0) {
     return res.status(400).json({ error: 'Body must be { "prompt": "..." }' })
   }
-  res.json(recordOverride({ prompt }))
+  const employeeId = req.actor.role === 'employee' ? req.actor.id : db.sessionEmployeeId
+  const { masked, detections } = await runDetection(prompt)
+  // Layer 2 can await, so the employee this override belongs to is re-asserted
+  // after it — same discipline as /api/detect.
+  setSessionEmployee(employeeId)
+  res.json(recordOverride({ masked, detections }))
 })
 
 // ---- employee data ---------------------------------------------------------
@@ -642,8 +655,15 @@ app.post('/api/tools/suspend', requireAdmin, (req, res) => {
 })
 
 // ---- admin data ------------------------------------------------------------
-app.get('/api/audit', (req, res) => {
-  res.json({ events: db.auditEvents, counters: { promptsToday: db.counters.promptsToday, maskedToday: db.counters.maskedToday } })
+// The whole organisation's audit feed, and therefore admin-only: it carries
+// every employee's governance history, which is the one thing an employee must
+// not be able to read about their colleagues. Their own slice is served by
+// /api/activity/mine, filtered on the server rather than in the browser.
+//
+// auditView() folds in each event's review status from the alert it opened. It
+// is derived on read, so the log itself stays append-only.
+app.get('/api/audit', requireAdmin, (req, res) => {
+  res.json({ events: auditView(), counters: { promptsToday: db.counters.promptsToday, maskedToday: db.counters.maskedToday } })
 })
 
 app.get('/api/stats', (req, res) => {
@@ -663,16 +683,32 @@ app.get('/api/stats', (req, res) => {
 
 // One-click compliance report (O3). The numbers live here, not in the page, so
 // what a regulator downloads is what the audit log holds.
-app.get('/api/report', (req, res) => res.json(reportSummary()))
+app.get('/api/report', requireAdmin, (req, res) => res.json(reportSummary()))
 
 // ---- risk alerts ----
 // Sorted by severity with a live `due` countdown — see alertsView(). The rules
 // that decide severity are in risk.js and are surfaced to the admin screen so
 // the queue can be explained rather than just read.
-app.get('/api/alerts', (req, res) => res.json(alertsView()))
+// Admin-only for the same reason as the audit feed: an alert names the employee
+// it is about, their department and what they did.
+app.get('/api/alerts', requireAdmin, (req, res) => res.json(alertsView()))
 app.post('/api/alerts/:id/resolve', requireAdmin, (req, res) => {
   resolveAlert(req.params.id)
   res.json(alertsView())
+})
+
+// The rest of the alert workflow — acknowledge, escalate, and the two actions
+// that open another screen. Each is a governance decision, so each lands on the
+// alert's timeline and in the audit log rather than only in a toast the admin
+// sees once. Escalating raises the severity by hand and moves the deadline with
+// it: a human who knows more than the rule did is allowed to overrule it.
+app.post('/api/alerts/:id/action', requireAdmin, (req, res) => {
+  const result = actOnAlert(req.params.id, String(req.body?.action || ''))
+  if (!result.ok) {
+    const code = result.reason === 'not_found' ? 404 : result.reason === 'unknown_action' ? 400 : 409
+    return res.status(code).json({ error: result.reason })
+  }
+  res.json({ ok: true, alert: result.alert, alerts: alertsView() })
 })
 
 // Public transparency portal: affected person requests a human review

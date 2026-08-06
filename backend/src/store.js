@@ -27,6 +27,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+// Layer 1 only, and used for exactly one thing: the last-resort mask applied to
+// any audit record that carries prompt-derived text (see recordAudit's
+// `promptDerived`). The full two-layer pipeline lives in server.js; this is the
+// guarantee that holds even if a caller forgets to run it.
+import { maskPrompt } from './detector.js'
 import { levelFor, LEVEL_BENEFITS, MAX_XP, REQUEST_MIN_LEVEL } from './levels.js'
 import {
   DEFAULT_EMPLOYEE_ID, EMPLOYEES, departmentName, employeeById, employeesInDepartment, isDepartment,
@@ -37,6 +42,7 @@ import {
   MODEL_SEVERITY, MODEL_REPEAT_WINDOW_MINUTES,
   REPEAT_WINDOW_MINUTES, REPEAT_ESCALATE_AT, effectiveMode, isOrgMode,
   pruneRepeats, repeatCounts, repeatVerdict, identifierLabel, dueAtFor, dueLabel,
+  criticalTypes, CRITICAL_SEVERITY,
 } from './risk.js'
 
 const COLLEAGUES = [
@@ -161,7 +167,7 @@ function seed() {
     alerts: [
       {
         id: 'RA-2048', key: 'repeat:F-102:CUSTOMER_RECORD', severity: 'HIGH', status: 'open',
-        employeeId: 'F-102', occurrences: 4,
+        employeeId: 'F-102', dept: 'Finance', department: 'Finance', events: [], occurrences: 4,
         title: 'Repeated identifiers in prompts',
         meta: 'Finance · User F-102 · 4 events in 15 min',
         dueAt: dueAtFor('HIGH'),
@@ -173,7 +179,7 @@ function seed() {
       },
       {
         id: 'RA-2049', key: 'tool:S-044:summarizerx:seed', severity: 'MEDIUM', status: 'open',
-        employeeId: 'S-044', occurrences: 1,
+        employeeId: 'S-044', dept: 'Sales', department: 'Sales', events: [], occurrences: 1,
         title: 'Unapproved tool detected',
         meta: 'Sales · SummarizerX · no approved access',
         dueAt: dueAtFor('MEDIUM'),
@@ -185,7 +191,7 @@ function seed() {
       },
       {
         id: 'RA-2050', key: 'review:REF-2026-041', severity: 'MEDIUM', status: 'open',
-        occurrences: 1,
+        dept: 'HR', department: 'Human Resources', events: [], occurrences: 1,
         title: 'AI-assisted decision flagged',
         kind: 'human-review', // resolving it counts as a completed human review (O5 → report)
         meta: 'HR screening · human review requested',
@@ -198,7 +204,7 @@ function seed() {
       },
       {
         id: 'RA-2051', key: 'trend:Ops:masking-rate', severity: 'MONITORING', status: 'open',
-        occurrences: 1,
+        dept: 'Ops', department: 'Operations', events: [], occurrences: 1,
         title: 'Masking rate above baseline',
         meta: 'Operations · 2.1× weekly average',
         dueAt: dueAtFor('MONITORING'),
@@ -814,12 +820,38 @@ function stampNow() {
  * keeping both is what lets an auditor read the gap correctly. The list stays
  * in arrival order because an append-only log records when it received an
  * event, not when the event claims to have happened.
+ *
+ * Four fields carry the governance metadata a compliance report needs, and all
+ * four are structured rather than sentences, because "which categories were
+ * found" is a question an auditor asks of the whole log and not of one row:
+ *
+ *   `types`    the detection categories behind the event (IC, NAME…). Category
+ *              names only — never the values they matched, which is the whole
+ *              privacy-by-design position stated in one field.
+ *   `reason`   why the gateway did what it did (`tool-unapproved`,
+ *              `model-banned`, `sensitive-data-detected`…). The same vocabulary
+ *              effectiveMode() returns, so the log and the decision agree.
+ *   `alertId`  the risk alert this event belongs to. This is the link that makes
+ *              an alert traceable back to the events that raised it and each
+ *              event forward to its review status — see auditView().
+ *   `outcome`  what actually happened to the employee's request, in plain words.
+ *
+ * `promptDerived` marks a record that came from something the employee typed.
+ * Those are passed through Layer 1 again on the way in, so a caller that forgets
+ * to mask still cannot put a raw identifier in the log. It is applied only to
+ * prompt-derived text: governance records legitimately carry identifiers of
+ * their own (case REF-2026-041, request A-0492) that must survive intact.
  */
 export function recordAudit({
   action, record, actor, dept, role = 'Employee', tool = 'AI Assistant', resource,
   control = 'NIST GV.4', status = 'SUCCESS', risk = 'LOW', time, offline = false, countsAsPrompt = false,
+  types, reason, alertId, outcome, promptDerived = false,
 }) {
-  const text = String(record ?? '')
+  // Defence in depth, not the primary mask: recordPromptEvent is handed text the
+  // full two-layer pipeline has already masked. This is what makes "no raw
+  // prompt reaches the audit log" a property of the log rather than a promise
+  // every call site has to keep.
+  const text = promptDerived ? maskPrompt(String(record ?? '')).masked : String(record ?? '')
   const event = {
     id: `EV-${db.counters.nextEventNo++}`,
     time: time || nowTime(),
@@ -835,6 +867,10 @@ export function recordAudit({
     risk,
     record: text.length > 72 ? `${text.slice(0, 69)}…` : text,
   }
+  if (types?.length) event.types = [...types]
+  if (reason) event.reason = reason
+  if (alertId) event.alertId = alertId
+  if (outcome) event.outcome = outcome
   if (offline) {
     event.offline = true
     event.recordedAt = nowTime()
@@ -849,9 +885,12 @@ export function recordAudit({
 // entry an admin produces names the same actor.
 export const ADMIN_ACTOR = { id: 'AD-001', role: 'Admin · Compliance role', dept: 'Governance' }
 
-function adminAudit({ action, record, resource, control = 'AIGE 4.2', status = 'SUCCESS', risk = 'LOW' }) {
+// The governance metadata is forwarded rather than re-listed: an admin action on
+// an alert has to carry the same `alertId` link an employee's event does, or the
+// case is traceable in one direction only.
+function adminAudit({ action, record, resource, control = 'AIGE 4.2', status = 'SUCCESS', risk = 'LOW', ...meta }) {
   return recordAudit({
-    action, record, resource, control, status, risk,
+    action, record, resource, control, status, risk, ...meta,
     actor: ADMIN_ACTOR.id, dept: ADMIN_ACTOR.dept, role: 'Admin', tool: resource || 'AI Passport',
   })
 }
@@ -881,7 +920,33 @@ const ACTIVITY_LIMIT = 50
  * Same records, same order, same masked-only text as the admin log.
  */
 export function activityFor(employeeId, limit = ACTIVITY_LIMIT) {
-  return db.auditEvents.filter(e => e.user === employeeId).slice(0, limit)
+  return db.auditEvents.filter(e => e.user === employeeId).slice(0, limit).map(decorateEvent)
+}
+
+/**
+ * An audit event with the review state of the case it opened.
+ *
+ * Derived on read rather than written back onto the event, and that is the whole
+ * point: the screen states this log is an append-only chain, so an entry cannot
+ * be edited later to say it was reviewed. The alert holds the review state, the
+ * event holds the link, and the join happens here — so "was this followed up?"
+ * is answerable for every event without anything being rewritten after the fact.
+ */
+function decorateEvent(event) {
+  if (!event.alertId) return event
+  const alert = db.alerts.find(a => a.id === event.alertId)
+  if (!alert) return event
+  return {
+    ...event,
+    review: alert.status === 'resolved' ? 'RESOLVED' : 'OPEN',
+    alertSeverity: alert.severity,
+    ...(alert.resolvedAt ? { reviewedAt: alert.resolvedAt } : {}),
+  }
+}
+
+/** The organisation-wide audit feed, review status folded in. Admin-only. */
+export function auditView() {
+  return db.auditEvents.map(decorateEvent)
 }
 
 // ---- risk alerts -----------------------------------------------------------
@@ -935,15 +1000,43 @@ function raiseAlert({ key, severity, employeeId, dept, title, meta, detailMeta, 
     severity,
     status: 'open',
     employeeId: employeeId || null,
+    // The department the alert belongs to. It was being passed in and dropped,
+    // so every consumer that wanted it had to parse it back out of `meta` —
+    // which is a sentence written for a human, not a field to filter on.
+    dept: dept || null,
+    department: dept ? departmentName(dept) : null,
     occurrences: occurrences ?? 1,
     title, meta, detailMeta, what, evidence, evidenceNote, recommend, primary,
     ...(kind ? { kind } : {}),
     createdAt: new Date().toISOString(),
     dueAt: dueAtFor(severity),
+    // The audit events that make up this alert's evidence. Bounded, newest
+    // last, and ids only — the events themselves stay in the one append-only
+    // log rather than being copied into the queue.
+    events: [],
     timeline: [[nowTime(), 'Alert created']],
   }
   db.alerts.unshift(alert)
   return { alert, escalated: false, isNew: true }
+}
+
+/** How many event ids one alert carries — enough to trace, not a second log. */
+const ALERT_EVENT_LIMIT = 20
+
+/**
+ * Links an audit event to the alert it belongs to, both ways.
+ *
+ * This is what "the alert is linked to the underlying event" means in practice:
+ * the alert names the events that raised it, and each event names the alert, so
+ * an auditor can go from a card in the queue to the records behind it and from
+ * any record to the review status of the case it opened.
+ */
+function linkAlertEvent(alert, event) {
+  if (!alert || !event) return event
+  ;(alert.events ??= []).push(event.id)
+  if (alert.events.length > ALERT_EVENT_LIMIT) alert.events = alert.events.slice(-ALERT_EVENT_LIMIT)
+  alert.lastEventId = event.id
+  return event
 }
 
 /** Adds the live `due` countdown without storing a label that goes stale. */
@@ -959,13 +1052,19 @@ function decorateAlert(alert) {
  * manager's attention, and escalates the alert that already exists rather than
  * adding another.
  */
-function noteMaskedIdentifiers(detections) {
+function noteMaskedIdentifiers(detections, promptEvent = null, tool = 'AI Assistant') {
   const employeeId = db.profile.id
   const at = Date.now()
   for (const d of detections) {
     for (let i = 0; i < d.count; i++) db.riskWindow.push({ employeeId, type: d.type, at })
   }
   db.riskWindow = pruneRepeats(db.riskWindow, at)
+
+  // Rule 1b first: a credential or a private key does not wait for a pattern.
+  // The gateway masked it, so nothing left — but the secret itself is still live
+  // wherever the employee copied it from, and rotating it is an action somebody
+  // has to take today.
+  noteCriticalDetections(detections, promptEvent, tool)
 
   const verdict = repeatVerdict(repeatCounts(db.riskWindow, employeeId))
   if (!verdict) return null
@@ -993,7 +1092,7 @@ function noteMaskedIdentifiers(detections) {
   })
 
   if (isNew || escalated) {
-    recordAudit({
+    linkAlertEvent(alert, recordAudit({
       action: 'ALERT',
       resource: alert.id,
       tool: 'AI Passport',
@@ -1001,7 +1100,13 @@ function noteMaskedIdentifiers(detections) {
       control: 'PDPA P7',
       status: 'FLAGGED',
       risk: verdict.severity,
-    })
+      types: [verdict.type],
+      reason: 'repeated-identifier',
+      alertId: alert.id,
+      outcome: isNew
+        ? `Risk alert ${alert.id} opened at ${verdict.severity}`
+        : `Risk alert ${alert.id} escalated to ${verdict.severity}`,
+    }))
     // The employee is told before their manager acts on it — "guide, don't
     // punish" only holds if the guidance reaches them first.
     addNotification({
@@ -1019,6 +1124,77 @@ function noteMaskedIdentifiers(detections) {
       action: { label: 'Open training', to: '/training' },
     })
   }
+  // The masked prompt event is this alert's evidence, so the card can be traced
+  // back to the records that raised it.
+  if (promptEvent) linkAlertEvent(alert, promptEvent)
+  return alert
+}
+
+/**
+ * Rule 1b — a credential or a secret, on its first occurrence.
+ *
+ * Everything else masked in a prompt waits for the pattern rule above, because a
+ * single protected prompt is the gateway working. A credential is the exception
+ * the case study's "immediate significant risk" wording is for: masking it in
+ * the prompt does not un-leak it from wherever it was copied, and the answer is
+ * to rotate the key rather than to book a refresher.
+ *
+ * Keyed per employee + type + hour, so pasting the same config block twice
+ * escalates one card instead of opening two.
+ */
+function noteCriticalDetections(detections, promptEvent = null, tool = 'AI Assistant') {
+  const found = criticalTypes(detections)
+  if (found.length === 0) return null
+
+  const employeeId = db.profile.id
+  const dept = db.profile.dept
+  const labels = found.map(t => identifierLabel(t)).join(' and ')
+  const bucket = Math.floor(Date.now() / (TOOL_REPEAT_WINDOW_MINUTES * 60_000))
+
+  const { alert, isNew, escalated } = raiseAlert({
+    key: `secret:${employeeId}:${found.join('+')}:${bucket}`,
+    severity: CRITICAL_SEVERITY,
+    employeeId,
+    dept,
+    title: 'Credential or secret in a prompt',
+    meta: `${departmentName(dept)} · User ${employeeId} · ${labels} masked`,
+    detailMeta: `${departmentName(dept)} · User ${employeeId} · detected today at ${nowTime()}`,
+    what: `A prompt from this employee contained a ${labels}, heading for ${tool}. The Smart Gateway masked it before transmission, so nothing reached the tool — but a secret that has been pasted into a browser is still live wherever it came from, and masking the prompt does not change that.`,
+    evidence: `${labels} masked before transmission · ${tool}`,
+    evidenceNote: 'Layer 1 pattern match · masked record only, no credential value stored',
+    recommend: 'Rotate the credential, then confirm with the employee where it was copied from.',
+    primary: 'Acknowledge',
+  })
+
+  if (isNew || escalated) {
+    linkAlertEvent(alert, recordAudit({
+      action: 'ALERT',
+      resource: alert.id,
+      tool: 'AI Passport',
+      record: `${isNew ? 'Risk alert raised' : 'Risk alert escalated'} · ${labels} masked in a prompt`,
+      control: 'NIST PR.DS',
+      status: 'FLAGGED',
+      risk: CRITICAL_SEVERITY,
+      types: found,
+      reason: 'credential-detected',
+      alertId: alert.id,
+      outcome: `Masked before transmission · risk alert ${alert.id} opened at ${CRITICAL_SEVERITY}`,
+    }))
+    addNotification({
+      category: 'SMART GATEWAY',
+      title: `A ${labels} was masked in your prompt`,
+      body: `The Smart Gateway removed it before your prompt was sent. Because a secret stays live after it is masked, please rotate it.`,
+      what: `Your prompt contained what looks like a ${labels}. It was masked before it left your browser, so the AI tool never received it. Masking the prompt does not retire the secret itself, so the safe next step is to rotate it and avoid pasting it anywhere else.`,
+      facts: [
+        ['Detected', labels],
+        ['AI tool', tool],
+        ['Stored version', 'Masked only'],
+        ['Data exposed', 'None — masked before transmission'],
+        ['Next step', 'Rotate the credential'],
+      ],
+    })
+  }
+  if (promptEvent) linkAlertEvent(alert, promptEvent)
   return alert
 }
 
@@ -1323,12 +1499,22 @@ export function recordToolUse({ tool }) {
       recommend: 'Assign the training that raises this employee to the required level.',
       primary: 'Assign training',
     })
+    // Every occurrence reaches the audit log — an append-only log records what
+    // happened, and "they opened it four more times after being told" is
+    // precisely the evidence a governance case is built from. Only the alert
+    // and the employee's notification are deduplicated.
+    linkAlertEvent(alert, recordAudit({
+      action: 'RESTRICTED', resource: name, tool: name,
+      record: `Tool above licence level · ${name} · Level ${resolved.minLevel} required · alert ${alert.id}`,
+      control: 'AIGE 4.2', status: 'FLAGGED', risk: SEVERITY.MEDIUM,
+      reason: 'tool-level',
+      alertId: alert.id,
+      outcome: isNew
+        ? `Risk alert ${alert.id} opened at ${SEVERITY.MEDIUM}`
+        : `Recorded against open risk alert ${alert.id} · ${alert.occurrences} occurrences`,
+    }))
+
     if (isNew || escalated) {
-      recordAudit({
-        action: 'RESTRICTED', resource: name, tool: name,
-        record: `Tool above licence level · ${name} · Level ${resolved.minLevel} required · alert ${alert.id}`,
-        control: 'AIGE 4.2', status: 'FLAGGED', risk: SEVERITY.MEDIUM,
-      })
       addNotification({
         category: 'TOOL ACCESS',
         title: `${name} needs AI License Level ${resolved.minLevel}`,
@@ -1380,16 +1566,26 @@ export function recordToolUse({ tool }) {
     primary: stopped ? 'Acknowledge' : 'Review tool request',
   })
 
+  // Shadow AI is a pattern of use, not a single visit, so every visit is
+  // recorded even though the queue only ever holds one card for it.
+  linkAlertEvent(alert, recordAudit({
+    action: banned ? 'BLOCKED' : stopped ? 'SUSPENDED' : 'UNAPPROVED',
+    resource: name,
+    tool: name,
+    record: `${banned ? 'Banned' : stopped ? 'Suspended' : 'Unapproved'} tool opened · ${name} · alert ${alert.id}`,
+    control: 'AIGE 4.2',
+    status: 'FLAGGED',
+    risk: severity,
+    reason: banned ? 'tool-banned' : stopped ? 'tool-suspended' : 'tool-unapproved',
+    alertId: alert.id,
+    outcome: isNew
+      ? `Risk alert ${alert.id} opened at ${severity}`
+      : escalated
+        ? `Risk alert ${alert.id} escalated to ${severity}`
+        : `Recorded against open risk alert ${alert.id} · ${alert.occurrences} occurrences`,
+  }))
+
   if (isNew || escalated) {
-    recordAudit({
-      action: banned ? 'BLOCKED' : stopped ? 'SUSPENDED' : 'UNAPPROVED',
-      resource: name,
-      tool: name,
-      record: `${banned ? 'Banned' : stopped ? 'Suspended' : 'Unapproved'} tool opened · ${name} · alert ${alert.id}`,
-      control: 'AIGE 4.2',
-      status: 'FLAGGED',
-      risk: severity,
-    })
     addNotification({
       category: 'TOOL ACCESS',
       title: banned ? `${name} is banned` : stopped ? `${name} is suspended` : `${name} is not an approved tool`,
@@ -1480,16 +1676,24 @@ export function recordModelUse({ tool, model }) {
     primary: locked ? 'Assign training' : 'Review tool request',
   })
 
+  linkAlertEvent(alert, recordAudit({
+    action: banned ? 'BLOCKED' : suspended ? 'SUSPENDED' : locked ? 'RESTRICTED' : 'UNAPPROVED',
+    resource: `${entry?.name || toolName} · ${name}`,
+    tool: entry?.name || toolName,
+    record: `${banned ? 'Banned' : suspended ? 'Suspended' : locked ? 'Above licence level' : 'Unapproved'} model selected · ${name} on ${entry?.name || toolName} · alert ${alert.id}`,
+    control: 'AIGE 4.2',
+    status: 'FLAGGED',
+    risk: severity,
+    reason: banned ? 'model-banned' : suspended ? 'model-suspended' : locked ? 'model-level' : 'model-unapproved',
+    alertId: alert.id,
+    outcome: isNew
+      ? `Risk alert ${alert.id} opened at ${severity}`
+      : escalated
+        ? `Risk alert ${alert.id} escalated to ${severity}`
+        : `Recorded against open risk alert ${alert.id} · ${alert.occurrences} occurrences`,
+  }))
+
   if (isNew || escalated) {
-    recordAudit({
-      action: banned ? 'BLOCKED' : suspended ? 'SUSPENDED' : locked ? 'RESTRICTED' : 'UNAPPROVED',
-      resource: `${entry?.name || toolName} · ${name}`,
-      tool: entry?.name || toolName,
-      record: `${banned ? 'Banned' : suspended ? 'Suspended' : locked ? 'Above licence level' : 'Unapproved'} model selected · ${name} on ${entry?.name || toolName} · alert ${alert.id}`,
-      control: 'AIGE 4.2',
-      status: 'FLAGGED',
-      risk: severity,
-    })
     addNotification({
       category: 'TOOL ACCESS',
       title: banned ? `${name} is banned by your organisation`
@@ -1579,7 +1783,7 @@ export function recordBlockedAttempt({ tool, model, reason, types = [] }) {
     primary: banned ? 'Acknowledge' : 'Review tool request',
   })
 
-  recordAudit({
+  const event = linkAlertEvent(alert, recordAudit({
     action: 'BLOCKED',
     resource: destination,
     tool: entry?.name || name,
@@ -1587,9 +1791,15 @@ export function recordBlockedAttempt({ tool, model, reason, types = [] }) {
     control: 'AIGE 4.2',
     status: 'BLOCKED',
     risk: severity,
-  })
+    // Categories only. The prompt was never sent and its text never reaches
+    // this function — see the route that calls it.
+    types,
+    reason,
+    alertId: alert.id,
+    outcome: `Send refused · nothing transmitted · risk alert ${alert.id}`,
+  }))
 
-  return { ok: true, alert, isNew, escalated, severity }
+  return { ok: true, alert, isNew, escalated, severity, event }
 }
 
 // `offline` + `time` describe an event that was masked on the employee's device
@@ -1601,13 +1811,28 @@ export function recordBlockedAttempt({ tool, model, reason, types = [] }) {
 export function recordPromptEvent({ detections, masked, tool = 'AI Assistant', time, offline = false, award = true }) {
   const total = detections.reduce((n, d) => n + d.count, 0)
   const clean = total === 0
+  const critical = criticalTypes(detections)
   const event = recordAudit({
     action: clean ? 'CLEAN' : 'MASKED',
+    // Already masked by the full two-layer pipeline; `promptDerived` re-applies
+    // Layer 1 on the way in so this stays true even if a caller does not.
     record: masked,
+    promptDerived: true,
     tool,
     resource: tool,
     control: clean ? 'NIST GV.4' : CONTROL_TAGS[detections[0].type] || 'NIST PR.DS',
-    risk: clean ? 'LOW' : 'MEDIUM',
+    // A masked credential is a higher-risk row than a masked phone number, and
+    // the row an admin filters "high-risk events only" on has to agree with the
+    // alert the same detection raises.
+    risk: clean ? 'LOW' : critical.length ? SEVERITY.HIGH : 'MEDIUM',
+    // Which categories were found — names only, never the values behind them.
+    // This is what makes the log answerable by category without ever holding
+    // the data the category describes.
+    types: detections.map(d => d.type),
+    reason: clean ? 'no-sensitive-data' : 'sensitive-data-detected',
+    outcome: clean
+      ? 'Sent unchanged · nothing sensitive found'
+      : `Masked before transmission · ${total} item${total === 1 ? '' : 's'} removed`,
     time, offline, countsAsPrompt: true,
   })
 
@@ -1628,7 +1853,7 @@ export function recordPromptEvent({ detections, masked, tool = 'AI Assistant', t
     // A live event feeds the repeated-identifier window. A recovered one does
     // not: it is minutes or hours old, so counting it as "just now" would let a
     // gateway outage manufacture a pattern that never happened in real time.
-    if (!offline) noteMaskedIdentifiers(detections)
+    if (!offline) noteMaskedIdentifiers(detections, event, tool)
     const types = detections.map(d => `${d.type.toLowerCase()} ×${d.count}`).join(', ')
     // An offline event was already explained on-device by the checkpoint the
     // employee confirmed. Notifying again when it reaches the log would be the
@@ -1669,21 +1894,52 @@ export function recordOfflineEvent({ id, detections, masked, tool, at }) {
 
 // Overriding the checkpoint (Warn-only mode, "Send original anyway"):
 // -20 points, streak reset, High alert for the admin, ALERT audit event.
-export function recordOverride({ prompt }) {
+//
+// This is the one event where the employee sent the *original*, and it was the
+// one place the raw prompt was being written straight into the audit log and
+// quoted back as the alert's evidence — the exact opposite of what the rest of
+// the gateway does, and on the most sensitive record in the system.
+//
+// What left the organisation is not a reason to keep a second copy of it. So
+// the caller passes the masked version and the categories (server.js runs the
+// same two-layer pipeline it runs for every other prompt), and if a caller
+// passes only the original, Layer 1 masks it here before anything is stored.
+// `prompt` is never persisted on either path.
+export function recordOverride({ prompt, masked, detections }) {
+  const fallback = maskPrompt(String(prompt ?? ''))
+  // Trust the caller's two-layer result when there is one; Layer 1 is the floor,
+  // never the ceiling.
+  const safeRecord = maskPrompt(String(masked ?? fallback.masked)).masked
+  const found = (detections?.length ? detections : fallback.detections) || []
+  const types = found.map(d => d.type)
+  const total = found.reduce((n, d) => n + (d.count || 1), 0)
+  const summary = types.length
+    ? types.map(t => identifierLabel(t)).join(', ')
+    : 'no category identified'
+
   db.profile.streakDays = 0
   // Counted on the employee's own record, not only in the admin queue: it is
   // what the AI Safety Score on their licence deducts for (safetyFor()).
   db.profile.overrides = (db.profile.overrides || 0) + 1
   applyPoints(-20)
   const event = recordAudit({
-    action: 'ALERT', record: prompt, control: 'PDPA P7', status: 'FLAGGED', risk: 'HIGH', countsAsPrompt: true,
+    action: 'ALERT',
+    record: safeRecord,
+    promptDerived: true,
+    control: 'PDPA P7',
+    status: 'FLAGGED',
+    risk: 'HIGH',
+    countsAsPrompt: true,
+    types,
+    reason: 'checkpoint-override',
+    outcome: `Original sent by employee choice · ${total} sensitive item${total === 1 ? '' : 's'} left the organisation`,
   })
   // The gateway found sensitive content and the employee sent the original
   // anyway: that is sensitive data confirmed to have left the organisation, so
   // it is what "Confirmed data leaks" on the compliance report counts, and the
   // one rule that is HIGH on its first occurrence.
   db.report.confirmedLeaks += 1
-  raiseAlert({
+  const { alert } = raiseAlert({
     key: `override:${db.profile.id}`,
     severity: OVERRIDE_SEVERITY,
     employeeId: db.profile.id,
@@ -1691,12 +1947,18 @@ export function recordOverride({ prompt }) {
     title: 'Protected prompt overridden',
     meta: `${departmentName(db.profile.dept)} · ${db.profile.id} · sensitive data sent unmasked`,
     detailMeta: `${departmentName(db.profile.dept)} · User ${db.profile.id} · detected today at ${nowTime()}`,
-    what: 'An employee used Warn-only mode to send the original prompt after the gateway flagged sensitive content. This is the one case where protected data demonstrably left the organisation. 20 points were deducted and the safe streak was reset.',
-    evidence: event.record,
-    evidenceNote: 'Original sent by employee choice · flagged for review',
+    what: `An employee used Warn-only mode to send the original prompt after the gateway flagged sensitive content. This is the one case where protected data demonstrably left the organisation. What was sent contained ${summary}. 20 points were deducted and the safe streak was reset.`,
+    // The masked version and the categories — never the original. An admin
+    // needs to know what class of data left and who sent it; keeping a second
+    // copy of the data itself would make the audit log the very leak it is
+    // recording.
+    evidence: `${summary} sent unmasked · masked record: ${event.record}`,
+    evidenceNote: 'Original sent by employee choice · masked record only, raw prompt never stored',
     recommend: 'Assign the 5-minute Data Privacy refresher and confirm the prompt was recalled where possible.',
     primary: 'Assign training',
   })
+  linkAlertEvent(alert, event)
+  event.alertId = alert.id
   addNotification({
     category: 'SMART GATEWAY',
     title: 'Original prompt sent — points deducted',
@@ -2445,15 +2707,65 @@ export function resolveAlert(id) {
     // here rather than derived on read so a later re-open cannot un-complete a
     // review that demonstrably happened.
     if (a.kind === 'human-review') db.report.humanReviewsCompleted += 1
-    adminAudit({
+    linkAlertEvent(a, adminAudit({
       action: 'RESOLVED',
       resource: a.id,
       record: `Risk alert resolved · ${a.title}`,
       control: 'NIST GV.4',
       risk: a.severity === 'HIGH' ? 'HIGH' : 'MEDIUM',
-    })
+      alertId: a.id,
+      outcome: `Alert closed by ${ADMIN_ACTOR.role}`,
+    }))
   }
   return db.alerts
+}
+
+// The actions an admin can take on an alert without closing it. Each one is a
+// governance decision, so each one is recorded the same way a resolution is —
+// on the alert's own timeline and in the audit log — rather than being a toast
+// that leaves no trace of who acknowledged what.
+//
+// `escalate` is the one that changes the alert: raising the severity by hand is
+// how a rule's verdict gets overridden by a human who knows more than the rule
+// did, and it moves the response deadline with it.
+const ALERT_ACTIONS = {
+  acknowledge: { label: 'Acknowledged', control: 'NIST GV.4' },
+  escalate: { label: 'Escalated to HIGH', control: 'NIST GV.4' },
+  'assign-training': { label: 'Training assignment opened', control: 'EU AI Act 4' },
+  'review-tool': { label: 'Tool request review opened', control: 'AIGE 4.2' },
+  'open-review': { label: 'Human review case opened', control: 'EU AI Act 86' },
+}
+
+export function actOnAlert(id, action) {
+  const alert = db.alerts.find(x => x.id === id)
+  if (!alert) return { ok: false, reason: 'not_found' }
+  const chosen = ALERT_ACTIONS[action]
+  if (!chosen) return { ok: false, reason: 'unknown_action' }
+  if (alert.status !== 'open') return { ok: false, reason: 'not_open', alert }
+
+  let note = chosen.label
+  if (action === 'escalate') {
+    if (alert.severity === SEVERITY.HIGH) {
+      note = 'Escalation confirmed · already HIGH'
+    } else {
+      alert.severity = SEVERITY.HIGH
+      alert.dueAt = dueAtFor(SEVERITY.HIGH)
+    }
+  }
+
+  alert.updatedAt = new Date().toISOString()
+  alert.timeline.push([nowTime(), `${note} · Admin · Compliance role`])
+  linkAlertEvent(alert, adminAudit({
+    action: action === 'escalate' ? 'ESCALATED' : 'REVIEW',
+    resource: alert.id,
+    record: `${note} · ${alert.title}`,
+    control: chosen.control,
+    status: 'FLAGGED',
+    risk: alert.severity === SEVERITY.HIGH ? 'HIGH' : 'MEDIUM',
+    alertId: alert.id,
+    outcome: note,
+  }))
+  return { ok: true, alert }
 }
 
 // The one-click compliance report (O3). Every number is the audit log's own
@@ -2476,7 +2788,7 @@ export function reportSummary() {
 
 export function addReviewRequest(ref) {
   // Keyed by reference, so the same person clicking twice raises one case.
-  raiseAlert({
+  const { alert } = raiseAlert({
     key: `review:${ref}`,
     severity: SEVERITY.HIGH,
     kind: 'human-review',
@@ -2489,7 +2801,7 @@ export function addReviewRequest(ref) {
     recommend: 'Route the case to an independent human reviewer.',
     primary: 'Open review case',
   })
-  recordAudit({
+  linkAlertEvent(alert, recordAudit({
     action: 'REVIEW',
     actor: 'PUBLIC',
     dept: 'Public portal',
@@ -2500,7 +2812,10 @@ export function addReviewRequest(ref) {
     control: 'EU AI Act 86',
     status: 'FLAGGED',
     risk: 'HIGH',
-  })
+    reason: 'human-review-requested',
+    alertId: alert.id,
+    outcome: `Review case ${alert.id} opened`,
+  }))
   return openAlerts()
 }
 
@@ -2576,11 +2891,33 @@ export function requestableTools(employeeId) {
  * Both guards are enforced here rather than only in the browser, because a
  * hand-made POST is exactly the request an approval queue must not accept.
  */
+// A request that is refused is still an access action, and the audit log is
+// where access actions go. It was the one governance decision in the workflow
+// that left no record: an employee could try for a banned tool, or for one above
+// their licence, and the only trace was a 403 in somebody's browser.
+//
+// Recorded as DENIED with the reason, so the register's refusals read the same
+// way the training guard's do (see guardModule in server.js).
+function auditRefusedRequest(tool, reason) {
+  return recordAudit({
+    action: 'DENIED',
+    resource: String(tool || 'unnamed tool'),
+    tool: 'AI Passport',
+    record: `Tool access request refused · ${tool || 'unnamed tool'} · ${reason}`,
+    control: 'AIGE 4.2',
+    status: 'BLOCKED',
+    risk: 'LOW',
+    reason,
+    outcome: 'Request not created',
+  })
+}
+
 export function applyForVisa({ tool, purpose, scopes }) {
   const employeeId = db.profile.id
   const level = db.profile.level || 0
 
   if (level < REQUEST_MIN_LEVEL) {
+    auditRefusedRequest(tool, `below request level · Level ${REQUEST_MIN_LEVEL} required, employee is Level ${level}`)
     return {
       ok: false,
       error: `Tool access requests unlock at AI License Level ${REQUEST_MIN_LEVEL}. Finish your assigned training to reach it — the approved free AI tools are available to you now.`,
@@ -2597,11 +2934,13 @@ export function applyForVisa({ tool, purpose, scopes }) {
     const entry = registerEntry(wanted)
     const needs = entry?.requestable ? requestMinLevelFor(entry.name) : null
     if (needs && level < needs) {
+      auditRefusedRequest(entry.name, `tool opens for requests at Level ${needs}, employee is Level ${level}`)
       return {
         ok: false,
         error: `${entry.name} can be requested from AI License Level ${needs}. You are Level ${level} — finishing your assigned training is what raises it.`,
       }
     }
+    auditRefusedRequest(wanted, entry ? `${entry.status.toLowerCase()} tool not open for requests` : 'tool not in the approved register')
     return {
       ok: false,
       error: 'Choose one of the AI tools offered. Anything else has either not been made available for requests, or you already have it.',
@@ -2889,5 +3228,5 @@ export { MAX_QUESTIONS, moduleIssue }
 export { REQUEST_MIN_LEVEL } from './levels.js'
 export {
   SEVERITY, RESPONSE_HOURS, REPEAT_WINDOW_MINUTES, REPEAT_WARN_AT, REPEAT_ESCALATE_AT,
-  TOOL_REPEAT_WINDOW_MINUTES, ORG_MODES, MODES,
+  TOOL_REPEAT_WINDOW_MINUTES, ORG_MODES, MODES, CRITICAL_TYPES, CRITICAL_SEVERITY,
 } from './risk.js'

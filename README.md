@@ -297,11 +297,11 @@ npm test
 | GET    | /api/training/mine/:id     | Employee — one module with its questions; 403 if not assigned |
 | GET    | /api/notifications         | The signed-in employee's notifications (`/:id/read`, `/:id/delete`, `/:id/restore`) |
 | GET    | /api/visas                 | Tool requests (`POST /api/visas/apply`, `POST /api/visas/:id/decision`) |
-| GET    | /api/alerts                | Risk alerts (`POST /api/alerts/:id/resolve` to resolve) |
+| GET    | /api/alerts                | Admin — risk alerts (`POST /api/alerts/:id/resolve`; `POST /api/alerts/:id/action` for acknowledge / escalate) |
 | POST   | /api/review-request        | Public transparency portal → creates an admin risk alert |
-| GET    | /api/audit                 | Live audit log (masked records only) |
+| GET    | /api/audit                 | Admin — live audit log (masked records only, review status folded in) |
 | GET    | /api/stats                 | Admin KPIs — single source of truth for all screens |
-| GET    | /api/report                | One-click compliance report totals, derived from the audit log (period baseline + everything recorded since) |
+| GET    | /api/report                | Admin — one-click compliance report totals, derived from the audit log (period baseline + everything recorded since) |
 | GET/PUT| /api/settings              | Gateway policy — **Mask** or **Warn only** really applies. Block is not an org-wide mode (see below); a request naming it is ignored |
 | POST   | /api/reset                 | Reset demo data |
 
@@ -311,6 +311,51 @@ plus the training library, its assignment records and the notifications they pro
 is written to `backend/data/progress.json`, so an assignment and an employee's XP both
 survive a refresh, a re-login, a different device and a server restart.
 `POST /api/reset` clears it.
+
+## The audit log: what is recorded, and what is never stored
+
+One append-only feed carries everything that has to be explainable later — the
+gateway's own decisions and the governance actions an admin takes. Every employee
+event that matters reaches it **as it happens**: a prompt masked, a prompt refused,
+an unapproved or banned tool opened, an unreviewed model selected, a tool used above
+a licence level, a tool access request made *or refused*, a checkpoint override, a
+training module opened, completed or denied, a sign-in.
+
+Each record carries the fields a compliance report is built from:
+
+| Field | Holds |
+|---|---|
+| `user` · `dept` · `role` | who, and which department |
+| `tool` · `resource` | where it was heading |
+| `action` · `status` · `risk` | what happened, its result, its risk level |
+| `types[]` | the detection **categories** found (`IC`, `NAME`, `CREDENTIAL`…) |
+| `reason` | why the gateway decided as it did (`sensitive-data-detected`, `tool-banned`…) |
+| `outcome` | what was actually done — "Masked before transmission · 3 items removed" |
+| `alertId` → `review` | the risk alert it opened, and whether that case is still open |
+| `control` | NIST AI RMF / EU AI Act / PDPA clause |
+| `time` · `at` · `recordedAt` | when it happened, and when the log received it |
+
+**No raw prompt is ever stored, on any path.** Records derived from something an
+employee typed are marked `promptDerived` and re-masked by Layer 1 on the way into the
+log, so the guarantee is a property of the log rather than a promise each call site has
+to keep. `types[]` names the *category* that was found and never the value behind it,
+which is what lets the log answer "how much customer identity data went to AI tools
+this month" without holding any.
+
+That applies to the override too — the one event where the employee genuinely did send
+the original. What left the organisation is not a reason for the audit log to keep a
+second copy of it, so the record and the alert's evidence carry the masked text plus
+the categories, and the raw prompt is dropped. This is the discipline the case study
+names (**privacy by design**: PDPA §7, NIST AI RMF MAP/MEASURE, EU AI Act Art. 12
+record-keeping).
+
+`/api/audit`, `/api/alerts` and `/api/report` are **admin-only** — they carry every
+employee's governance history. An employee's own slice is served separately by
+`/api/activity/mine`, filtered on the server rather than in the browser.
+
+An alert is deduplicated; the log is not. Three visits to an unapproved tool produce
+**one** card and **three** records, because "they opened it three more times after
+being told" is the evidence a governance case is built from.
 
 ## Risk alerts: what raises one, and at what level
 
@@ -326,6 +371,7 @@ screen states the rubric so the queue can be explained rather than just read.
 | Rule | Raises | Escalates to HIGH |
 |---|---|---|
 | **Repeated identifiers** — the same *kind* of identifier masked repeatedly for one employee inside a 15-minute window | MEDIUM at 3 | at 5 |
+| **Credential or secret in a prompt** — a password, API key or private key masked in a prompt | HIGH on the first occurrence | — |
 | **Unapproved tool** — an employee opens a tool with no active visa | MEDIUM | HIGH if the tool is SUSPENDED or BANNED |
 | **Tool above licence level** — the tool is approved, the employee's AI License is not high enough for it | MEDIUM | — |
 | **Unapproved model** — the tool is approved, the selected model is not | MEDIUM | HIGH if the model is SUSPENDED or BANNED |
@@ -338,10 +384,25 @@ Two properties hold across all of them:
 
 - **A single protected prompt is never an alert.** The gateway masking something is
   the system working; alerting on it would teach an admin to ignore the queue. Only a
-  *pattern* is raised.
+  *pattern* is raised. The one exception is a **credential or secret**: masking it in
+  the prompt does not un-leak the key from wherever it was copied, and the response is
+  to rotate it today rather than to book a refresher — so that rule fires at one.
 - **A pattern that continues escalates the alert it already has.** It never opens a
   second one — a queue holding the same finding five times is the same failure as no
   queue at all. The `×N` on a card is that finding's own evidence count.
+
+Every alert names the employee and department it is about (`employeeId`, `dept`) and
+carries `events[]` — the ids of the audit records that raised it. Each of those records
+carries `alertId` back. That is what makes a card traceable to its evidence and any
+record answerable for whether it was followed up: `GET /api/audit` folds the alert's
+live status onto each event as `review: OPEN | RESOLVED`, derived on read so the log
+itself stays append-only.
+
+Beyond resolving, an admin can **acknowledge** or **escalate** an alert
+(`POST /api/alerts/:id/action`). Escalating raises the severity by hand and moves the
+response deadline with it — a human who knows more than the rule did is allowed to
+overrule it. Every action lands on the alert's timeline *and* in the audit log, so who
+acknowledged what is a record rather than a toast.
 
 The approved-tool register (`db.orgTools`) is the single authority on what is
 approved. Approving a visa on Tool Approvals is what moves a tool into it, and that is

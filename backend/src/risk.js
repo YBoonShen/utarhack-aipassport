@@ -70,6 +70,30 @@ export function repeatVerdict(counts) {
   }
 }
 
+// ---- rule 1b: a credential or secret, on the first occurrence ---------------
+// The rule above is deliberately patient: one masked IC number is the gateway
+// working, and alerting on it would teach an admin to ignore the queue. That
+// reasoning holds for personal identifiers, which are pasted in by habit and
+// cost nothing once masked.
+//
+// It does not hold for a credential or a private key. Those two categories are
+// not "personal data that was protected in time" — they are an access path to a
+// system, and the employee's clipboard, their shell history and whatever they
+// pasted from still hold the live secret after the gateway has masked it. The
+// organisation's response is to rotate the key, and that is worth telling an
+// admin about the first time rather than the third.
+//
+// So these types skip the window entirely and raise HIGH on occurrence one.
+// Everything else keeps the pattern rule, which is what stops the queue filling
+// with protected prompts.
+export const CRITICAL_TYPES = ['CREDENTIAL', 'SECRET']
+export const CRITICAL_SEVERITY = SEVERITY.HIGH
+
+/** The critical types present in one prompt's detections, in rule order. */
+export function criticalTypes(detections = []) {
+  return CRITICAL_TYPES.filter(t => detections.some(d => d.type === t))
+}
+
 // ---- rule 2: unapproved tool -----------------------------------------------
 // Data reaching a tool the organisation never reviewed is the risk the visa
 // workflow exists to remove, so using one is always worth an alert — but the

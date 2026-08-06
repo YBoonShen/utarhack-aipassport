@@ -16,6 +16,7 @@ import {
   toolAccessFor, toolForHost, alternativesFor, modelStatus, recordModelUse, setModelStatus,
   gatewayPolicyFor, recordBlockedAttempt, requestableTools, applyForVisa,
   toolModelsFor, freeModelFor, modelAccessFor, approvedModels,
+  auditView, actOnAlert, activityFor,
   REPEAT_WARN_AT, REPEAT_ESCALATE_AT, REPEAT_WINDOW_MINUTES, REQUEST_MIN_LEVEL,
 } from './store.js'
 import { dueLabel, pruneRepeats, repeatCounts, repeatVerdict, SEVERITY, MODES, tighten } from './risk.js'
@@ -620,6 +621,192 @@ test('a resolved pattern that returns opens a fresh alert', () => {
   const open = alertsFor('Repeated identifiers in prompts').filter(a => a.employeeId === 'E-217')
   assert.equal(open.length, 1)
   assert.notEqual(open[0].id, first.id)
+})
+
+// ---- the audit log ------------------------------------------------------------
+// Two properties the whole governance story rests on: the log is complete
+// (every qualifying event reaches it, in real time) and it never holds the data
+// it is recording. Both are pinned here because both were broken.
+
+const auditFor = action => db.auditEvents.filter(e => e.action === action)
+const RAW_IC = '880505-10-5566'
+
+test('the raw prompt never reaches the audit log, even on an override', () => {
+  // The one event where the original genuinely was sent. What left the
+  // organisation is not a reason for the audit log to keep a second copy of it.
+  recordOverride({ prompt: `send it anyway ${RAW_IC}` })
+  const logged = auditFor('ALERT')[0]
+  assert.ok(!logged.record.includes(RAW_IC), 'the IC number is not in the record')
+  assert.match(logged.record, /\[MASKED-IC\]/)
+  // …and the alert quoting it as evidence must not reintroduce it.
+  const raised = alertsFor('Protected prompt overridden')[0]
+  assert.ok(!raised.evidence.includes(RAW_IC), 'the alert evidence is masked too')
+  assert.ok(!JSON.stringify(db).includes(RAW_IC), 'nothing anywhere in the store holds it')
+})
+
+test('an override records which categories left, not what they contained', () => {
+  recordOverride({ masked: 'client [MASKED-IC]', detections: [{ type: 'IC', count: 1 }] })
+  const logged = auditFor('ALERT')[0]
+  assert.deepEqual(logged.types, ['IC'])
+  assert.equal(logged.reason, 'checkpoint-override')
+  assert.match(logged.outcome, /left the organisation/)
+})
+
+test('a masked prompt is logged with its categories and its outcome', () => {
+  maskPrompt([{ type: 'IC', count: 2 }])
+  const logged = auditFor('MASKED')[0]
+  assert.deepEqual(logged.types, ['IC'])
+  assert.equal(logged.reason, 'sensitive-data-detected')
+  assert.match(logged.outcome, /2 items removed/)
+  assert.equal(logged.record, 'client [MASKED-IC]', 'the masked text, and only that')
+})
+
+test('every unapproved tool visit is logged, even though one card is raised', () => {
+  recordToolUse({ tool: 'DeepSeek' })
+  recordToolUse({ tool: 'DeepSeek' })
+  recordToolUse({ tool: 'DeepSeek' })
+  // The queue is deduplicated; the append-only log is not. "They opened it three
+  // more times after being told" is the evidence a case is built from.
+  assert.equal(alertsFor('Unapproved tool detected').filter(a => a.employeeId === 'E-217').length, 1)
+  assert.equal(auditFor('UNAPPROVED').filter(e => e.resource === 'DeepSeek').length, 3)
+  // The employee is told once, not three times.
+  assert.equal(notificationsFor('E-217').filter(n => n.title === 'DeepSeek is not an approved tool').length, 1)
+})
+
+test('every banned model selection is logged', () => {
+  recordModelUse({ tool: 'Claude', model: 'Fable 5' })
+  recordModelUse({ tool: 'Claude', model: 'Fable 5' })
+  assert.equal(alertsFor('Banned model used').length, 1)
+  assert.equal(auditFor('BLOCKED').filter(e => e.reason === 'model-banned').length, 2)
+})
+
+test('an alert and the events behind it point at each other', () => {
+  const { alert } = recordToolUse({ tool: 'DeepSeek' })
+  const logged = auditFor('UNAPPROVED').find(e => e.resource === 'DeepSeek')
+  assert.equal(logged.alertId, alert.id, 'the event names its alert')
+  assert.ok(alert.events.includes(logged.id), 'the alert names its evidence')
+})
+
+test('an alert carries the department as a field, not only inside a sentence', () => {
+  const { alert } = recordToolUse({ tool: 'DeepSeek' })
+  assert.equal(alert.employeeId, 'E-217')
+  assert.equal(alert.dept, 'Eng')
+  assert.equal(alert.department, 'Engineering')
+})
+
+test('review status is derived on read, so the log stays append-only', () => {
+  const { alert } = recordToolUse({ tool: 'DeepSeek' })
+  const before = auditView().find(e => e.alertId === alert.id)
+  assert.equal(before.review, 'OPEN')
+  // The stored event is untouched — the status lives on the alert.
+  assert.equal(db.auditEvents.find(e => e.id === before.id).review, undefined)
+
+  resolveAlert(alert.id)
+  const after = auditView().find(e => e.id === before.id)
+  assert.equal(after.review, 'RESOLVED')
+  assert.ok(after.reviewedAt)
+})
+
+test('an employee sees their own events with the same review status', () => {
+  const { alert } = recordToolUse({ tool: 'DeepSeek' })
+  resolveAlert(alert.id)
+  const mine = activityFor('E-217')
+  assert.ok(mine.every(e => e.user === 'E-217'), 'never anybody else’s events')
+  assert.equal(mine.find(e => e.alertId === alert.id).review, 'RESOLVED')
+})
+
+// ---- rule 1b: a credential is not a pattern to wait for -----------------------
+
+test('a credential raises HIGH on its first occurrence', () => {
+  // Every other identifier waits for the pattern rule. A secret does not: the
+  // key is still live wherever it was copied from, masked prompt or not.
+  const before = openAlerts().length
+  recordPromptEvent({
+    detections: [{ type: 'CREDENTIAL', count: 1 }],
+    masked: 'deploy with [MASKED-CREDENTIAL]',
+    tool: 'ChatGPT',
+  })
+  const raised = alertsFor('Credential or secret in a prompt')
+  assert.equal(raised.length, 1)
+  assert.equal(raised[0].severity, SEVERITY.HIGH)
+  assert.equal(openAlerts().length, before + 1)
+  assert.match(raised[0].recommend, /Rotate the credential/)
+  // The employee is told what to actually do about it.
+  assert.equal(notificationsFor('E-217').filter(n => /was masked in your prompt/.test(n.title)).length, 1)
+})
+
+test('a masked credential is a HIGH row in the log, not a MEDIUM one', () => {
+  recordPromptEvent({
+    detections: [{ type: 'SECRET', count: 1 }],
+    masked: 'key [MASKED-SECRET]',
+    tool: 'ChatGPT',
+  })
+  assert.equal(auditFor('MASKED')[0].risk, SEVERITY.HIGH)
+})
+
+test('repeating it escalates the one card rather than opening more', () => {
+  for (let i = 0; i < 3; i++) {
+    recordPromptEvent({
+      detections: [{ type: 'CREDENTIAL', count: 1 }],
+      masked: 'deploy with [MASKED-CREDENTIAL]',
+      tool: 'ChatGPT',
+    })
+  }
+  assert.equal(alertsFor('Credential or secret in a prompt').length, 1)
+})
+
+test('an ordinary identifier still waits for the pattern', () => {
+  // The restraint the queue depends on has to survive the rule above.
+  maskPrompt()
+  assert.equal(alertsFor('Credential or secret in a prompt').length, 0)
+  // The seed carries one of these for another employee, so this is scoped the
+  // way the rule is.
+  assert.equal(alertsFor('Repeated identifiers in prompts').filter(a => a.employeeId === 'E-217').length, 0)
+})
+
+// ---- the actionable workflow ---------------------------------------------------
+
+test('acknowledging an alert is recorded, not just shown', () => {
+  const target = openAlerts()[0]
+  const result = actOnAlert(target.id, 'acknowledge')
+  assert.equal(result.ok, true)
+  assert.ok(result.alert.timeline.some(([, e]) => e.startsWith('Acknowledged')))
+  assert.equal(auditFor('REVIEW')[0].alertId, target.id)
+})
+
+test('escalating raises the severity and shortens the deadline', () => {
+  const target = openAlerts().find(a => a.severity === SEVERITY.MEDIUM)
+  const before = target.dueAt
+  actOnAlert(target.id, 'escalate')
+  assert.equal(target.severity, SEVERITY.HIGH)
+  assert.ok(new Date(target.dueAt) < new Date(before), 'a HIGH alert is due sooner')
+  assert.equal(auditFor('ESCALATED')[0].alertId, target.id)
+})
+
+test('a resolved alert takes no further action, and an invented one is refused', () => {
+  const target = openAlerts()[0]
+  resolveAlert(target.id)
+  assert.equal(actOnAlert(target.id, 'acknowledge').reason, 'not_open')
+  assert.equal(actOnAlert('RA-nope', 'acknowledge').reason, 'not_found')
+  assert.equal(actOnAlert(openAlerts()[0].id, 'delete-everything').reason, 'unknown_action')
+})
+
+// ---- tool access requests ------------------------------------------------------
+
+test('a refused tool access request is an audit event too', () => {
+  db.employees['E-217'].level = 1
+  applyForVisa({ tool: 'DeepSeek', purpose: 'testing' })
+  const denied = auditFor('DENIED')[0]
+  assert.equal(denied.resource, 'DeepSeek')
+  assert.match(denied.record, /refused/)
+  assert.equal(denied.status, 'BLOCKED')
+})
+
+test('a request for a tool nobody registered is refused and recorded', () => {
+  applyForVisa({ tool: 'A tool I invented', purpose: 'x' })
+  // The row's text is truncated for the table; `reason` is the structured field
+  // a compliance export reads, and it is kept whole.
+  assert.match(auditFor('DENIED')[0].reason, /not in the approved register/)
 })
 
 resetStore()
