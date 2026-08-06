@@ -61,12 +61,19 @@ function shortWhen(time) {
   return parts.length >= 2 ? `${parts[0]} ${parts[1]}` : date
 }
 
-const ACTIVITY_SHOWN = 4
+// Recent activity is a summary, not the inbox. Three rows is what the card shows
+// on arrival; "View more" opens the rest in place, and the feed itself is
+// unbounded (addNotification just unshifts), so the expanded view has a ceiling
+// of its own and points at the Notifications page beyond it rather than growing
+// a card the length of the page.
+const ACTIVITY_COLLAPSED = 3
+const ACTIVITY_EXPANDED = 10
 
 export default function Home() {
   const [profile, setProfile] = useState(fallbackProfile)
   const [visaRequests, setVisaRequests] = useState([])
   const [myEvents, setMyEvents] = useState([])
+  const [activityExpanded, setActivityExpanded] = useState(false)
   const { user } = useAuth()
   // The signed-in session names the greeting; the profile is the fallback and
   // "there" covers the moment before either has arrived.
@@ -188,7 +195,12 @@ export default function Home() {
   // Newest first — the server unshifts each new notification, so feed order is
   // already chronological. Deleted entries are the employee's own choice to hide
   // and are respected here exactly as they are on the Notifications page.
-  const activity = (items || []).filter(n => !n.deleted).slice(0, ACTIVITY_SHOWN)
+  const allActivity = (items || []).filter(n => !n.deleted)
+  const activity = allActivity.slice(0, activityExpanded ? ACTIVITY_EXPANDED : ACTIVITY_COLLAPSED)
+  // What "View more" would still be hiding. Counted off what is *rendered*
+  // rather than off the collapsed size, so it stays honest after expanding: at
+  // the expanded ceiling it becomes the number the Notifications page holds.
+  const moreCount = allActivity.length - activity.length
 
   // Progress within the current level band (lib/levels.js), not a share of the
   // whole 0 → 8,000 system.
@@ -234,8 +246,23 @@ export default function Home() {
       </div>
 
       <p className="text-[#667085] font-semibold text-[13px] mt-8">Your progress</p>
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4 lg:gap-6 mt-3">
-        <div className="bg-navy-header rounded-[16px] p-5 lg:p-7">
+      {/* The two cards end on the same line, and the space that makes that true
+          is put somewhere deliberate rather than left as a void at the bottom of
+          whichever card had less to say.
+            • both cards are flex columns, so the shorter one's last element —
+              "View my license", the "View more" footer — is pushed to the card's
+              own bottom edge and reads as a footer instead of a stray gap;
+            • an empty feed centres its one sentence, which is what an empty
+              state should look like anyway.
+          Expanded is the exception: an opened list can run hundreds of pixels
+          past the passport card, and stretching to match would put a strip of
+          blank navy under the gold button — the original bug. While it is open
+          the cards size to their own content, which is also when the reader is
+          looking at the list rather than at the pair. */}
+      <div className={`grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4 lg:gap-6 mt-3 ${
+        activityExpanded ? 'lg:items-start' : 'lg:items-stretch'
+      }`}>
+        <div className="bg-navy-header rounded-[16px] p-5 lg:p-7 flex flex-col">
           <div className="flex items-center gap-2">
             <p className="text-gold-brand font-semibold text-[11px]">YOUR AI PASSPORT</p>
             <InfoPopover label="About your AI Passport" title="About your AI Passport">
@@ -278,19 +305,34 @@ export default function Home() {
               <p className="text-[#cbd5e1] text-xs mt-1">safe streak</p>
             </div>
           </div>
-          <Link to="/license" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-5 h-11 rounded-full inline-flex items-center justify-center mt-6 w-fit ml-auto lg:ml-0">
-            View my license →
-          </Link>
+          {/* `lg:mt-auto` is what pins this to the card's bottom edge when the
+              activity card is the taller of the two — the gap lands above a
+              button that is clearly the end of the card, instead of below it.
+              `lg:pt-6` keeps the 24px it already had when nothing is stretched. */}
+          <div className="mt-6 lg:mt-auto lg:pt-6 flex">
+            <Link to="/license" className="bg-gold-brand hover:bg-gold text-navy-header font-semibold text-sm px-5 h-11 rounded-full inline-flex items-center justify-center w-fit ml-auto lg:ml-0">
+              View my license →
+            </Link>
+          </div>
         </div>
 
-        <div className="bg-white border border-[#e0e0e5] rounded-[16px] p-6">
+        <div className="bg-white border border-[#e0e0e5] rounded-[16px] p-6 flex flex-col">
           <p className="text-navy-header font-bold text-lg">Recent activity</p>
           {activity.length === 0 ? (
-            <p className="text-[#667085] text-[13.5px] mt-4">
-              No activity yet. Protected prompts, completed training and tool decisions will appear here.
-            </p>
+            // Centred rather than parked under the heading: an employee with no
+            // activity is the case where this card is shortest and the stretch
+            // gap is largest, and a centred empty state is what that space is
+            // supposed to look like. max-w keeps it from running the full width
+            // of the card as one thin line.
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-[#667085] text-[13.5px] text-center max-w-[340px] py-6">
+                No activity yet. Protected prompts, completed training and tool decisions will appear here.
+              </p>
+            </div>
           ) : (
-            <div className="flex flex-col gap-4 mt-4">
+            // flex-1: the list takes the height the card was stretched to, so
+            // the footer below sits on the card's bottom edge.
+            <div className="flex flex-col gap-4 mt-4 flex-1">
               {activity.map(a => {
                 const s = activityStyle[a.category] || defaultStyle
                 return (
@@ -316,6 +358,32 @@ export default function Home() {
                   </div>
                 )
               })}
+            </div>
+          )}
+
+          {/* Older activity, on request. A card footer rather than a link
+              floating under the last row, so it reads as a control on the card
+              and not as part of the final activity. The count is in the label
+              because "View more" alone does not say whether it is worth the tap.
+              py-3/-my-3 keeps a 44px touch target without moving the row — the
+              same pair the activity rows' own links use. */}
+          {(moreCount > 0 || activityExpanded) && (
+            <div className="mt-4 pt-4 border-t border-[#eceef2] flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <button
+                onClick={() => setActivityExpanded(v => !v)}
+                aria-expanded={activityExpanded}
+                className="text-[#2e5ccc] font-semibold text-[13.5px] py-3 -my-3 inline-flex items-center gap-1.5 cursor-pointer hover:underline"
+              >
+                {activityExpanded ? 'Show less' : `View ${moreCount} older ${moreCount === 1 ? 'activity' : 'activities'}`}
+                <span aria-hidden="true">{activityExpanded ? '↑' : '↓'}</span>
+              </button>
+              {/* Only once the in-card list has hit its ceiling — the full feed
+                  lives on the Notifications page, and this is the way to it. */}
+              {activityExpanded && moreCount > 0 && (
+                <Link to="/notifications" className="text-[#667085] hover:text-navy-header font-semibold text-[12.5px] py-3 -my-3 inline-flex items-center">
+                  See all {allActivity.length} →
+                </Link>
+              )}
             </div>
           )}
         </div>
