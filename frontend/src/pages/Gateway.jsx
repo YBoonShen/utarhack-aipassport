@@ -158,12 +158,16 @@ export default function Gateway() {
     'tool-banned': `${selected.name} is banned by your organisation. Nothing is sent to it — an ordinary question included.`,
     'model-banned': `${policy?.model?.name || 'The selected model'} is banned by your organisation. ${selected.name} itself is approved, so pick another model and everything works as normal.`,
     'tool-suspended': `${selected.name} has been suspended organisation-wide. Nothing was sent — please move this work to an approved tool.`,
-    'tool-unapproved': 'This AI tool is not approved by your organisation, so company data is not sent to it. Your prompt was not sent, and nothing was recorded from it.',
-    'model-unapproved': `${policy?.model?.name || 'The selected model'} has not been reviewed, so sensitive prompts are not sent to it.`,
+    'tool-level': `${selected.name} is approved for your organisation but needs a higher AI License level than you hold. Finishing your assigned training is what raises it.`,
+    'model-suspended': `${policy?.model?.name || 'The selected model'} was withdrawn after a security concern, so sensitive prompts are not sent to it.`,
     'model-level': `${policy?.model?.name || 'The selected model'} is above your AI License level. Finishing your assigned training is what raises it.`,
     'data-scope': `${selected.name} is approved for ${policy?.dataScope || 'a narrower kind of data'}, and this prompt contains a category it is not cleared to receive.`,
     'org-policy': 'Company policy blocks prompts containing personal data — edit the prompt and try again.',
-  }[refusal]
+  }[refusal] || 'This prompt was not sent — edit it and try again.'
+  // An unreviewed destination is the opposite of a refusal: the prompt goes,
+  // masked like any other, and this is the sentence that says where it is going.
+  // Shown *beside* the protected version, never instead of it.
+  const notify = Boolean(policy?.notify)
   const approvedModels = policy?.approvedModels || []
   const modalAlternatives = (policy?.alternatives || alternatives).slice(0, 2)
 
@@ -264,8 +268,7 @@ export default function Gateway() {
                   ? bannedTool
                     ? 'Nothing is sent to it from the Smart Gateway — an ordinary question included. Please move this work to an approved tool.'
                     : `${selected.name} itself is approved. This model was withdrawn after a security concern, so no prompt is sent to it at all. Pick another model and everything works as normal.`
-                  : selected.explain
-                    || 'It has no approved access, so there are no agreed terms for what it does with company data. Your prompts are still protected by the Smart Gateway. Request tool access from AI Tools before putting company data in it.'}
+                  : `${selected.explain || 'It has not been through security and compliance review, so there are no agreed terms for what it does with company data.'} You can keep working — nothing is blocked, and the Smart Gateway still masks personal and company data before anything is sent. This visit is recorded for your admin; an approved tool is the safer place for work that matters.`}
               </p>
               {/* The one-tap way out, offered before the employee hits the
                   refusal rather than after it. */}
@@ -300,7 +303,7 @@ export default function Gateway() {
           {messages.length === 0 && (
             <p className="text-[#667085] text-base text-center mt-32">
               {banned ? 'Nothing is sent from here. Pick an approved destination above.'
-                : unapproved ? 'Pick an approved tool, or request access for this one.'
+                : unapproved ? 'Start typing — your prompts are still protected. An approved tool above is the safer choice.'
                   : 'Start a conversation with your approved AI tool.'}
             </p>
           )}
@@ -417,6 +420,38 @@ export default function Gateway() {
                   <div className="bg-[#f3fbf7] border border-[#078b6c] rounded-[12px] px-4 py-3.5 mt-2 min-h-[76px]">
                     <ProtectedText text={result.masked} />
                   </div>
+                  {/* Amber, not red: nothing here is refused. The send button
+                      below works exactly as it does on an approved tool — this
+                      is the employee being told where the prompt is heading and
+                      offered somewhere better for next time. */}
+                  {notify && (
+                    <div className="bg-[#fff5de] border border-[#e8c877] rounded-[12px] px-4 py-3.5 mt-4">
+                      <p className="text-[#8a6410] font-semibold text-[13px]">
+                        {refusal === 'model-unapproved'
+                          ? `${policy?.model?.name || 'This model'} has not been reviewed by your organisation`
+                          : `${selected.name} has not been reviewed by your organisation`}
+                      </p>
+                      <p className="text-[#8a6410] text-xs mt-1 leading-relaxed">
+                        There are no agreed terms covering what this vendor keeps, or whether your prompt trains their
+                        models. The protected version above is what it receives — nothing shown masked leaves your
+                        browser — and this visit is recorded for your admin. An approved tool is the safer place for
+                        work that matters.
+                      </p>
+                      {modalAlternatives.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          {modalAlternatives.map(a => (
+                            <button
+                              key={a.name}
+                              onClick={() => { chooseTool(a.name); setResult(null) }}
+                              className="bg-white border border-[#078b6c] text-[#047857] font-semibold text-[11px] rounded-full px-3 py-1.5 cursor-pointer hover:bg-[#f3fbf7]"
+                            >
+                              Use {a.name} instead&nbsp;&nbsp;→
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
 

@@ -367,6 +367,32 @@ a.aip-btn {
   line-height: 1.5;
 }
 
+/* The unreviewed-destination notice inside the checkpoint. Amber, like every
+   other warning here — deliberately NOT the red of a refusal, because nothing on
+   this panel is refused: the send button below it works exactly as it does on an
+   approved tool. */
+.aip-cp-unreviewed {
+  background: #fdfaf0;
+  border: 1px solid #e0c78a;
+  border-radius: 10px;
+  padding: 11px 13px 4px;
+  margin-top: 14px;
+}
+
+.aip-cp-unreviewed .aip-cp-label {
+  margin-top: 0;
+  color: #b27a0d;
+}
+
+.aip-cp-unreviewed .aip-body {
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+
+.aip-cp-unreviewed .aip-actions {
+  margin-top: 10px;
+}
+
 .aip-cp-why {
   background: #eef2ff;
   border-radius: 10px;

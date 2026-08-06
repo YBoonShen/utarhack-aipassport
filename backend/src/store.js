@@ -1455,6 +1455,10 @@ export function gatewayPolicyFor({ employeeId, tool, model, types = [] }) {
     // True for a destination nothing may be sent to. Read this *before* looking
     // at detections: it is the one refusal that applies to a clean prompt.
     banned: Boolean(verdict.banned),
+    // True for a destination nobody has reviewed. The prompt still goes, masked
+    // by the org's own mode — this is the caller's cue to say so and to offer
+    // the approved alternatives, never to hold anything back.
+    notify: Boolean(verdict.notify),
     tightened: verdict.mode !== db.settings.mode,
     alternatives: alternativesFor(employeeId, access.tool),
   }

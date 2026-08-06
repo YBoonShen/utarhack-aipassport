@@ -295,6 +295,10 @@ function policyOf(policy) {
     reason: policy.reason,
     // The one refusal that applies to a prompt with nothing in it.
     banned: Boolean(policy.banned),
+    // The opposite flag: nobody has reviewed this destination. The prompt goes,
+    // masked like any other — this is what tells the checkpoint to say so and to
+    // name somewhere approved, never to hold anything back.
+    notify: Boolean(policy.notify),
     explain: policy.explain,
     mode: policy.mode,
     orgMode: policy.orgMode,

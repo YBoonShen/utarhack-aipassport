@@ -576,7 +576,7 @@
   function renderWarning(original, res) {
     const total = countOf(res.detections)
     const plural = total === 1 ? '' : 's'
-    const state = res.mode === 'Block' ? 'block' : res.mode === 'Warn only' ? 'warn' : 'ok'
+    const state = res.mode === 'Block' ? 'block' : res.mode === 'Warn only' || res.policy?.notify ? 'warn' : 'ok'
     // A Block warning has to say *which* block, because the way out differs:
     // a policy block needs a different prompt, an unapproved tool or model needs
     // a different destination. Saying "company policy" for all four would send
@@ -584,21 +584,30 @@
     const blockNote = {
       'tool-banned': `${tool.name} is banned by your organisation, so nothing is sent from here — this prompt included.`,
       'model-banned': `${res.policy?.model?.name || 'The selected model'} is banned by your organisation, so nothing is sent to it at all.${res.policy?.approvedModels?.length ? ` Switch to ${res.policy.approvedModels.join(' or ')}.` : ''}`,
-      'tool-unapproved': `This AI tool is not approved by your organisation, so this prompt will not be sent from here. Remove the ${total} item${plural} above, or use an approved tool.`,
       'tool-suspended': `${tool.name} has been suspended organisation-wide. This prompt will not be sent from here.`,
-      'model-unapproved': `${res.policy?.model?.name || 'The selected model'} has not been reviewed, so this prompt will not be sent to it.${res.policy?.approvedModels?.length ? ` Switch to ${res.policy.approvedModels.join(' or ')}.` : ''}`,
+      'tool-level': `${tool.name} is approved, but it needs a higher AI License level than you hold, so this prompt will not be sent from here.`,
+      'model-suspended': `${res.policy?.model?.name || 'The selected model'} has been suspended, so this prompt will not be sent to it.${res.policy?.approvedModels?.length ? ` Switch to ${res.policy.approvedModels.join(' or ')}.` : ''}`,
       'model-level': `${res.policy?.model?.name || 'The selected model'} is above your AI License level, so this prompt will not be sent to it.${res.policy?.approvedModels?.length ? ` ${res.policy.approvedModels.join(' or ')} ${res.policy.approvedModels.length === 1 ? 'is' : 'are'} available to you now.` : ''}`,
       'data-scope': `${tool.name} is not cleared to receive ${detectedSummary(res.detections)}. Remove the ${total} item${plural} above before sending.`,
       'org-policy': `Company policy blocks prompts containing personal data. Remove the ${total} item${plural} above before sending.`,
     }[res.policy?.reason || 'org-policy']
 
-    const note = res.offline
+    // An unreviewed destination is a warning about *where* this is going, not
+    // about whether it can go. It is appended to whatever the mode was going to
+    // say, so the employee reads one panel instead of two competing ones.
+    const unreviewed = res.policy?.notify
+      ? ` <br><br>${res.policy.reason === 'model-unapproved'
+        ? `${esc(res.policy?.model?.name || 'This model')} has not been reviewed by your organisation.`
+        : `${esc(tool.name)} has not been reviewed by your organisation.`} Your prompt still goes, with the ${total} item${plural} above masked — but there are no agreed terms covering what this vendor does with it.`
+      : ''
+
+    const note = (res.offline
       ? `The Smart Gateway is unreachable, so this was checked on your device with Layer 1 rules. You will still be shown a safe version before anything is sent.`
       : res.mode === 'Block'
         ? blockNote
         : res.mode === 'Warn only'
           ? `Your organisation's policy is <strong>Warn only</strong>. Nothing has been changed — you will be asked what to do when you send.`
-          : `When you send, the checkpoint will show you the safe version first. Nothing leaves this browser until you approve it.`
+          : `When you send, the checkpoint will show you the safe version first. Nothing leaves this browser until you approve it.`) + unreviewed
 
     showPanel(
       'warning',
@@ -764,7 +773,14 @@
 
       // Reuse the debounced preview when it is for exactly this text, so the
       // common case (employee finished typing, then pressed send) is instant.
-      let res = lastChecked === text && lastResult ? lastResult : null
+      //
+      // A refusal is the one verdict never reused. It is a statement about the
+      // destination, not about the text, so it can stop being true while the
+      // composer sits untouched — an admin approves the tool, a visa is granted —
+      // and reusing it left the employee refused by a decision that had already
+      // been reversed, with no way out but to retype the prompt.
+      const reusable = lastResult && lastResult.mode !== 'Block' && !lastResult.policy?.banned
+      let res = lastChecked === text && reusable ? lastResult : null
       if (!res) {
         showPanel(
           'checking',
@@ -935,7 +951,13 @@
   // is the whole point of a checkpoint: an automatic send would give them no
   // opportunity to review what the AI tool is about to receive.
   function showCheckpoint(original, res, origin) {
-    pending = { text: original, masked: res.masked, detections: res.detections, layer2: res.layer2, origin }
+    pending = {
+      text: original, masked: res.masked, detections: res.detections, layer2: res.layer2, origin,
+      // Carried so the checkpoint can say where this is going. It changes what
+      // the panel *says*, never what it lets through — the send button is the
+      // same one an approved tool gets.
+      policy: res.policy || null,
+    }
     renderCheckpoint()
   }
 
@@ -948,6 +970,23 @@
     const provenance = pending.offline
       ? 'Masked on your device · the Smart Gateway was unreachable, so names are not checked. The masked record is held and added to your audit log when it is back'
       : `Detected: ${esc(detectedSummary(pending.detections))}${layer2} &nbsp;·&nbsp; Audit records store only the masked version`
+
+    // Where it is going, when nobody has reviewed that. Advice sitting next to
+    // the safe version, not a gate in front of it: the send button below is
+    // unchanged, and the alternatives are an offer.
+    const policy = pending.policy || {}
+    const unreviewed = policy.notify
+      ? `<div class="aip-cp-unreviewed">
+           <p class="aip-cp-label">BEFORE YOU SEND</p>
+           <p class="aip-body">${policy.reason === 'model-unapproved'
+            ? `${esc(policy.model?.name || 'The selected model')} has not been reviewed by your organisation.`
+            : `${esc(tool.name)} has not been reviewed by your organisation.`} There are no agreed terms covering what this vendor keeps, or whether your prompt trains their models. The safe version above is what it receives — nothing you see masked leaves this browser — but an approved tool is the safer place for this work.</p>
+           ${alternativesHtml(policy, 'APPROVED FOR YOU — SAFER FOR THIS WORK')}
+           <div class="aip-actions">
+             <button class="aip-btn aip-ghost" data-tools>Use an approved tool</button>
+           </div>
+         </div>`
+      : ''
 
     const p = showPanel(
       'checkpoint',
@@ -970,6 +1009,8 @@
            <p>${provenance}</p>
          </div>
 
+         ${unreviewed}
+
          <div class="aip-cp-why" data-why hidden>
            Personal identifiers (names, IC/passport numbers, phone numbers, credentials, financial figures) can identify a specific person.
            Masking them keeps the prompt useful while your company's data never leaves the browser.
@@ -985,6 +1026,7 @@
         '[data-send]': confirmSend,
         '[data-edit]': cancelCheckpoint,
         '[data-close]': cancelCheckpoint,
+        '[data-tools]': () => window.open(`${CFG.dashboardBase}/tools`, '_blank', 'noopener'),
         '[data-whytoggle]': () => {
           const why = p.card.querySelector('[data-why]')
           if (why) why.hidden = !why.hidden
@@ -1165,23 +1207,26 @@
     // case — the wording the employee has to recognise across the extension, the
     // web gateway and their AI Tools page — and the body carries the detail. The
     // sentence appears once, at the top, not again three lines down.
+    // Only decisions an admin has actually made reach this panel. "Nobody has
+    // reviewed this tool yet" is not one of them any more — that is a notice on
+    // the checkpoint, and the prompt goes.
     const lead = {
-      'tool-unapproved': 'This AI tool is not approved by your organisation',
       'tool-suspended': `${tool.name} has been suspended`,
-      'model-unapproved': `${modelName || 'This model'} is not approved`,
+      'tool-level': `${tool.name} is above your AI License level`,
+      'model-suspended': `${modelName || 'This model'} has been suspended`,
       'model-level': `${modelName || 'This model'} is above your AI License level`,
       'data-scope': `${tool.name} is not cleared for this data`,
       'org-policy': 'Prompt blocked',
-    }[reason]
+    }[reason] || 'Prompt blocked'
 
     const body = {
-      'tool-unapproved': `${esc(tool.name)} has not been reviewed, so your prompt was not sent and nothing was recorded from it. The tool keeps working normally — only company or customer data is held back.`,
       'tool-suspended': `${esc(policy.explain || '')} Nothing was sent. Please move this work to an approved tool.`,
-      'model-unapproved': `${esc(tool.name)} is approved, but ${esc(modelName || 'the selected model')} has not been reviewed, so sensitive prompts are not sent to it.${models.length ? ` Switch to ${esc(models.join(' or '))} and send again.` : ''}`,
+      'tool-level': `${esc(tool.name)} is approved for your organisation but needs a higher AI License level than you hold, so sensitive prompts are not sent from here. ${esc(policy.explain || '')} Finishing your assigned training is what raises your level.`,
+      'model-suspended': `${esc(tool.name)} is approved, but ${esc(modelName || 'the selected model')} was withdrawn after a security concern, so sensitive prompts are not sent to it.${models.length ? ` Switch to ${esc(models.join(' or '))} and send again.` : ''}`,
       'model-level': `${esc(modelName || 'The selected model')} is approved for the organisation but needs a higher AI License level than you hold, so sensitive prompts are not sent to it.${models.length ? ` ${esc(models.join(' or '))} ${models.length === 1 ? 'is' : 'are'} available to you now.` : ''} Finishing your assigned training is what raises your level.`,
       'data-scope': `${esc(tool.name)} is approved for ${esc(policy.dataScope || 'a narrower kind of data')}, and this prompt contains ${esc(detectedSummary(res.detections))}. That category is not sent here even masked.`,
       'org-policy': `Company policy blocks prompts containing personal data, so this prompt was not sent. Remove the ${items} above and try again.`,
-    }[reason]
+    }[reason] || `This prompt was not sent. Remove the ${items} above and try again.`
 
     const switchTo = reason === 'org-policy' ? '' : alternativesHtml(policy)
 
@@ -1596,25 +1641,38 @@
       }
 
       const suspended = res.access === 'suspended'
+      const locked = res.access === 'locked'
       const switchTo = alternativesHtml(res)
 
       // The headline is the organisation's own sentence and the body is the
       // detail behind it — never both. `res.explain` opens with that same
       // sentence for an unreviewed tool, so quoting it whole under the headline
       // printed "…is not approved by your organisation" twice, three lines apart.
+      //
+      // Three different things reach this banner and only two of them stop
+      // anything. An unreviewed tool is the notice-only case: nothing is held
+      // back, the Smart Gateway masks sensitive content here exactly as it does
+      // on an approved tool, and this is the employee being told what they are
+      // typing into and offered somewhere better.
+      const lead = suspended ? `${esc(tool.name)} has been suspended`
+        : locked ? `${esc(tool.name)} is above your AI License level`
+        : 'This AI tool is not approved by your organisation'
+
+      const body = suspended
+        ? `${esc(tool.name)} was withdrawn organisation-wide after a security concern. Please move this work to an approved tool.`
+        : locked
+          ? `${esc(res.explain || '')} Sensitive prompts are not sent from here until your licence reaches it — finishing your assigned training is what raises your level.`
+          : `${esc(tool.name)} has not been through security and compliance review, so there are no agreed terms for what it does with company data — what this vendor keeps, and whether your prompts train their models. <strong>You can keep working:</strong> nothing is blocked, and the Smart Gateway still masks personal and company data before anything is sent from here. An approved tool is the safer place for work that matters.`
+
       showPanel(
         'notice',
-        `${header(suspended ? 'block' : 'warn')}
-         <p class="aip-lead">${suspended
-          ? `${esc(tool.name)} has been suspended`
-          : 'This AI tool is not approved by your organisation'}</p>
-         <p class="aip-body">${suspended
-          ? `${esc(tool.name)} was withdrawn organisation-wide after a security concern. Please move this work to an approved tool.`
-          : `${esc(tool.name)} has not been through security and compliance review, so there are no agreed terms for what it does with company data. Ordinary questions are unaffected — only company and customer data is held back.`}</p>
+        `${header(suspended || locked ? 'block' : 'warn')}
+         <p class="aip-lead">${lead}</p>
+         <p class="aip-body">${body}</p>
          ${switchTo}
          <div class="aip-actions">
            <button class="aip-btn aip-ghost" data-close>Dismiss</button>
-           <a class="aip-btn aip-gold" href="${CFG.dashboardBase}/tools" target="_blank" rel="noopener">Request access</a>
+           <a class="aip-btn aip-gold" href="${CFG.dashboardBase}/${locked ? 'training' : 'tools'}" target="_blank" rel="noopener">${locked ? 'Open my training' : 'Use an approved tool'}</a>
          </div>`,
         {},
         switchTo ? 'roomy' : ''

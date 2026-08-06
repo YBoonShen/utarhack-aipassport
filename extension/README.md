@@ -70,7 +70,8 @@ protected, items masked and the current gateway policy.
 | 2 | `Draft a reminder for customer Lim, IC 880505-10-5566, about RM 4,500` | Panel appears ~0.5s after you stop typing, listing `IC NUMBER ×1`, `FINANCIAL FIGURE ×1`, `NAME ×1`. |
 | 3 | Click **Protect & continue** | The composer text is replaced with the masked version. Click into it — ChatGPT's own state has the masked text, and sending delivers the masked prompt. |
 | 4 | Admin → Settings → set mode to **Warn only**, retype prompt 2 | Panel warns and offers *Protect prompt* / *Keep original*; nothing is rewritten automatically. |
-| 5 | Set mode to **Block**, retype prompt 2 | Panel says policy blocks it; only *Edit prompt* is offered. |
+| 5 | Open <https://deepseek.com> (or <https://kimi.com>) and type prompt 2 | A banner on arrival says the tool has not been reviewed. The checkpoint still appears, still masks, and **still sends** — with a *Use an approved tool* button beside the safe version. Nothing is blocked. |
+| 5b | Same prompt with `lim MeNg Meng` in place of `Lim` | Still `NAME ×1`, and the whole name masked as one `[MASKED-NAME]` — capitalisation is not what makes something a name. |
 | 6 | Stop the backend, retype prompt 2 | Checkpoint still appears, marked *Masked on your device*. Send it — the masked prompt goes through. A **clean** prompt sends with no panel at all. |
 | 7 | Click the toolbar icon | Popup shows Protected / literacy level / prompts protected / items masked / gateway policy. |
 | 8 | Admin → Audit Log | One `MASKED` event per **Protect & continue**, not one per keystroke. |
@@ -224,11 +225,22 @@ never sent silently, and the tool is never left unusable.
   alternatives. Resolving and recording are deliberately separate calls: asking
   the question used to POST a tool-use, so opening the popup wrote an audit event
   about a use that never happened.
-- **An unapproved tool is not blocked.** The site opens and clean prompts are
-  untouched; what changes is that the gateway policy tightens to Block for
-  sensitive ones, and the panel names an approved alternative. Blocking the site
-  outright would push the usage out of the audit log's sight, which is the one
-  outcome the whole product exists to avoid.
+- **An unapproved tool blocks nothing at all.** The site opens, clean prompts are
+  untouched, and a sensitive one is masked and sent exactly as it would be to an
+  approved tool. What changes is that the employee is *told*: a standing banner on
+  arrival, a line on the checkpoint beside the safe version, and a **Use an
+  approved tool** button that names the alternatives they actually hold. The visit
+  and the prompt both reach the admin's audit log.
+
+  Refusing those prompts protected nothing the masking does not already protect —
+  the masked prompt carries no company data either way — while costing the
+  employee their work and teaching them to finish the job in a browser the
+  extension is not installed in. That is the one outcome the whole product exists
+  to avoid, and it is the same reason the site itself is never blocked.
+
+  A **banned** or **suspended** destination, and one **above the employee's
+  licence level**, still refuse. Those are decisions an admin has already made;
+  "nobody has reviewed this yet" is the absence of one.
 - **Model selection** is read at send time — `config.js` → `readModel()`, using
   `modelParam` (a URL query parameter) first and then `modelSelectors`. Read
   lazily rather than watched with a MutationObserver: the value only matters at

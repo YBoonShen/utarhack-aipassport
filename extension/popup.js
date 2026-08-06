@@ -95,8 +95,26 @@ function paintShield({ tone, icon, kicker, title, note, mode, retry, action }) {
 // so the popup can never describe a tool's standing differently from either of
 // them. Nothing here names a tool: any destination the register has not
 // cleared reaches this same card.
-function toolRestrictedShield(resolved, toolName) {
+function toolRestrictedShield(resolved, toolName, mode) {
   const severe = resolved.access === 'banned' || resolved.access === 'suspended'
+
+  // Nobody has reviewed this tool. Nothing is restricted — the checkpoint masks
+  // here exactly as it does on an approved tool and the prompt goes — so this
+  // says what is true (protection is on, this vendor is unreviewed) rather than
+  // borrowing the wording of a refusal. Getting that wrong taught the employee
+  // that the extension was in their way, which is how it ends up uninstalled.
+  if (resolved.notify) {
+    return {
+      tone: 'warn',
+      icon: '!',
+      kicker: 'PROTECTED · TOOL NOT REVIEWED',
+      title: `${toolName} has not been reviewed`,
+      note: `Your prompts are still checked and masked here. What is missing is any agreed terms for what ${toolName} does with company data — an approved tool is the safer place for work that matters.`,
+      mode,
+      action: { label: 'Use an approved tool', href: `${CFG.dashboardBase}/tools` },
+    }
+  }
+
   return {
     tone: severe ? 'err' : 'warn',
     icon: severe ? '✕' : '!',
@@ -105,14 +123,14 @@ function toolRestrictedShield(resolved, toolName) {
       ? `${toolName} is banned by your organisation`
       : resolved.access === 'suspended'
         ? `${toolName} has been suspended`
-        : `${toolName} is not approved`,
+        : `${toolName} is above your AI License level`,
     note: resolved.explain
-      || `${toolName} has not been approved by your organisation. Ordinary use is unaffected — only company or customer data is held back.`,
+      || `${toolName} is not available to you yet. Ordinary use is unaffected — only company or customer data is held back.`,
     // Nothing to request on a ban or a suspension — the organisation has
-    // already decided. Anything else is a tool an employee can ask for.
+    // already decided. A level is raised by training, not by asking.
     action: {
-      label: severe ? 'View my AI tools' : 'Request access',
-      href: `${CFG.dashboardBase}/tools`,
+      label: severe ? 'View my AI tools' : 'Open my training',
+      href: `${CFG.dashboardBase}/${severe ? 'tools' : 'training'}`,
     },
   }
 }
@@ -271,7 +289,7 @@ async function render() {
       retry: true,
     })
   } else if (state.active && restricted) {
-    paintShield(toolRestrictedShield(resolved, tool.name))
+    paintShield(toolRestrictedShield(resolved, tool.name, state.mode))
   } else {
     paintShield({ ...STATE.summary(state, tool?.name), mode: state.active ? state.mode : null })
   }
@@ -300,14 +318,16 @@ async function render() {
     return
   }
   if (restricted) {
+    // An unreviewed tool still gets the checkpoint, so its line says so — the
+    // three above it are the ones where something is actually held back.
     const why = {
       banned: 'banned — nothing is sent from here',
       suspended: 'suspended org-wide',
       locked: `needs Level ${resolved.minLevel ?? '—'}`,
-      review: 'access request in review',
-      declined: 'access declined',
-      unreviewed: 'not approved by your organisation',
-    }[resolved.access] || 'not approved by your organisation'
+      review: 'not reviewed yet · request in review · checkpoint running',
+      declined: 'not reviewed · request declined · checkpoint running',
+      unreviewed: 'not reviewed by your organisation · checkpoint running',
+    }[resolved.access] || 'not reviewed by your organisation · checkpoint running'
     return paintSite('warn', `${tool.name} · ${why}`)
   }
   if (!state.active) return paintSite('idle', `${tool.name} · prompts are not being checked`)

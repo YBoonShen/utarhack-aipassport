@@ -152,26 +152,37 @@ export const OVERRIDE_SEVERITY = SEVERITY.HIGH
 // it — the failure the case study names outright — and treating the tool exactly
 // like an approved one would make the approval workflow decorative.
 //
-// So approval does not decide whether the tool opens. It decides **what the tool
-// is allowed to receive**:
+// So approval does not decide whether the tool opens, and it does not decide
+// whether a prompt may be sent either. **An unreviewed destination is told, not
+// refused.** The employee gets the organisation's own mode — sensitive content
+// is masked before it goes, exactly as on an approved tool — plus a notice
+// saying the tool has not been reviewed and naming what to use instead, and the
+// admin gets the audit event and the alert.
+//
+// That is a deliberate reversal of the earlier design, which refused sensitive
+// prompts on an unreviewed tool. Refusing them protected nothing that masking
+// does not already protect — the masked prompt carries no company data either
+// way — while costing the employee their work and teaching them to finish the
+// job in a browser the gateway cannot see. Governance here comes from the
+// record, not from the refusal.
 //
 //   approved tool, approved model  → the organisation's own mode (mask, warn…)
-//   unapproved tool or model       → Block: clean prompts flow, sensitive ones
-//                                    do not go there at all
+//   unreviewed tool or model       → the same mode, plus `notify`: masked,
+//                                    sent, recorded, and said out loud
+//   suspended / above your licence → Block: an admin has already decided this
+//                                    person may not send here
 //   a category the tool is not cleared for → Block, whatever the tool's status
+//   banned destination             → Block, clean prompts included
 //
-// Every one of those can only ever *tighten* the org's mode. A tool's own
-// settings can never loosen the policy an admin set, so this can never become
-// the reason something leaked.
+// A ban and a suspension are the two verdicts that are not advice: the
+// organisation has already looked at this destination and said no. "Unreviewed"
+// is the opposite — nobody has looked yet — and an unmade decision is not a
+// reason to stop somebody working. `banned` stays its own flag rather than being
+// folded into `mode`, because a mode describes what happens to sensitive content
+// and a ban has nothing to do with content.
 //
-// A **ban** is the one verdict that is not about the prompt at all. "Unapproved"
-// says nobody has agreed what this tool may receive, so company data is held
-// back and ordinary work continues. "Banned" says the organisation has already
-// decided nothing may be sent here — a model withdrawn after a breach is not
-// safer because the prompt happens to be harmless — so a banned destination
-// refuses every prompt, clean or not. That is reported as its own flag rather
-// than folded into `mode`, because a mode describes what happens to sensitive
-// content and a ban has nothing to do with content.
+// Nothing here can ever *loosen* the org's mode: `notify` adds a message, never
+// permission, so this can never become the reason something leaked.
 
 export const MODES = { WARN: 'Warn only', MASK: 'Mask and continue', BLOCK: 'Block' }
 
@@ -209,37 +220,58 @@ export function tighten(a, b) {
  * `banned` is true only for a destination nothing may be sent to. Every caller
  * that decides whether to send has to read it *before* it looks at detections,
  * because it is the one refusal that applies to a prompt with nothing in it.
+ *
+ * `notify` is true for a destination nobody has reviewed. It is the opposite
+ * kind of answer: the prompt goes, masked like any other, and the flag is what
+ * tells the caller to say so. A caller that ignores it sends a protected prompt
+ * and tells the employee nothing — which is a worse product, not a leak.
  */
 export function effectiveMode({ orgMode, access, modelStatus, modelAccess, blockOn = [], types = [] }) {
   const refused = types.filter(t => blockOn.includes(t))
+  const verdict = (mode, reason, extra = {}) =>
+    ({ mode, reason, refused: [], banned: false, notify: false, ...extra })
 
   // Bans first: they answer regardless of what the prompt contains.
   if (access === 'banned') {
-    return { mode: MODES.BLOCK, reason: 'tool-banned', refused: types, banned: true }
+    return verdict(MODES.BLOCK, 'tool-banned', { refused: types, banned: true })
   }
   if (modelStatus === 'BANNED' || modelAccess === 'banned') {
-    return { mode: MODES.BLOCK, reason: 'model-banned', refused: types, banned: true }
+    return verdict(MODES.BLOCK, 'model-banned', { refused: types, banned: true })
   }
+  // Then the decisions an admin has already made about this person: a tool
+  // withdrawn org-wide, and a tool or model above the licence they hold. Those
+  // are answers, not gaps, so they still refuse.
   if (access === 'suspended') {
-    return { mode: MODES.BLOCK, reason: 'tool-suspended', refused: types, banned: false }
+    return verdict(MODES.BLOCK, 'tool-suspended', { refused: types })
   }
-  if (access && access !== 'active') {
-    return { mode: MODES.BLOCK, reason: 'tool-unapproved', refused: types, banned: false }
+  if (access === 'locked') {
+    return verdict(MODES.BLOCK, 'tool-level', { refused: types })
   }
   // A model above the employee's licence level is a training gap, not a vendor
   // risk — the model itself is cleared, this person is not cleared for it — so
   // it holds sensitive content back under its own reason rather than reading as
   // "nobody reviewed this".
   if (modelAccess === 'locked') {
-    return { mode: MODES.BLOCK, reason: 'model-level', refused: types, banned: false }
+    return verdict(MODES.BLOCK, 'model-level', { refused: types })
   }
-  if (modelStatus === 'SUSPENDED' || modelStatus === 'UNAPPROVED') {
-    return { mode: MODES.BLOCK, reason: 'model-unapproved', refused: types, banned: false }
+  if (modelStatus === 'SUSPENDED') {
+    return verdict(MODES.BLOCK, 'model-suspended', { refused: types })
   }
+  // A data scope is an admin's explicit instruction about a category of content,
+  // so it outranks the notice below: a tool that may not receive customer
+  // records may not receive them masked either, reviewed or not.
   if (refused.length > 0) {
-    return { mode: MODES.BLOCK, reason: 'data-scope', refused, banned: false }
+    return verdict(MODES.BLOCK, 'data-scope', { refused })
   }
-  return { mode: orgMode, reason: 'org-policy', refused: [], banned: false }
+  // Nobody has reviewed this destination yet. Notice, not refusal — the org's
+  // own mode still runs, so sensitive content is masked before it goes.
+  if (access && access !== 'active') {
+    return verdict(orgMode, 'tool-unapproved', { notify: true })
+  }
+  if (modelStatus === 'UNAPPROVED') {
+    return verdict(orgMode, 'model-unapproved', { notify: true })
+  }
+  return verdict(orgMode, 'org-policy')
 }
 
 /** Human label for a detection type, matching the employee-facing wording. */

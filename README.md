@@ -188,9 +188,11 @@ Draft a reminder for customer Lim, IC 880505-10-5566, about the order
 - Sends 4 and 5 **escalate that same card to HIGH**. No second card ever appears.
 
 **Unapproved tool.** In the Gateway's *Sending to* row, pick **DeepSeek** (marked ⚠ —
-it has no visa). A **MEDIUM** alert appears immediately, the employee is told which
-tool and where to request a visa, and the prompt is still protected — nothing is
-blocked. Picking it again does not add a second card.
+it has no visa). A **MEDIUM** alert appears immediately and the employee is told which
+tool this is and where to request a visa. Now send a prompt with an IC number in it:
+it is **masked and sent, exactly as it would be to ChatGPT**, with a notice beside the
+protected version naming the approved tools to use instead. Nothing is blocked, and
+picking the tool again does not add a second alert card.
 
 Then close the loop: **Tool Approvals → approve SummarizerX** and the register stops
 flagging it. Or on the alert, **Assign training** opens the assignment wizard already
@@ -243,6 +245,14 @@ Then open `backend/.env` and set `GEMINI_API_KEY=` to a key from
 <https://aistudio.google.com>. Restart the backend. The Checkpoint modal always labels
 which source ran. Never commit `.env` — it is gitignored.
 
+The free tier allows ~20 requests a minute, and the extension checks the prompt on
+every typing pause, so the layer caches each answer by exact prompt text (5 min) and
+stops calling for 60s after a 429 rather than spending a request and an 8s timeout to
+be told the same thing. If the modal says **context heuristic** while a key is set,
+the key is fine — the quota is spent. Layer 2 never fails a prompt: a key that is
+missing, rate-limited, slow or wrong all degrade to the offline heuristic, and the
+modal labels which one ran rather than pretending the fallback is AI.
+
 ## Tests
 
 Layer-1 regex, Layer-2 names, XP progression, extension rule sync, compliance-report
@@ -260,6 +270,8 @@ npm test
 - **Layer 2 (person names):** Gemini API when `GEMINI_API_KEY` is set in `backend/.env`;
   otherwise an offline context heuristic ("customer Lim", "Encik Ahmad"). The Checkpoint
   modal labels which source ran.
+- **Capitalisation is not what makes something a name.** `lim MeNg Meng` is masked as
+  one `[MASKED-NAME]`, not partly masked and not missed — see below.
 - **When the gateway is unreachable:** the extension masks with its own copy of the
   Layer-1 rules (`extension/rules.js`, kept in sync by `rules.sync.test.js`) and holds
   the *masked* record — never the raw prompt — until the backend answers, then posts it
@@ -267,6 +279,37 @@ npm test
   pass, are deduped by id, earn no XP, and appear in the Audit Log marked `⟲` with both
   the time they happened and the time they were recorded. An outage costs the audit log
   a delay, not a gap.
+
+### Names: detecting a span and masking a span are two jobs
+
+Nobody capitalises reliably while typing. `Lim Meng`, `lim meng`, `lim MeNg`, `LIM MENG`
+and `lim MeNg Meng` are the same customer, and all of them must come out as a single
+`[MASKED-NAME]` — never half of one.
+
+**Detecting.** The heuristic's first three sources all read a capital letter as the signal
+that a word might be a name, so an irregularly-cased one was invisible to every one of
+them. A fourth source drops capitalisation as evidence and anchors on the name gazetteer
+instead: a run of words is a candidate only when a known name token appears in it, the run
+stops at any stop-word, and a lower-case word with an English inflection (`flagged`,
+`needs`, `quickly`) cannot extend it — which is what keeps `Rahman flagged` from becoming a
+name. With a Gemini key the model does this job and is asked for spans *as written*.
+
+**Masking.** This is where a correctly detected name still came out half-masked, and it is
+the half worth understanding. A detector does not hand back the exact substring it found:
+Gemini title-cases what it read (answering `"Lim Meng Meng"` for text that says
+`lim MeNg Meng`), normalises the spacing, and sometimes splits one person across several
+entries (`["Lim", "Meng Meng"]`). Matching those answers back **literally and
+case-sensitively** meant the entry that happened to match was replaced and the re-cased one
+silently matched nothing — `lim [MASKED-NAME]`.
+
+So `maskNames()` locates each name case-insensitively with flexible whitespace, **merges**
+the ranges that overlap or sit a space apart, and replaces each merged range whole, right
+to left so every offset stays valid. Punctuation between two names keeps them separate
+(`Ask Lim, then Tan.` → two tokens), and ranges landing inside a Layer 1 token are dropped —
+`[MASKED-IC]` is not a person. Once a span is identified the replacement is a slice, not a
+search: the same input always produces the same output. `nameSpans()` is exported so the
+span logic is tested directly, against the shapes the API really returns, without the
+network.
 
 ## API
 | Method | Endpoint                   | Description |
@@ -447,36 +490,55 @@ assuming, and falls back to the last verdict it saw when the gateway is unreacha
 
 ## Unapproved tools: what actually happens
 
-Approval does **not** decide whether a tool opens. It decides what the tool is allowed
-to *receive*. Blocking the website outright is the one response the case study rules out —
-it pushes the usage somewhere nothing can see it, and a browser extension cannot enforce
-it anyway. So the site opens and ordinary work is untouched; only company data is held
-back.
+Approval does **not** decide whether a tool opens, and it does **not** decide whether a
+prompt may be sent. Blocking the website outright is the one response the case study
+rules out — it pushes the usage somewhere nothing can see it, and a browser extension
+cannot enforce it anyway. **An unreviewed destination is told about, never refused.**
 
 | | Clean prompt | Sensitive prompt |
 |---|---|---|
 | **Approved** tool + model | sent untouched | masked, then sent |
-| **Unapproved** tool or model | sent untouched | **refused**, with approved alternatives named |
-| Model above the employee's **licence level** | sent untouched | refused — the way out is training, not a request |
+| **Unapproved** tool or model | sent untouched | **masked, then sent** — plus a notice naming approved alternatives |
+| Tool or model above the employee's **licence level** | sent untouched | refused — the way out is training, not a request |
 | Data the tool is **not cleared for** (`blockOn`) | sent untouched | **refused**, whatever the tool's status |
-| **Suspended** tool | sent untouched | refused — and the panel says stop, not "be careful" |
+| **Suspended** tool or model | sent untouched | refused — and the panel says stop, not "be careful" |
 | **Banned** tool or model | **refused** | **refused** |
 
-**Banned is the one status that refuses a clean prompt.** "Unapproved" means nobody
-has agreed what this destination may receive, so company data is held back and
-ordinary work continues — that is the whole "mask, don't block" posture. "Banned"
-means the organisation has already decided nothing may go there: a model withdrawn
-after a breach is not made safe by the prompt happening to be harmless. So a ban is
-carried as its own flag (`policy.banned`) rather than folded into `mode`, and every
-caller that decides whether to send reads it *before* it looks at detections. The
-seed register bans **Claude Fable 5**; `POST /api/tools/model-status` with
-`status: "BANNED"` bans any other model, including a free one.
+The gateway's answer to "nobody has reviewed this tool" is the same protection an
+approved tool gets, plus a sentence. Refusing the prompt protected nothing that the
+masking does not already protect — the masked prompt carries no company data either
+way — while costing the employee their work and teaching them to finish the job in a
+browser the gateway cannot see. Governance here comes from the record, not from the
+refusal: the visit is in the audit log, the alert is in the admin's queue, and the
+employee is told what they are typing into and offered somewhere better.
+
+So `effectiveMode()` returns two flags that are opposites, and callers read both:
+
+- **`notify`** — nobody has reviewed this destination. The org's own mode still runs,
+  so sensitive content is masked before it goes. The flag says *say so*, never *hold
+  back*. A caller that ignores it sends a protected prompt and tells the employee
+  nothing, which is a worse product, not a leak.
+- **`banned`** — nothing may be sent here at all. Read *before* detections, because it
+  is the one refusal that applies to a prompt with nothing in it: a model withdrawn
+  after a breach is not made safe by the prompt happening to be harmless. The seed
+  register bans **Claude Fable 5**; `POST /api/tools/model-status` with
+  `status: "BANNED"` bans any other model, including a free one.
+
+A **ban**, a **suspension** and a **licence level** are the three verdicts that still
+refuse, and they have one thing in common: an admin has already looked at this
+destination and answered. "Unreviewed" is the opposite — nobody has looked yet — and an
+unmade decision is not a reason to stop somebody working. A **data scope** refuses too,
+because it is an explicit instruction about a category of content: a tool that may not
+receive customer records may not receive them masked either, reviewed or not.
 
 Because a refused prompt is never sent, it produces no prompt event — so the
 refusal itself is what reaches the admin. `/api/detect` records it server-side;
 the Chrome extension, whose while-typing check records nothing, posts it to
 `/api/gateway/blocked`. Every attempt lands in the audit log; the alert queue takes
-one per employee + destination + reason per hour. No prompt text either way.
+one per employee + destination + reason per hour. No prompt text either way. An
+unreviewed tool needs none of that path: the prompt *is* sent, so it produces an
+ordinary prompt event carrying the tool's name, and `POST /api/gateway/tool-use` has
+already written the visit and raised the MEDIUM alert.
 
 `risk.js` → `effectiveMode()` is the one place this is decided, and every rule in it can
 only ever *tighten* the org's policy. A tool's own settings can never loosen what an admin

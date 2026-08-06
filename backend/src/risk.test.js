@@ -500,10 +500,26 @@ test('Kimi starts unapproved, like any tool nobody has reviewed', () => {
   const result = recordToolUse({ tool: 'Kimi' })
   assert.equal(result.alert.title, 'Unapproved tool detected')
   const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'Kimi', types: ['IC'] })
-  assert.equal(policy.mode, MODES.BLOCK)
+  // Unreviewed is a notice, not a refusal: the prompt goes, masked by the org's
+  // own mode, and the employee is told what they are sending it into.
+  assert.equal(policy.mode, MODES.MASK)
   assert.equal(policy.reason, 'tool-unapproved')
+  assert.equal(policy.notify, true)
   assert.equal(policy.banned, false)
+  assert.deepEqual(policy.refused, [], 'nothing is held back on an unreviewed tool')
   assert.ok(policy.alternatives.length > 0, 'the employee is told where to go instead')
+})
+
+test('Kimi and DeepSeek reach the identical verdict — nothing branches per tool', () => {
+  const keys = ['mode', 'reason', 'notify', 'banned', 'access']
+  const pick = tool => {
+    const p = gatewayPolicyFor({ employeeId: 'E-217', tool, types: ['IC', 'NAME'] })
+    return Object.fromEntries(keys.map(k => [k, p[k]]))
+  }
+  assert.deepEqual(pick('Kimi'), pick('DeepSeek'))
+  assert.deepEqual(pick('Kimi'), {
+    mode: MODES.MASK, reason: 'tool-unapproved', notify: true, banned: false, access: 'unreviewed',
+  })
 })
 
 test('suspending Kimi org-wide is the same HIGH path as any other suspended tool', () => {
@@ -531,16 +547,22 @@ test('banning Kimi K3 refuses a clean prompt too, while the approved free models
   assert.equal(stillFree.mode, MODES.MASK)
 })
 
-test('approving the request is what makes the tool usable', () => {
+test('approving the request is what stops the notice, not what unblocks the prompt', () => {
   const { request } = applyForVisa({ tool: 'DeepSeek', purpose: 'Research summaries.' })
   assert.equal(toolAccessFor('E-217', 'DeepSeek').access, 'review')
-  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC'] }).mode, MODES.BLOCK)
+  // In review is still unreviewed: masked and sent, with the notice on top.
+  const pending = gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC'] })
+  assert.equal(pending.mode, MODES.MASK)
+  assert.equal(pending.notify, true)
 
   decideVisa(request.id, 'approve')
   assert.equal(toolStatus('DeepSeek'), 'APPROVED')
   assert.equal(toolAccessFor('E-217', 'DeepSeek').access, 'active')
-  // The same prompt the gateway refused a moment ago is now masked and sent.
-  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC'] }).mode, MODES.MASK)
+  // Same masking as before — what changes is that nothing is flagged any more.
+  const approved = gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC'] })
+  assert.equal(approved.mode, MODES.MASK)
+  assert.equal(approved.notify, false)
+  assert.equal(approved.reason, 'org-policy')
   assert.equal(recordToolUse({ tool: 'DeepSeek' }).alert, null)
 })
 
@@ -556,32 +578,67 @@ test('an approved tool on an approved model keeps the org policy', () => {
   assert.equal(modeFor('Claude', 'Claude Sonnet 5'), MODES.MASK)
 })
 
-test('an unapproved tool cannot receive sensitive data at all', () => {
-  assert.equal(modeFor('DeepSeek', null), MODES.BLOCK)
+test('an unapproved tool is notified about, never blocked', () => {
+  // The reversal: nobody reviewed DeepSeek, and the prompt still goes — masked
+  // by the org's own mode, exactly as it would to ChatGPT. Refusing it protected
+  // nothing that the masking does not already protect, and cost the employee
+  // their work; the notice and the audit record are what governance gets.
+  assert.equal(modeFor('DeepSeek', null), MODES.MASK)
   const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC'] })
   assert.equal(policy.reason, 'tool-unapproved')
-  assert.ok(policy.alternatives.length > 0, 'the employee is told where to go instead')
+  assert.equal(policy.notify, true)
+  assert.equal(policy.banned, false)
+  assert.deepEqual(policy.refused, [], 'nothing is held back')
+  assert.ok(policy.alternatives.length > 0, 'the notice can name somewhere approved to go')
 })
 
 test('a clean prompt is untouched wherever it is going', () => {
-  // No detections means nothing to refuse: the tool is never the reason an
+  // No detections means nothing to mask: the tool is never the reason an
   // ordinary prompt cannot be sent.
   const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: [] })
-  assert.equal(policy.mode, MODES.BLOCK)
+  assert.notEqual(policy.mode, MODES.BLOCK)
   assert.deepEqual(policy.refused, [], 'nothing sensitive was found, so nothing is refused')
 })
 
-test('a model the register refuses blocks on an approved tool', () => {
+test('an unreviewed tool is notified about AND recorded — the notice is not the only trace', () => {
+  // "Never block, but log it" is only half a control if the log is empty. The
+  // visit raises the alert and writes the audit row; the prompt that follows is
+  // an ordinary masked event carrying the tool's name, because it really was
+  // sent. Both halves are checked here so neither can quietly disappear.
+  const seen = recordToolUse({ tool: 'Kimi' })
+  assert.equal(seen.alert.severity, SEVERITY.MEDIUM)
+  assert.equal(seen.alert.title, 'Unapproved tool detected')
+  assert.ok(
+    auditView().some(a => a.resource === 'Kimi' || a.tool === 'Kimi'),
+    'the visit is in the audit log'
+  )
+
+  recordPromptEvent({ detections: IC, masked: 'client [MASKED-IC]', tool: 'Kimi' })
+  assert.ok(
+    activityFor('E-217').some(e => e.tool === 'Kimi'),
+    'the masked prompt that was sent is recorded against the tool it went to'
+  )
+})
+
+test('an unreviewed model is a notice too, on an approved tool', () => {
+  setModelStatus('ChatGPT', 'gpt-5.6-sol', 'UNAPPROVED')
+  const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'ChatGPT', model: 'Sol', types: ['IC'] })
+  assert.equal(policy.reason, 'model-unapproved')
+  assert.equal(policy.mode, MODES.MASK)
+  assert.equal(policy.notify, true)
+})
+
+test('a banned or suspended model still refuses — those are decisions, not gaps', () => {
   assert.equal(modeFor('Claude', 'Claude Fable 5'), MODES.BLOCK)
   assert.equal(
     gatewayPolicyFor({ employeeId: 'E-217', tool: 'Claude', model: 'Fable 5', types: ['IC'] }).reason,
     'model-banned'
   )
-  setModelStatus('ChatGPT', 'gpt-5.6-sol', 'UNAPPROVED')
-  assert.equal(
-    gatewayPolicyFor({ employeeId: 'E-217', tool: 'ChatGPT', model: 'Sol', types: ['IC'] }).reason,
-    'model-unapproved'
-  )
+  setModelStatus('ChatGPT', 'gpt-5.6-sol', 'SUSPENDED')
+  const suspended = gatewayPolicyFor({ employeeId: 'E-217', tool: 'ChatGPT', model: 'Sol', types: ['IC'] })
+  assert.equal(suspended.mode, MODES.BLOCK)
+  assert.equal(suspended.reason, 'model-suspended')
+  assert.equal(suspended.notify, false)
   // …and the approved model on the same tool is unaffected.
   assert.equal(modeFor('Claude', 'Claude Sonnet 5'), MODES.MASK)
 })
@@ -591,16 +648,31 @@ test('a tool refuses the data categories it was never cleared for', () => {
   // GitHub Copilot is cleared for source code, never for customer identity.
   const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'GitHub Copilot', types: ['IC'] })
   assert.equal(policy.mode, MODES.BLOCK)
-  // E-217 is Level 2, so the licence check answers first — both refuse it.
-  assert.ok(['tool-unapproved', 'data-scope'].includes(policy.reason))
+  // E-217 is Level 2 and Copilot opens at Level 3, so the licence check answers
+  // first — an admin decision either way, and both refuse it.
+  assert.ok(['tool-level', 'data-scope'].includes(policy.reason))
+  assert.equal(policy.notify, false, 'a refusal is not a notice')
+})
+
+test('a tool above your licence level says so, rather than reading as unreviewed', () => {
+  // This used to come back as `tool-unapproved`, so the checkpoint told a Level-2
+  // employee that GitHub Copilot "has not been reviewed" — the organisation had
+  // reviewed and approved it; they simply had not reached it yet.
+  const policy = gatewayPolicyFor({ employeeId: 'E-217', tool: 'GitHub Copilot', types: ['NAME'] })
+  assert.equal(policy.access, 'locked')
+  assert.equal(policy.reason, 'tool-level')
+  assert.equal(policy.mode, MODES.BLOCK)
+  assert.match(policy.explain, /Level 3/)
 })
 
 test('tool policy can only ever tighten the org mode', () => {
   updateSettings({ mode: MODES.WARN })
-  // Warn only is the loosest mode there is, and an unapproved destination still
-  // tightens past it — a tool's own standing can never loosen the org's policy.
+  // Warn only is the loosest mode there is. An unreviewed destination no longer
+  // tightens past it — it notifies instead — but a suspended one still does, and
+  // nothing anywhere can loosen what the admin set.
   assert.equal(modeFor('Claude', 'Claude Sonnet 5'), MODES.WARN)
-  assert.equal(modeFor('DeepSeek', null), MODES.BLOCK)
+  assert.equal(modeFor('DeepSeek', null), MODES.WARN, 'a notice does not change the mode')
+  assert.equal(gatewayPolicyFor({ employeeId: 'E-217', tool: 'DeepSeek', types: ['IC'] }).notify, true)
   assert.equal(tighten(MODES.BLOCK, MODES.WARN), MODES.BLOCK)
   assert.equal(tighten(MODES.WARN, MODES.MASK), MODES.MASK)
 })

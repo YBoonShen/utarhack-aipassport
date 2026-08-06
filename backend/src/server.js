@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url'
 import express from 'express'
 import cors from 'cors'
 import { RULES, applyRules } from './detector.js'
-import { detectNames, maskNames } from './layer2.js'
+import { maskNamesIn } from './layer2.js'
 import { logDetection } from './firebase.js'
 import {
   db, resetStore, recordPromptEvent, recordOfflineEvent, recordOverride, recordAudit, recordSession,
@@ -215,12 +215,11 @@ async function runDetection(prompt) {
   // Layer 2 sees the Layer-1-masked text, never the raw prompt.
   let layer2 = 'none'
   if (c.personalIdentifiers) {
-    const { names, source } = await detectNames(masked)
-    const result2 = maskNames(masked, names)
+    const result2 = await maskNamesIn(masked)
     if (result2.count > 0) {
       masked = result2.masked
       detections.push({ type: 'NAME', count: result2.count })
-      layer2 = source
+      layer2 = result2.source
     }
   }
 
