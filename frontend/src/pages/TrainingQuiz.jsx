@@ -212,8 +212,18 @@ export default function TrainingQuiz() {
     setSubmitting(true)
     let completedAt = new Date().toISOString()
     let levelUp = null
+    // Send every answer this page holds, so the assessment is scored on what the
+    // employee actually chose even if an individual /quiz/answer was dropped in
+    // transit. The server keeps the first answer per question, so re-sending is
+    // safe: it fills any gap and overwrites nothing.
+    const answersPayload = questions.map((qq, i) => {
+      const a = answers[i]
+      if (!a) return null
+      if (qq.type === 'practice') return a.checked ? { question: i, correct: true, selected: null } : null
+      return a.selected !== undefined ? { question: i, correct: a.selected === qq.correct, selected: a.selected } : null
+    }).filter(Boolean)
     try {
-      const res = await api.post('/training/complete', { module: moduleId })
+      const res = await api.post('/training/complete', { module: moduleId, answers: answersPayload })
       if (res?.completedAt) completedAt = res.completedAt
       levelUp = res?.levelUp || null
     } catch {

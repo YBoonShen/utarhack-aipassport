@@ -895,6 +895,19 @@ app.get('/api/quiz/results', (req, res) => {
 app.post('/api/training/complete', (req, res) => {
   const moduleId = guardModule(req, res)
   if (moduleId === null) return
+  // Backfill before scoring: the client sends every answer it holds, so a
+  // /quiz/answer that was dropped in transit (flaky network, a cold-starting
+  // backend) is recovered here instead of scoring as a miss. answerQuiz keeps
+  // the FIRST answer per question, so this can only fill a gap — it never
+  // overwrites an answer that did arrive. Bounded to a module's question ceiling.
+  const { answers } = req.body || {}
+  if (Array.isArray(answers)) {
+    for (const a of answers.slice(0, 60)) {
+      if (a && Number.isInteger(a.question)) {
+        answerQuiz(moduleId, a.question, Boolean(a.correct), Number.isInteger(a.selected) ? a.selected : null)
+      }
+    }
+  }
   res.json(completeTraining(moduleId))
 })
 
