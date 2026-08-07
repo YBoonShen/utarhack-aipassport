@@ -105,6 +105,21 @@ export function sweep(now = Date.now()) {
  */
 export function createSession(user, now = Date.now()) {
   sweep(now)
+
+  // One active session per account. A new sign-in for an account ends any
+  // earlier session on that same account (matched on the verified email), so a
+  // shared login cannot be held by two people at once: the most recent sign-in
+  // wins, and the previous holder is signed out on their next request. Nothing
+  // to match on (a unit-test user with no email) simply skips this.
+  if (user?.email) {
+    for (const [token, existing] of sessions) {
+      if (existing.user?.email && existing.user.email === user.email) {
+        sessions.delete(token)
+        if (activeToken === token) activeToken = null
+      }
+    }
+  }
+
   // Oldest out first if somehow at the ceiling. Signing in must always succeed.
   while (sessions.size >= MAX_SESSIONS) {
     const oldest = [...sessions.values()].sort((a, b) => a.lastSeenAt - b.lastSeenAt)[0]
@@ -119,10 +134,14 @@ export function createSession(user, now = Date.now()) {
     lastSeenAt: now,
   }
   sessions.set(session.token, session)
-  // The newest sign-in is the one the extension follows, which is the behaviour
-  // the demo already had: sign in as an admin in a second window and the
-  // extension reports an admin session.
-  activeToken = session.token
+  // The Chrome extension follows "who is signed in on this machine's dashboard"
+  // by reading this pointer, and it protects *employees*. So only an employee
+  // sign-in may become it: an admin uses the console, not the gateway. Letting an
+  // admin sign-in hijack this pointer is exactly why the extension reported an
+  // "admin" session while an employee was working — and then, reading itself as
+  // not-an-employee, did not arm the checkpoint on the AI tool page at all. An
+  // admin sign-in leaves the pointer on whichever employee it already named.
+  if (user?.role === 'employee') activeToken = session.token
   save()
   return session
 }

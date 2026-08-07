@@ -110,12 +110,27 @@ await test('using a session keeps it alive; the absolute cap ends it anyway', ()
   assert.equal(auth.verifySession(session.token, { now: t0 + 2000 }).reason, 'expired')
 })
 
-await test('the session the extension follows is the newest sign-in', () => {
+await test('the extension follows the signed-in employee, never an admin', () => {
   auth.resetSessions()
   auth.createSession(EMPLOYEE)
   assert.equal(auth.activeSession().user.id, 'E-217')
+  // An admin signing in must NOT hijack what the extension follows: admin uses
+  // the console, not the gateway. This is the bug where the extension reported an
+  // admin session (and stopped protecting) while an employee was actually working.
   auth.createSession(ADMIN)
-  assert.equal(auth.activeSession().user.role, 'admin')
+  assert.equal(auth.activeSession().user.id, 'E-217')
+  assert.equal(auth.activeSession().user.role, 'employee')
+})
+
+await test('one account, one active session — a new sign-in ends the earlier one', () => {
+  auth.resetSessions()
+  const laptop = auth.createSession({ role: 'employee', id: 'E-217', email: 'jiayin.tan@abcd.com' })
+  assert.equal(auth.verifySession(laptop.token).ok, true)
+  // The same account signs in somewhere else. The first session is over, so a
+  // shared login cannot be actively used by two people at the same time.
+  const phone = auth.createSession({ role: 'employee', id: 'E-217', email: 'jiayin.tan@abcd.com' })
+  assert.equal(auth.verifySession(laptop.token).reason, 'invalid')
+  assert.equal(auth.verifySession(phone.token).ok, true)
 })
 
 await test('signing out clears what the extension follows', () => {
