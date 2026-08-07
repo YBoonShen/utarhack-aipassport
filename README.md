@@ -8,6 +8,22 @@ Four features: a gamified **AI License**, a **Smart Gateway** that masks
 sensitive data ("mask, don't block"), an **Admin Dashboard** with live risk alerts and
 audit log, and an **AI Tool Approval workflow** ("guide, don't punish").
 
+## 🚀 Live Demo
+
+### 🔗 Try it now — nothing to install: **[utarhack-aipassport.vercel.app](https://utarhack-aipassport.vercel.app)**
+
+| Sign in as | How |
+|---|---|
+| **Admin** — compliance console | `admin@abcd.com` / `Admin@123456` |
+| **Employee** | **Continue with Google** (any Google account → provisioned at Level 1), or **Create account** |
+
+Deployed on **Vercel** (web) + **Render** (API) + **Firebase** (Authentication & Firestore).
+Registered accounts are saved in Firestore, so they survive redeploys. The very first visit
+of the day may take ~30–50s while the free API instance wakes up, then it's instant.
+
+> **Contributors:** see **[TEAM.md](TEAM.md)** for the workflow (push to `main` → auto-deploys
+> to Vercel + Render) and **[DEPLOY.md](DEPLOY.md)** for how the deployment is set up.
+
 ## Team Members
 - Yeap Boon Shen (@YBoonShen) — Team Leader
 - Lee Jia Yin
@@ -304,7 +320,7 @@ Still stuck? Open Chrome DevTools on the AI tab (`F12` → Console) and look for
 ```
 utarhack-aipassport/
 ├── frontend/    React + Vite + Tailwind CSS (employee, public + admin screens)
-├── backend/     Node.js + Express (2-layer detection + in-memory demo state; Firebase optional)
+├── backend/     Node.js + Express (2-layer detection; Firebase Auth + Firestore, offline-safe)
 ├── extension/   Chrome extension, Manifest V3 (see extension/README.md)
 ├── start.bat    One-click launcher (Windows) · stop.bat · autostart.bat
 └── README.md
@@ -799,11 +815,23 @@ improvement — repeating a module cannot farm XP, and a worse retry cannot cost
 any. Progress bars measure progress **within the current level band**, so a
 Navigator on 1,250 XP is 50% of the way to Ambassador, not 15% of the system.
 
-## Firebase Setup (optional — persistence)
-1. Create a project at https://console.firebase.google.com
-2. Enable **Authentication** (email/password) and **Firestore**
-3. Put the config values into `backend/.env` (see `.env.example`)
-4. Never commit `.env` — it is gitignored
+## Firebase + deployment
+
+The live demo runs on **Firebase Authentication** (Google + password) and **Firestore**
+(durable account registry + audit), fronted by **Vercel** and **Render**. It is all
+**offline-safe**: with no Firebase credentials the app falls straight back to local
+password / demo sign-in and file storage, so you can develop without any of it.
+
+- **Wire up your own Firebase:** `backend/FIREBASE_SETUP.md` (create project, enable
+  Auth + Firestore, drop in `serviceAccount.json` and the web config).
+- **Deploy publicly (Vercel + Render):** `DEPLOY.md`.
+- **How it's wired:** the Firebase client SDK gets an ID token, the server verifies it
+  with the Admin SDK (`backend/src/firebase.js`, `POST /api/auth/firebase`) and mints the
+  same session everything else already uses — so the extension, audit and role guards are
+  unchanged. Accounts mirror to Firestore and are restored on boot (`hydrateFromFirestore`).
+
+Never commit `.env` or `serviceAccount.json` — both are gitignored; in the cloud they live
+only as environment variables.
 
 ## Design
 Figma (passport-themed design system: navy #12275a, gold #d4af37, cream #f7f1e3):
