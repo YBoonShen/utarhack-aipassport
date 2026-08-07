@@ -220,6 +220,21 @@ export async function loginWithGoogle({ credential, demoEmail } = {}) {
   return user
 }
 
+/**
+ * Sign in with Firebase (proposal ZONE 3 · F).
+ *
+ * `idToken` is the token the Firebase client SDK produced after a Google popup
+ * or an email/password sign-in. It is passed straight through and verified on
+ * the server with the Admin SDK before it means anything — exactly like the
+ * Google credential above. The seam this file's header points at (`api.js:46`):
+ * a Firebase ID token goes in here, and the same session comes back out.
+ */
+export async function loginWithFirebase(idToken) {
+  const { user, token, expiresAt } = await api.post('/auth/firebase', { idToken })
+  storeSession({ user, token, expiresAt })
+  return user
+}
+
 /** Whether SSO is configured, and with what. Safe to call unauthenticated. */
 export async function ssoConfig() {
   return api.get('/auth/sso/config')

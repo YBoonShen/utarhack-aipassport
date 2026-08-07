@@ -9,7 +9,7 @@ import express from 'express'
 import cors from 'cors'
 import { RULES, applyRules } from './detector.js'
 import { maskNamesIn } from './layer2.js'
-import { logDetection } from './firebase.js'
+import { logDetection, verifyFirebaseToken, firebaseStatus } from './firebase.js'
 import {
   db, resetStore, recordPromptEvent, recordOfflineEvent, recordOverride, recordAudit, recordSession,
   recordAccountCreated,
@@ -85,7 +85,7 @@ function actorOf(req) {
 // are the screens a browser holding a dead token has to be able to use.
 const TOKEN_OPTIONAL = new Set([
   '/api/health', '/api/auth/login', '/api/auth/logout', '/api/auth/session',
-  '/api/auth/register', '/api/auth/google', '/api/auth/sso/config',
+  '/api/auth/register', '/api/auth/google', '/api/auth/firebase', '/api/auth/sso/config',
 ])
 
 app.use((req, res, next) => {
@@ -139,7 +139,7 @@ function requireAdmin(req, res, next) {
 }
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'aipassport-backend', time: new Date().toISOString() })
+  res.json({ status: 'ok', service: 'aipassport-backend', time: new Date().toISOString(), firebase: firebaseStatus() })
 })
 
 // ---- auth ------------------------------------------------------------------
@@ -458,6 +458,73 @@ app.post('/api/auth/google', async (req, res) => {
     return res.status(401).json({ error: 'That account is not available for single sign-on.', authenticated: false })
   }
   return signInAs(account, res)
+})
+
+// ---- Firebase Authentication (proposal ZONE 3 · F) -------------------------
+//
+// The browser signs in with the Firebase client SDK (email/password or Google)
+// and hands us the ID token Firebase minted. We verify that token with the
+// Admin SDK — Google's signature, audience, issuer, expiry — and only then mint
+// *our* session, so everything downstream (the extension's active-session
+// pointer, the audit trail, the admin/employee guards) is unchanged: Firebase
+// answers "who is this", the existing session system answers "and are they
+// still signed in".
+//
+// The verified email is matched to an account exactly like Google SSO is: a
+// seeded/SSO account signs in, a first-time signer on an allowed domain is
+// provisioned as a Level 1 employee, anyone else is refused. When Firebase is
+// not configured the token cannot be verified and this returns 503, which is
+// the frontend's signal to fall back to password / demo sign-in.
+app.post('/api/auth/firebase', async (req, res) => {
+  const { idToken } = req.body || {}
+
+  const identity = await verifyFirebaseToken(idToken)
+  if (!identity) {
+    // Either Firebase is offline here, or the token did not verify. Both are the
+    // same to the person at the keyboard: this credential did not get them in.
+    return res.status(firebaseStatus().configured ? 401 : 503).json({
+      error: firebaseStatus().configured
+        ? 'Firebase sign-in could not be verified. Please try again.'
+        : 'Firebase sign-in is not configured.',
+      authenticated: false,
+    })
+  }
+
+  if (!identity.email || !identity.emailVerified) {
+    return res.status(401).json({
+      error: 'Your Google/Firebase account must have a verified email to sign in.',
+      authenticated: false,
+    })
+  }
+
+  const result = accountFromGoogle({
+    email: identity.email,
+    sub: identity.uid,
+    name: identity.name,
+    allowedDomains: SSO_DOMAINS,
+  })
+  if (!result.ok) {
+    return res.status(403).json({
+      error: result.reason === 'domain-not-allowed'
+        ? 'That account is not part of your organisation.'
+        : 'Single sign-on is not enabled for that account.',
+      authenticated: false,
+    })
+  }
+
+  if (result.created) {
+    const profile = ensureEmployeeProfile({
+      id: result.account.employeeId, name: result.account.name,
+      initials: result.account.initials, dept: result.account.dept,
+    })
+    recordAccountCreated({
+      id: result.account.employeeId,
+      dept: result.account.dept,
+      via: `Firebase · ${identity.provider || 'auth'} · ${identity.email.split('@')[1]}`,
+      level: profile.level,
+    })
+  }
+  return signInAs(result.account, res)
 })
 
 // Two questions share this route, and the difference is the token.

@@ -23,7 +23,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import {
-  fetchSession, login as apiLogin, loginWithGoogle as apiLoginWithGoogle, logout as apiLogout,
+  fetchSession, login as apiLogin, loginWithGoogle as apiLoginWithGoogle,
+  loginWithFirebase as apiLoginWithFirebase, logout as apiLogout,
   currentUser, getToken, onAuthInvalid,
 } from './api.js'
 
@@ -157,6 +158,10 @@ export function AuthProvider({ children }) {
 
   const signInWithGoogle = useCallback(async payload => adopt(await apiLoginWithGoogle(payload)), [adopt])
 
+  // Firebase sign-in: the browser has already obtained a Firebase ID token; the
+  // server verifies it and proves the account, same as every other path here.
+  const signInWithFirebase = useCallback(async idToken => adopt(await apiLoginWithFirebase(idToken)), [adopt])
+
   const signOut = useCallback(async () => {
     // The local state goes first and unconditionally: a sign-out the server
     // never hears about must still be a sign-out here.
@@ -166,7 +171,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ ...state, signIn, signInWithGoogle, signOut, revalidate }}>
+    <AuthContext.Provider value={{ ...state, signIn, signInWithGoogle, signInWithFirebase, signOut, revalidate }}>
       {children}
     </AuthContext.Provider>
   )

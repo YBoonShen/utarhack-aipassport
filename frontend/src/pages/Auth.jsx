@@ -22,6 +22,7 @@ import { useNavigate } from 'react-router-dom'
 import { logFailure, register as apiRegister, ssoConfig, SIGN_IN_UNAVAILABLE } from '../lib/api.js'
 import { useAuth } from '../lib/auth.jsx'
 import { useToast } from '../components/Toast.jsx'
+import { firebaseConfigured, firebaseGoogleIdToken } from '../lib/firebase.js'
 
 const panelCopy = {
   signin: {
@@ -179,7 +180,7 @@ export default function Auth() {
   const [chooser, setChooser] = useState(false)
   const googleButton = useRef(null)
 
-  const { signIn, signInWithGoogle } = useAuth()
+  const { signIn, signInWithGoogle, signInWithFirebase } = useAuth()
   const toast = useToast()
 
   const copy = panelCopy[view]
@@ -258,6 +259,27 @@ export default function Auth() {
       setView('success')
     } catch (err) {
       logFailure('Google sign-in', err)
+      setError(signInMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Firebase Google sign-in: the popup returns an ID token, the server verifies
+  // it and mints the session. A closed/cancelled popup is not an error to show.
+  async function finishFirebaseGoogle() {
+    setBusy(true)
+    setError(null)
+    try {
+      const idToken = await firebaseGoogleIdToken()
+      const signedIn = await signInWithFirebase(idToken)
+      setUser(signedIn)
+      setView('success')
+    } catch (err) {
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        return
+      }
+      logFailure('Firebase sign-in', err)
       setError(signInMessage(err))
     } finally {
       setBusy(false)
@@ -345,7 +367,7 @@ export default function Auth() {
               {error && <p className="text-[#d92d20] text-xs mt-2">{error}</p>}
               <GoldButton onClick={submitSignIn} disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</GoldButton>
 
-              {sso?.enabled && (
+              {(sso?.enabled || firebaseConfigured) && (
                 <>
                   <div className="flex items-center gap-3 mt-6">
                     <div className="h-px bg-[#dee0e5] flex-1" />
@@ -353,7 +375,19 @@ export default function Auth() {
                     <div className="h-px bg-[#dee0e5] flex-1" />
                   </div>
 
-                  {sso.clientId ? (
+                  {firebaseConfigured ? (
+                    // Firebase Authentication (proposal ZONE 3 · F). The popup
+                    // returns an ID token the server verifies before the session
+                    // is minted — takes precedence over the demo chooser.
+                    <button
+                      onClick={finishFirebaseGoogle}
+                      disabled={busy}
+                      className="border-[1.5px] border-[#dadce0] bg-white text-[#3c4043] font-semibold text-[15px] w-full h-[52px] rounded-full mt-6 cursor-pointer hover:bg-[#f7f8f8] disabled:opacity-60 flex items-center justify-center gap-3"
+                    >
+                      <GoogleMark />
+                      {busy ? 'Signing in…' : 'Continue with Google'}
+                    </button>
+                  ) : sso.clientId ? (
                     // Google draws its own button — the mark, the wording and the
                     // consent flow are theirs, which is what the branding terms
                     // require and what people recognise.
