@@ -857,12 +857,19 @@ const CONTROL_TAGS = {
 
 const AUDIT_LIMIT = 200
 
+// All human-readable times/dates are formatted in the organisation's timezone,
+// not the server's. On a laptop these are the same; on Render (which runs in
+// UTC) they are 8 hours apart, which is why the deployed audit log and "submitted"
+// dates read wrong. Malaysia has a single, DST-free timezone, so pinning it is
+// exact. Overridable for a differently-located deployment.
+const DISPLAY_TZ = process.env.DISPLAY_TZ || 'Asia/Kuala_Lumpur'
+
 function nowTime() {
-  return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: DISPLAY_TZ })
 }
 
 function todayDate() {
-  return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: DISPLAY_TZ })
 }
 
 // A strictly increasing ISO timestamp.
@@ -2219,7 +2226,7 @@ export function recordOfflineEvent({ id, detections, masked, tool, at }) {
   db.backfilled.add(id)
   const when = at ? new Date(at) : null
   const time = when && !Number.isNaN(when.getTime())
-    ? when.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    ? when.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: DISPLAY_TZ })
     : nowTime()
   recordPromptEvent({ detections, masked, tool, time, offline: true, award: false })
   return true
@@ -2323,7 +2330,7 @@ export function addNotification({ category, title, body, what, facts, action, ke
   if (key && db.notifications.some(n => n.employeeId === owner && n.key === key)) return null
 
   const stamp = new Date()
-  const clock = stamp.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  const clock = stamp.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: DISPLAY_TZ })
   const n = {
     id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     employeeId: owner,
@@ -3296,7 +3303,10 @@ export function applyForVisa({ tool, purpose, scopes }) {
     status: 'SECURITY REVIEW',
     dept: db.profile.dept,
     requester: employeeId,
-    owner: 'A. Rahman',
+    // The person who actually asked, not a hardcoded name. db.profile is the
+    // requesting employee (employeeId === db.profile.id above), so this is their
+    // own name; falls back to the id if a profile somehow carries none.
+    owner: db.profile.name || employeeId,
     submitted: todayDate(),
     purpose: String(purpose || '').trim(),
     scopes: scopes && scopes.length ? scopes : choice.scopes,
