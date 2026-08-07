@@ -5,6 +5,7 @@
   "description": "Checks prompts for personal data before they leave your browser, using your organisation's AI Passport Smart Gateway.",
   "permissions": ["storage", "scripting", "alarms"],
   "host_permissions": [
+    "https://utarhack-aipassport.onrender.com/*",
     "http://localhost/*",
     "http://127.0.0.1/*",
     "https://chatgpt.com/*",

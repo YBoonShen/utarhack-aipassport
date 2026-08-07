@@ -16,11 +16,15 @@
 // unprotected — no content script, no detection, nothing in the audit log.
 
 globalThis.AIP_CONFIG = {
-  // Local hackathon backend. Production swaps this for the HTTPS deployment and
-  // adds an auth token to the request — see background.js callApi().
-  apiBase: 'http://localhost:5001/api',
-  // The employee dashboard this extension belongs to (Vite dev server).
-  dashboardBase: 'http://localhost:5173',
+  // Points at the live cloud deployment, so the extension works after a single
+  // "Load unpacked" with NO local server running. The employee just signs in on
+  // the dashboard (Vercel) and the extension follows that session.
+  //   For LOCAL extension development instead, swap these two back to
+  //   'http://localhost:5001/api' and 'http://localhost:5173' and reload the
+  //   extension (and add localhost to manifest host_permissions — already there).
+  apiBase: 'https://utarhack-aipassport.onrender.com/api',
+  // The employee dashboard this extension belongs to (the deployed web app).
+  dashboardBase: 'https://utarhack-aipassport.vercel.app',
 
   // Wait this long after the last keystroke before asking the backend.
   debounceMs: 500,
