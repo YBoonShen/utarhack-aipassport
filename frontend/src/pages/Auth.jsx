@@ -159,6 +159,28 @@ function signInMessage(err) {
   return SIGN_IN_UNAVAILABLE
 }
 
+// The Firebase client SDK reports config problems through `err.code` (auth/*).
+// During setup these are the errors that actually matter — an unauthorised
+// domain or a disabled provider — so name them instead of hiding them behind a
+// generic "unavailable". Backend failures (no auth/* code) fall back to
+// signInMessage, which keeps not leaking infrastructure to a stranger.
+function firebaseSignInMessage(err) {
+  switch (err?.code) {
+    case 'auth/unauthorized-domain':
+      return 'This website is not an authorised Firebase domain yet. Add it under Firebase → Authentication → Settings → Authorized domains.'
+    case 'auth/operation-not-allowed':
+      return 'Google sign-in is not enabled for this project (Firebase → Authentication → Sign-in method → Google).'
+    case 'auth/popup-blocked':
+      return 'Your browser blocked the sign-in popup. Allow popups for this site and try again.'
+    case 'auth/network-request-failed':
+      return SIGN_IN_UNAVAILABLE
+    default:
+      return typeof err?.code === 'string' && err.code.startsWith('auth/')
+        ? `Google sign-in failed (${err.code}).`
+        : signInMessage(err)
+  }
+}
+
 export default function Auth() {
   const navigate = useNavigate()
   const [view, setView] = useState('signin') // signin | forgot | reset-sent | success | signup | signup2 | signup-success
@@ -280,7 +302,10 @@ export default function Auth() {
         return
       }
       logFailure('Firebase sign-in', err)
-      setError(signInMessage(err))
+      // Firebase client errors (auth/*) carry a code that names the real cause —
+      // surface it instead of the generic "unavailable", which hides config
+      // problems like an unauthorised domain during setup.
+      setError(firebaseSignInMessage(err))
     } finally {
       setBusy(false)
     }
