@@ -9,7 +9,10 @@ import express from 'express'
 import cors from 'cors'
 import { RULES, applyRules } from './detector.js'
 import { maskNamesIn } from './layer2.js'
-import { logDetection, verifyFirebaseToken, firebaseStatus } from './firebase.js'
+import {
+  logDetection, verifyFirebaseToken, firebaseStatus,
+  saveAccountsToFirestore, loadAccountsFromFirestore,
+} from './firebase.js'
 import {
   db, resetStore, recordPromptEvent, recordOfflineEvent, recordOverride, recordAudit, recordSession,
   recordAccountCreated,
@@ -38,6 +41,7 @@ import {
   isValidEmail, normaliseEmail, passwordProblem,
   PASSWORD_POLICY, SEED_ADMIN_EMAIL, SEED_EMPLOYEE_EMAIL,
   SEED_ADMIN_PASSWORD, SEED_EMPLOYEE_PASSWORD, usingDefaultSeedPasswords,
+  hydrateFromFirestore, useAccountPersistence,
 } from './accounts.js'
 
 const app = express()
@@ -1249,8 +1253,27 @@ const PORT = process.env.PORT || 5001
 // process actually started as the backend opens the real one.
 export { app }
 
+// Keep a free Render instance from sleeping.
+//
+// The free tier spins the instance down after ~15 min with no inbound request,
+// and the next visitor then waits ~50s for a cold start. A request to our own
+// public URL every few minutes is inbound traffic, which resets that timer. The
+// URL is Render's own RENDER_EXTERNAL_URL (set automatically); no external
+// uptime service to configure. Off everywhere else, so local dev and tests are
+// unaffected.
+function startKeepAlive() {
+  const url = process.env.RENDER_EXTERNAL_URL || process.env.KEEP_ALIVE_URL
+  if (!url) return
+  const target = `${url.replace(/\/$/, '')}/api/health`
+  const everyMs = 10 * 60 * 1000 // 10 min < Render's 15 min idle window
+  setInterval(() => {
+    fetch(target).catch(() => {}) // best-effort; a missed ping just risks one cold start
+  }, everyMs).unref() // never keep the process alive just for the pinger
+  console.log(`Keep-alive: pinging ${target} every 10 min`)
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  app.listen(PORT, () => {
+  const listen = () => app.listen(PORT, () => {
     console.log(`AI Passport backend running on http://localhost:${PORT}`)
     console.log(
       GOOGLE_CLIENT_ID
@@ -1268,5 +1291,22 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log(`  admin    · ${SEED_ADMIN_EMAIL}  ${SEED_ADMIN_PASSWORD}`)
       console.log(`  new accounts: ${PASSWORD_POLICY.describe}\n`)
     }
+    startKeepAlive()
   })
+
+  // Wire Firestore into the account registry — only here, in the live server,
+  // so unit tests that import accounts.js never open a connection or write to a
+  // real datastore. A no-op when Firestore is offline (the helpers return
+  // false/null), which keeps local-only runs on the file store.
+  useAccountPersistence({ save: saveAccountsToFirestore, load: loadAccountsFromFirestore })
+
+  // Restore accounts registered before the last redeploy from Firestore, then
+  // listen. Bounded so a slow/unreachable Firestore can never stop the server
+  // from coming up — it just starts with whatever the local file had.
+  Promise.race([
+    hydrateFromFirestore()
+      .then(r => console.log(`Accounts hydrated from ${r.source} (${r.count} total)`))
+      .catch(err => console.warn('Account hydrate failed:', err.message)),
+    new Promise(resolve => setTimeout(resolve, 8000)),
+  ]).finally(listen)
 }

@@ -176,4 +176,41 @@ export async function logDetection(event) {
   }
 }
 
+// ---- durable app state in Firestore ----------------------------------------
+//
+// Render's free filesystem is ephemeral, so the local accounts.json does not
+// survive a redeploy. The account registry is mirrored into one Firestore doc
+// (app_state/accounts) so registered employees come back after a restart. The
+// whole array lives in one document rather than a doc-per-account: the registry
+// is small, and one read/one write keeps it atomic and simple. Password hashes
+// (scrypt) are safe to store — that is what a hash is for.
+
+/** Persist the whole account array. Best-effort; offline is not an error. */
+export async function saveAccountsToFirestore(accounts) {
+  if (!db) return false
+  try {
+    await db.collection('app_state').doc('accounts').set({ accounts, updatedAt: new Date() })
+    return true
+  } catch (err) {
+    console.warn('Firestore accounts save failed:', err.message)
+    return false
+  }
+}
+
+/**
+ * Read the persisted accounts. Returns an array (possibly empty) when Firestore
+ * is reachable, or null when it is not — the caller keeps whatever the local
+ * file gave it rather than wiping the registry on a transient read failure.
+ */
+export async function loadAccountsFromFirestore() {
+  if (!db) return null
+  try {
+    const snap = await db.collection('app_state').doc('accounts').get()
+    return snap.exists ? (snap.data().accounts || []) : []
+  } catch (err) {
+    console.warn('Firestore accounts load failed:', err.message)
+    return null
+  }
+}
+
 export { db, auth }

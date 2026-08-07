@@ -22,6 +22,10 @@ const ACCOUNT_FILE = path.join(os.tmpdir(), `aip-accounts-web-${process.pid}.jso
 process.env.AUTH_SESSION_FILE = SESSION_FILE
 process.env.AUTH_ACCOUNT_FILE = ACCOUNT_FILE
 
+// Pin the seeded passwords, independent of backend/.env (server.js loads dotenv).
+process.env.SEED_EMPLOYEE_PASSWORD = 'Passport#2026'
+process.env.SEED_ADMIN_PASSWORD = 'AdminPass#2026'
+
 const { app } = await import('../../../backend/src/server.js')
 const { resetStore } = await import('../../../backend/src/store.js')
 const { resetSessions } = await import('../../../backend/src/auth.js')

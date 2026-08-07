@@ -31,6 +31,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DEFAULT_EMPLOYEE_ID, employeeById, nextEmployeeId, registerEmployee } from './directory.js'
 
+// Durable persistence (Firestore) is *injected* by the live server, never
+// imported here. That is deliberate: unit tests import this module directly and
+// must not open a network connection or write test accounts into a real
+// datastore. With nothing injected (tests, offline), the local file is the only
+// store — exactly the previous behaviour.
+let persistence = null // { save(accountsArray): Promise, load(): Promise<array|null> }
+export function useAccountPersistence(p) { persistence = p }
+
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data')
 
 // Overridable so tests run against a scratch file rather than the demo's own
@@ -399,11 +407,12 @@ export function resetAccounts() {
 // nothing in this file that can be turned back into a password.
 
 function save() {
+  const snapshot = [...accounts.values()]
   try {
     fs.mkdirSync(path.dirname(ACCOUNT_FILE), { recursive: true })
     fs.writeFileSync(
       ACCOUNT_FILE,
-      JSON.stringify({ version: 1, accounts: [...accounts.values()] }, null, 2),
+      JSON.stringify({ version: 1, accounts: snapshot }, null, 2),
       // Best effort on POSIX; a no-op on Windows, where the demo runs. The file
       // lives under backend/data/, which .gitignore keeps out of the repository.
       { mode: 0o600 }
@@ -411,6 +420,30 @@ function save() {
   } catch (err) {
     console.warn('Could not persist accounts:', err.message)
   }
+  // Mirror to the durable store (Firestore) so the registry survives Render's
+  // ephemeral disk. Fire-and-forget: the file write above is the synchronous
+  // source of truth for this process; this is the copy that outlives a redeploy.
+  // Null when nothing is injected (tests, offline), so it never touches a network.
+  if (persistence) Promise.resolve(persistence.save(snapshot)).catch(() => {})
+}
+
+// One stored record → one in-memory account, and its directory entry. Shared by
+// the file load and the Firestore hydrate so the two cannot drift.
+function ingestRecord(record) {
+  if (!record?.email) return
+  const account = {
+    ...record,
+    email: normaliseEmail(record.email),
+    aliases: Array.isArray(record.aliases) ? record.aliases.map(normaliseEmail) : [],
+    role: record.role === 'admin' ? 'admin' : 'employee',
+  }
+  // The directory is rebuilt from the stored accounts on every boot, so an
+  // employee who signed up yesterday is still a known employee today and does
+  // not fall back to the demo passport.
+  if (account.role === 'employee' && account.employeeId) {
+    registerEmployee({ id: account.employeeId, initials: account.initials, dept: account.dept })
+  }
+  index(account)
 }
 
 function load() {
@@ -418,25 +451,32 @@ function load() {
     if (!fs.existsSync(ACCOUNT_FILE)) return
     const saved = JSON.parse(fs.readFileSync(ACCOUNT_FILE, 'utf8'))
     if (saved?.version !== 1 || !Array.isArray(saved.accounts)) return
-    for (const record of saved.accounts) {
-      if (!record?.email) continue
-      const account = {
-        ...record,
-        email: normaliseEmail(record.email),
-        aliases: Array.isArray(record.aliases) ? record.aliases.map(normaliseEmail) : [],
-        role: record.role === 'admin' ? 'admin' : 'employee',
-      }
-      // The directory is rebuilt from the accounts file on every boot, so an
-      // employee who signed up yesterday is still a known employee today and
-      // does not fall back to the demo passport.
-      if (account.role === 'employee' && account.employeeId) {
-        registerEmployee({ id: account.employeeId, initials: account.initials, dept: account.dept })
-      }
-      index(account)
-    }
+    for (const record of saved.accounts) ingestRecord(record)
   } catch (err) {
     console.warn('Could not read stored accounts:', err.message)
   }
+}
+
+/**
+ * Merge the durable Firestore copy of the registry into memory.
+ *
+ * Render's free disk is ephemeral, so an account registered before a redeploy
+ * is gone from the local file. Firestore is where it survives: this reads that
+ * copy, folds it in, re-asserts the seeded accounts, and writes the merged
+ * registry back so Firestore always holds the whole truth. Called once at
+ * startup (see server.js), after the synchronous file load + seed. Offline —
+ * no Firestore — is a clean no-op that leaves the file-loaded registry as is.
+ */
+export async function hydrateFromFirestore() {
+  if (!persistence) return { source: 'offline', count: accounts.size }
+  const remote = await persistence.load()
+  if (remote === null) return { source: 'offline', count: accounts.size }
+  for (const record of remote) ingestRecord(record)
+  // A brand-new project's doc is empty; make sure the seeds exist in memory…
+  seed()
+  // …and that the durable store ends the boot holding the full, merged registry.
+  await persistence.save([...accounts.values()])
+  return { source: 'firestore', count: accounts.size }
 }
 
 load()

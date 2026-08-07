@@ -31,6 +31,13 @@ process.env.AUTH_SESSION_MAX_MS = '2000'
 // credentials for whoever uses the demo, and a test must not write into it.
 process.env.AUTH_ACCOUNT_FILE = ACCOUNT_FILE
 
+// Pin the seeded passwords the assertions below use, so the suite does not
+// depend on whatever backend/.env happens to hold (server.js loads dotenv, which
+// would otherwise leak a deployment's SEED_*_PASSWORD into the test). dotenv does
+// not override an already-set variable, so these win.
+process.env.SEED_EMPLOYEE_PASSWORD = 'Passport#2026'
+process.env.SEED_ADMIN_PASSWORD = 'AdminPass#2026'
+
 const auth = await import('./auth.js')
 const { app } = await import('./server.js')
 const { resetStore } = await import('./store.js')
