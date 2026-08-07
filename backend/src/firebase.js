@@ -15,7 +15,7 @@
 // firebase-admin v14 is ESM-native: the modular subpath imports are the
 // supported way in. (The legacy `import admin from 'firebase-admin'` default
 // leaves `admin.credential` undefined under ESM — the "reading 'cert'" crash.)
-import { initializeApp, cert, applicationDefault, getApps } from 'firebase-admin/app'
+import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
 import fs from 'node:fs'
@@ -79,23 +79,18 @@ function init() {
 
     const envProject = process.env.FIREBASE_PROJECT_ID
     if (envProject && envProject !== 'your-project-id') {
-      // No service account key on disk: initialise with the project id so token
-      // *verification* still works via Google's public keys. Firestore writes
-      // will only succeed if application-default credentials happen to be present
-      // (e.g. on Cloud Run); otherwise logDetection degrades to offline.
+      // Just the project id, no service-account key. Token *verification* still
+      // works — Google's public certs need no credentials. Firestore does NOT:
+      // any Firestore call would try to load Application Default Credentials that
+      // are not present and throw "Could not load the default credentials",
+      // which crashes the process on startup. So Firestore is left OFF here (db
+      // stays null and every Firestore export is a safe no-op). Set
+      // FIREBASE_SERVICE_ACCOUNT_JSON (see FIREBASE_SETUP.md) to turn it on.
       projectId = envProject
-      try {
-        app = initializeApp({ credential: applicationDefault(), projectId })
-      } catch {
-        app = initializeApp({ projectId })
-      }
+      app = initializeApp({ projectId })
       auth = getAuth(app)
-      try {
-        db = getFirestore(app)
-      } catch {
-        db = null
-      }
-      console.log(`Firebase Auth ready (project id only): ${projectId} — add serviceAccount.json for Firestore`)
+      db = null
+      console.log(`Firebase Auth ready (project id only): ${projectId} — set FIREBASE_SERVICE_ACCOUNT_JSON for Firestore`)
       return
     }
 
