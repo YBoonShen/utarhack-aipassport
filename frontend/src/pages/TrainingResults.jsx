@@ -219,7 +219,12 @@ export default function TrainingResults() {
           <p className="text-slate2 text-xs font-semibold mt-8">QUESTION PROGRESS · FULL ASSESSMENT</p>
           <div className="flex flex-col gap-2.5 mt-3">
             {questionLabels.map((label, i) => {
-              const ok = results.answers?.[i]?.correct !== false
+              // Only a *recorded correct* answer is "Correct". A missing answer
+              // (nothing reached the server) must not read as correct — that was
+              // the bug where an unrecorded 0/3 attempt still showed every
+              // question ticked green. `=== true` treats "not recorded" as not
+              // correct, which matches the score.
+              const ok = results.answers?.[i]?.correct === true
               return (
                 <div key={label} className={`flex items-center gap-3.5 rounded-[10px] px-2.5 h-[42px] ${i % 2 === 0 ? 'bg-[#edf2ff]' : 'bg-card'}`}>
                   <span className="w-[30px] h-[30px] rounded-full bg-navy text-white text-xs font-semibold flex items-center justify-center shrink-0">{i + 1}</span>
