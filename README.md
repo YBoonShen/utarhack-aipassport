@@ -15,7 +15,7 @@ audit log, and an **AI Tool Approval workflow** ("guide, don't punish").
 | Sign in as | How |
 |---|---|
 | **Admin** — compliance console | `admin@abcd.com` / `Admin@123456` |
-| **Employee** | **Continue with Google** (any Google account → provisioned at Level 1), or **Create account** |
+| **Employee** | **Continue with Google** (a Gmail account → provisioned at Level 1), or **Create account** |
 
 Deployed on **Vercel** (web) + **Render** (API) + **Firebase** (Authentication & Firestore).
 Registered accounts are saved in Firestore, so they survive redeploys. The very first visit
