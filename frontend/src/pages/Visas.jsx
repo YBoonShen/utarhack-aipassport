@@ -28,6 +28,11 @@ const statusStyle = {
   suspended: { chip: 'bg-[#fae5e5] text-[#c72929]', label: `● ${ACCESS_STATUS.blocked}`, bar: 'bg-[#c72929]' },
   banned: { chip: 'bg-[#fae5e5] text-[#c72929]', label: '● Banned', bar: 'bg-[#c72929]' },
   declined: { chip: 'bg-[#fae5e5] text-[#c72929]', label: `● ${ACCESS_STATUS.declined}`, bar: 'bg-[#c72929]' },
+  // Access that was granted and then withdrawn by an admin. A distinct state
+  // from "declined" (never granted): the server returns access 'revoked', and
+  // without this entry statusStyle[status] was undefined and the page crashed
+  // on render for any employee who had a revoked tool.
+  revoked: { chip: 'bg-[#fae5e5] text-[#c72929]', label: '● Revoked', bar: 'bg-[#c72929]' },
   // A tool in the register that has never been reviewed. Reachable when an
   // employee's request was withdrawn but the tool is still on their list.
   unreviewed: { chip: 'bg-[#ededf2] text-[#667085]', label: '● Not reviewed', bar: 'bg-[#80858f]' },
@@ -41,6 +46,7 @@ const statusExplainer = {
   suspended: 'An administrator withdrew this tool organisation-wide after a security concern. Nobody can use it until the suspension is lifted, and new requests are not accepted.',
   banned: 'Your organisation has banned this tool. No prompt is sent to it at all — an ordinary question included — and it cannot be requested.',
   declined: 'This request was not approved. An approved alternative is usually suggested — you can raise a new request if the need has changed.',
+  revoked: 'An administrator withdrew your access to this tool. The Smart Gateway treats it as unreviewed again — you can raise a new request if you still need it.',
   unreviewed: 'This AI tool is not approved by your organisation. It has not been through security and compliance review, so there are no agreed terms covering what it does with company data.',
 }
 
@@ -203,6 +209,7 @@ export default function Visas() {
         active: entry?.minLevel ? `Approved · Level ${entry.minLevel} scope` : 'Approved for use',
         review: request ? `Requested ${request.submitted} · decision in ~3 days` : 'In review',
         declined: request?.decided ? `Decided ${request.decided}` : 'An alternative was suggested',
+        revoked: request?.decided ? `Access withdrawn ${request.decided}` : 'Access withdrawn — request again if needed',
         unreviewed: 'Not approved — request access before using it',
       }[status]
 
